@@ -1,0 +1,218 @@
+# Requirements: Kaptanto
+
+**Defined:** 2026-03-07
+**Core Value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
+
+## v1 Requirements
+
+Requirements for v0.1.0 release. Each maps to roadmap phases.
+
+### Source Connectors
+
+- [ ] **SRC-01**: Kaptanto connects to Postgres via logical replication using pgoutput plugin (Postgres 14-17)
+- [ ] **SRC-02**: Kaptanto auto-creates replication slot and publication for configured tables
+- [ ] **SRC-03**: Kaptanto responds to PrimaryKeepalive messages and sends periodic standby status updates
+- [ ] **SRC-04**: Kaptanto reconnects with configurable backoff on connection loss (2s initial, 60s max)
+- [ ] **SRC-05**: Kaptanto supports multi-host DSN for automatic primary detection after failover
+- [ ] **SRC-06**: Kaptanto detects missing replication slot after failover, creates new slot, and triggers re-snapshot
+- [ ] **SRC-07**: Kaptanto monitors WAL lag and emits warning when lag exceeds configurable threshold
+- [ ] **SRC-08**: Kaptanto validates REPLICA IDENTITY setting on connect and warns for tables using default
+- [ ] **SRC-09**: Kaptanto connects to MongoDB via Change Streams on specific collections (MongoDB 4.2+)
+- [ ] **SRC-10**: Kaptanto persists MongoDB resume tokens and resumes from last token on restart
+- [ ] **SRC-11**: Kaptanto detects expired/invalid resume token and triggers automatic re-snapshot
+- [ ] **SRC-12**: Kaptanto handles MongoDB replica set elections transparently via driver
+
+### Parser
+
+- [ ] **PAR-01**: Kaptanto decodes pgoutput wire format (Relation, Insert, Update, Delete, Begin, Commit messages)
+- [ ] **PAR-02**: Kaptanto maintains a TOAST cache and merges unchanged markers with cached values for complete rows
+- [ ] **PAR-03**: Kaptanto detects schema evolution (new Relation messages) and updates the RelationCache
+- [ ] **PAR-04**: Kaptanto normalizes MongoDB BSON documents into the unified ChangeEvent format
+- [ ] **PAR-05**: Kaptanto generates deterministic idempotency keys: source:schema.table:pk:op:position
+
+### Event Log
+
+- [ ] **LOG-01**: Kaptanto durably writes every parsed event to an embedded Badger store before advancing source checkpoint
+- [ ] **LOG-02**: Events are partitioned by hash(grouping_key) % num_partitions (default 64)
+- [ ] **LOG-03**: Events are deduplicated by event ID on write (idempotent append)
+- [ ] **LOG-04**: Events automatically expire after configurable retention period (default 1 hour)
+
+### Backfill Engine
+
+- [ ] **BKF-01**: Kaptanto snapshots existing table rows using keyset cursor pagination (never OFFSET)
+- [ ] **BKF-02**: Kaptanto coordinates snapshots with live WAL stream using watermark deduplication
+- [ ] **BKF-03**: Kaptanto persists backfill cursor position on every batch for crash recovery
+- [ ] **BKF-04**: Kaptanto dynamically adjusts batch size based on query duration (adaptive batch sizing)
+- [ ] **BKF-05**: Kaptanto supports all snapshot strategies: snapshot_and_stream, stream_only, snapshot_only, snapshot_deferred, snapshot_partial
+
+### Router
+
+- [ ] **RTR-01**: Events are routed to partitions based on configurable grouping key (default: primary key)
+- [ ] **RTR-02**: Each partition is served by a dedicated goroutine delivering events sequentially
+- [ ] **RTR-03**: Each consumer has independent cursors per partition (consumer isolation)
+- [ ] **RTR-04**: Failed events block only their message group, not the entire partition (poison pill isolation)
+- [ ] **RTR-05**: Failed events are retried with exponential backoff and moved to dead-letter after max retries
+
+### Output Servers
+
+- [ ] **OUT-01**: stdout output writes one NDJSON line per event
+- [ ] **OUT-02**: SSE server supports multiple independent consumer connections
+- [ ] **OUT-03**: SSE server supports Last-Event-ID header for automatic resume on reconnect
+- [ ] **OUT-04**: SSE server sends periodic ping comments to keep connections alive through proxies
+- [ ] **OUT-05**: SSE server supports configurable CORS origins
+- [ ] **OUT-06**: gRPC server implements Subscribe (server-streaming) and Acknowledge (unary) RPCs
+- [ ] **OUT-07**: gRPC server supports protobuf serialization with JSON fallback
+- [ ] **OUT-08**: gRPC server uses HTTP/2 native backpressure for flow control
+
+### Checkpointing
+
+- [x] **CHK-01**: Source checkpoint (Postgres LSN / MongoDB resume token) is NEVER advanced until event is durably written
+- [ ] **CHK-02**: Consumer cursors are flushed to checkpoint store every configurable interval (default 5s)
+- [x] **CHK-03**: All state is flushed on graceful shutdown (SIGTERM/SIGINT)
+- [x] **CHK-04**: SQLite checkpoint store for single-instance mode (pure Go, no CGO)
+- [ ] **CHK-05**: Postgres checkpoint store for HA mode (shared state between instances)
+
+### Configuration
+
+- [x] **CFG-01**: Kaptanto accepts CLI flags: --source, --tables, --output, --port, --config, --data-dir, --retention, --ha, --node-id
+- [ ] **CFG-02**: Kaptanto parses YAML config file with multi-source, per-table settings, and output modes
+- [ ] **CFG-03**: Kaptanto supports table filtering (include specific tables)
+- [ ] **CFG-04**: Kaptanto supports operation filtering per table (insert, update, delete)
+- [ ] **CFG-05**: Kaptanto supports column filtering per table (include specific columns)
+- [ ] **CFG-06**: Kaptanto supports SQL WHERE condition filtering per table
+
+### High Availability
+
+- [ ] **HA-01**: Kaptanto supports leader election via Postgres advisory locks
+- [ ] **HA-02**: Standby instance polls for lock availability and takes over when primary drops
+- [ ] **HA-03**: Active leader loads last checkpoint from shared Postgres store on takeover
+
+### Observability
+
+- [ ] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
+- [ ] **OBS-02**: Kaptanto exposes /healthz endpoint returning 200 when healthy, 503 with diagnostic JSON when not
+- [x] **OBS-03**: Kaptanto emits structured JSON logs with configurable level (debug, info, warn, error)
+
+### Event Schema
+
+- [x] **EVT-01**: All events follow unified JSON format with id, idempotency_key, timestamp, source, operation, table, key, before, after, metadata
+- [x] **EVT-02**: Events use ULID for sortable, time-ordered, unique IDs
+- [ ] **EVT-03**: Snapshot reads have operation "read" with snapshot metadata (progress, snapshot_id)
+- [ ] **EVT-04**: Control events signal pipeline state changes (snapshot_complete, table_added, schema_change)
+
+### Performance
+
+- [ ] **PRF-01**: Rust FFI parser accelerates pgoutput decoding, TOAST cache, and JSON serialization behind build tag
+- [x] **PRF-02**: Pure Go fallback parser compiles by default without CGO
+- [ ] **PRF-03**: Makefile supports both Go-only and Go+Rust build targets
+
+## v2 Requirements
+
+Deferred to future release. Tracked but not in current roadmap.
+
+### Configuration
+
+- **CFG-07**: SIGHUP hot-reload for adding/removing tables without restart
+- **CFG-08**: Dynamic table addition via ALTER PUBLICATION
+
+### Operations
+
+- **OPS-01**: Management REST API (GET/POST sources, tables, consumers, backfills)
+- **OPS-02**: Badger value log GC on periodic ticker for disk reclamation
+
+### Distribution
+
+- **DST-01**: Docker multi-stage build (Rust -> Go -> scratch)
+- **DST-02**: Homebrew tap
+- **DST-03**: curl installer script
+- **DST-04**: GitHub Actions CI (test, lint, build, release)
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Managed sink delivery (webhook, SQS, Kafka, S3) | Reserved for Kaptanto Cloud (SaaS) |
+| Web dashboard | CLI + REST API + Grafana is sufficient |
+| Transform functions (JavaScript/SQL) | Transforms belong in the consumer |
+| Built-in Kafka wire protocol | Too much protocol complexity for a focused binary |
+| Long-term retention (30+ days) | Event log is a buffer, not a warehouse |
+| MySQL connector | Future database source, not v1 |
+| Wasm plugins | Premature extensibility |
+| Consumer authentication (JWT, mTLS) | Evaluate during hardening; not v1 |
+
+## Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| EVT-01 | Phase 1 | Complete (01-01) |
+| EVT-02 | Phase 1 | Complete (01-01) |
+| CFG-01 | Phase 1 | Complete |
+| OBS-03 | Phase 1 | Complete (01-01) |
+| PRF-02 | Phase 1 | Complete |
+| SRC-01 | Phase 2 | Pending |
+| SRC-02 | Phase 2 | Pending |
+| SRC-03 | Phase 2 | Pending |
+| SRC-04 | Phase 2 | Pending |
+| SRC-05 | Phase 2 | Pending |
+| SRC-06 | Phase 2 | Pending |
+| SRC-07 | Phase 2 | Pending |
+| SRC-08 | Phase 2 | Pending |
+| PAR-01 | Phase 2 | Pending |
+| PAR-02 | Phase 2 | Pending |
+| PAR-03 | Phase 2 | Pending |
+| PAR-05 | Phase 2 | Pending |
+| CHK-01 | Phase 2 | Complete |
+| CHK-03 | Phase 2 | Complete |
+| CHK-04 | Phase 2 | Complete |
+| LOG-01 | Phase 3 | Pending |
+| LOG-02 | Phase 3 | Pending |
+| LOG-03 | Phase 3 | Pending |
+| LOG-04 | Phase 3 | Pending |
+| BKF-01 | Phase 4 | Pending |
+| BKF-02 | Phase 4 | Pending |
+| BKF-03 | Phase 4 | Pending |
+| BKF-04 | Phase 4 | Pending |
+| BKF-05 | Phase 4 | Pending |
+| EVT-03 | Phase 4 | Pending |
+| EVT-04 | Phase 4 | Pending |
+| RTR-01 | Phase 5 | Pending |
+| RTR-02 | Phase 5 | Pending |
+| RTR-03 | Phase 5 | Pending |
+| RTR-04 | Phase 5 | Pending |
+| RTR-05 | Phase 5 | Pending |
+| OUT-01 | Phase 5 | Pending |
+| OUT-02 | Phase 6 | Pending |
+| OUT-03 | Phase 6 | Pending |
+| OUT-04 | Phase 6 | Pending |
+| OUT-05 | Phase 6 | Pending |
+| OUT-06 | Phase 6 | Pending |
+| OUT-07 | Phase 6 | Pending |
+| OUT-08 | Phase 6 | Pending |
+| CHK-02 | Phase 6 | Pending |
+| CFG-03 | Phase 6 | Pending |
+| CFG-04 | Phase 6 | Pending |
+| OBS-01 | Phase 6 | Pending |
+| OBS-02 | Phase 6 | Pending |
+| CFG-02 | Phase 7 | Pending |
+| CFG-05 | Phase 7 | Pending |
+| CFG-06 | Phase 7 | Pending |
+| HA-01 | Phase 8 | Pending |
+| HA-02 | Phase 8 | Pending |
+| HA-03 | Phase 8 | Pending |
+| CHK-05 | Phase 8 | Pending |
+| SRC-09 | Phase 9 | Pending |
+| SRC-10 | Phase 9 | Pending |
+| SRC-11 | Phase 9 | Pending |
+| SRC-12 | Phase 9 | Pending |
+| PAR-04 | Phase 9 | Pending |
+| PRF-01 | Phase 10 | Pending |
+| PRF-03 | Phase 10 | Pending |
+
+**Coverage:**
+- v1 requirements: 57 total
+- Mapped to phases: 57
+- Unmapped: 0
+
+---
+*Requirements defined: 2026-03-07*
+*Last updated: 2026-03-07 after 01-01 completion (EVT-01, EVT-02, OBS-03 complete)*

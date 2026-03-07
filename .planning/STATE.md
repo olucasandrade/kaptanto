@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-07T20:02:58.988Z"
+last_updated: "2026-03-07T21:16:53Z"
 progress:
-  total_phases: 1
+  total_phases: 10
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 3
+  completed_plans: 3
 ---
 
 # Project State
@@ -18,32 +18,33 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
-**Current focus:** Phase 1: Foundation
+**Current focus:** Phase 2: Postgres Source and Parser
 
 ## Current Position
 
-Phase: 1 of 10 (Foundation)
-Plan: 2 of ? in current phase
+Phase: 2 of 10 (Postgres Source and Parser)
+Plan: 1 of ? in current phase
 Status: In progress
-Last activity: 2026-03-07 -- Completed 01-02 (CLI skeleton, cobra flags, Makefile, pure-Go build verification)
+Last activity: 2026-03-07 -- Completed 02-01 (SQLite checkpoint store, CheckpointStore interface, WAL mode, pure-Go)
 
-Progress: [█░░░░░░░░░] 4%
+Progress: [█░░░░░░░░░] 5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 3.5 min
-- Total execution time: 0.1 hours
+- Total plans completed: 3
+- Average duration: 2.7 min
+- Total execution time: 0.13 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 2 | 7 min | 3.5 min |
+| 02-postgres-source-and-parser | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 4 min, 3 min
+- Last 5 plans: 4 min, 3 min, 2 min
 - Trend: establishing baseline
 
 *Updated after each plan completion*
@@ -64,6 +65,10 @@ Recent decisions affecting current work:
 - [Phase 01-02]: NewRootCmd() factory function for test isolation — fresh cobra.Command per test, no global state contamination
 - [Phase 01-02]: RunE no-op placeholder on root command — required for cobra to render flags section in help output
 - [Phase 01-02]: Retention default 0s at CLI layer — actual 1h default applied at runtime when Event Log initializes
+- [02-01]: modernc.org/sqlite driver name is "sqlite" (not "sqlite3") — pure Go, CGO_ENABLED=0 required by CHK-04
+- [02-01]: Load returns ("", nil) for unknown sourceID — first-run safe, not an error condition
+- [02-01]: WAL mode + NORMAL synchronous: db.Close() checkpoints WAL, satisfying CHK-03 graceful shutdown
+- [02-01]: Open() is a package-level constructor on SQLiteStore, not an interface method — keeps CheckpointStore interface lean
 
 ### Pending Todos
 
@@ -76,5 +81,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 01-02-PLAN.md (CLI skeleton, cobra flags, Makefile, pure-Go build verification)
+Stopped at: Completed 02-01-PLAN.md (SQLite checkpoint store, CheckpointStore interface, WAL mode, pure-Go)
 Resume file: None

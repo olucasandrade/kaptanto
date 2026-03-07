@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Go module init, ChangeEvent types, ULID generation, structured logging
-- [ ] 01-02-PLAN.md — CLI skeleton with cobra flags, Makefile, pure-Go build verification
+- [x] 01-02-PLAN.md — CLI skeleton with cobra flags, Makefile, pure-Go build verification
 
 ### Phase 2: Postgres Source and Parser
 **Goal**: Kaptanto connects to a Postgres database, consumes the WAL stream, decodes pgoutput messages into ChangeEvents, and persists checkpoints crash-safely
@@ -54,7 +54,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — SQLite checkpoint store (CheckpointStore interface, WAL mode, Save/Load LSN)
+- [x] 02-01-PLAN.md — SQLite checkpoint store (CheckpointStore interface, WAL mode, Save/Load LSN)
 - [ ] 02-02-PLAN.md — pgoutput parser (RelationCache, TOASTCache, decodeColumns, idempotency key)
 - [ ] 02-03-PLAN.md — PostgresConnector (replication loop, keepalive, backoff, slot/publication, validation)
 
@@ -179,7 +179,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete   | 2026-03-07 |
-| 2. Postgres Source and Parser | 0/3 | Not started | - |
+| 2. Postgres Source and Parser | 1/3 | In progress | - |
 | 3. Event Log | 0/? | Not started | - |
 | 4. Backfill Engine | 0/? | Not started | - |
 | 5. Router and stdout Output | 0/? | Not started | - |
