@@ -5,16 +5,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaptanto/kaptanto/internal/event"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestChangeEvent_InsertSerializesToJSON(t *testing.T) {
-	evt := ChangeEvent{
+	evt := event.ChangeEvent{
 		IdempotencyKey: "pg:public.users:1:insert:0/1A2B3C4",
 		Timestamp:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		Source:         "postgres://localhost/mydb",
-		Operation:      OpInsert,
+		Operation:      event.OpInsert,
 		Table:          "users",
 		Key:            json.RawMessage(`{"id":1}`),
 		Before:         nil,
@@ -47,11 +48,11 @@ func TestChangeEvent_InsertSerializesToJSON(t *testing.T) {
 }
 
 func TestChangeEvent_DeleteSerializesToJSON(t *testing.T) {
-	evt := ChangeEvent{
+	evt := event.ChangeEvent{
 		IdempotencyKey: "pg:public.users:1:delete:0/2B3C4D5",
 		Timestamp:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		Source:         "postgres://localhost/mydb",
-		Operation:      OpDelete,
+		Operation:      event.OpDelete,
 		Table:          "users",
 		Key:            json.RawMessage(`{"id":1}`),
 		Before:         json.RawMessage(`{"id":1,"name":"Alice"}`),
@@ -77,11 +78,11 @@ func TestChangeEvent_DeleteSerializesToJSON(t *testing.T) {
 }
 
 func TestChangeEvent_UpdateSerializesToJSON(t *testing.T) {
-	evt := ChangeEvent{
+	evt := event.ChangeEvent{
 		IdempotencyKey: "pg:public.users:1:update:0/3C4D5E6",
 		Timestamp:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		Source:         "postgres://localhost/mydb",
-		Operation:      OpUpdate,
+		Operation:      event.OpUpdate,
 		Table:          "users",
 		Key:            json.RawMessage(`{"id":1}`),
 		Before:         json.RawMessage(`{"id":1,"name":"Alice"}`),
@@ -105,11 +106,11 @@ func TestChangeEvent_UpdateSerializesToJSON(t *testing.T) {
 }
 
 func TestChangeEvent_JSONFieldNames(t *testing.T) {
-	evt := ChangeEvent{
+	evt := event.ChangeEvent{
 		IdempotencyKey: "pg:public.orders:42:insert:0/1",
 		Timestamp:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		Source:         "pg",
-		Operation:      OpInsert,
+		Operation:      event.OpInsert,
 		Table:          "orders",
 		Key:            json.RawMessage(`{"id":42}`),
 		Before:         nil,
