@@ -51,11 +51,12 @@ Plans:
   3. Schema changes (adding/removing columns) are detected and subsequent events reflect the new schema
   4. Kaptanto reconnects automatically after connection loss with backoff, supports multi-host DSN for failover, and detects missing replication slots
   5. On restart, Kaptanto resumes from the last checkpointed LSN without re-processing already-acknowledged events
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — SQLite checkpoint store (CheckpointStore interface, WAL mode, Save/Load LSN)
+- [ ] 02-02-PLAN.md — pgoutput parser (RelationCache, TOASTCache, decodeColumns, idempotency key)
+- [ ] 02-03-PLAN.md — PostgresConnector (replication loop, keepalive, backoff, slot/publication, validation)
 
 ### Phase 3: Event Log
 **Goal**: Every parsed event is durably stored in an embedded Badger database before the source checkpoint is advanced
@@ -178,7 +179,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete   | 2026-03-07 |
-| 2. Postgres Source and Parser | 0/? | Not started | - |
+| 2. Postgres Source and Parser | 0/3 | Not started | - |
 | 3. Event Log | 0/? | Not started | - |
 | 4. Backfill Engine | 0/? | Not started | - |
 | 5. Router and stdout Output | 0/? | Not started | - |
