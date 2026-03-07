@@ -4,12 +4,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/kaptanto/kaptanto/internal/event"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIDGenerator_New_ProducesValidULID(t *testing.T) {
-	gen := NewIDGenerator()
+	gen := event.NewIDGenerator()
 	id := gen.New()
 
 	// A ULID is a 16-byte value; its string form is 26 characters.
@@ -19,7 +20,7 @@ func TestIDGenerator_New_ProducesValidULID(t *testing.T) {
 }
 
 func TestIDGenerator_New_MonotonicallyIncreasing(t *testing.T) {
-	gen := NewIDGenerator()
+	gen := event.NewIDGenerator()
 	id1 := gen.New()
 	id2 := gen.New()
 
@@ -30,7 +31,7 @@ func TestIDGenerator_New_MonotonicallyIncreasing(t *testing.T) {
 
 func TestIDGenerator_New_ConcurrentSafe(t *testing.T) {
 	const goroutines = 100
-	gen := NewIDGenerator()
+	gen := event.NewIDGenerator()
 	ids := make([]string, goroutines)
 
 	var wg sync.WaitGroup
