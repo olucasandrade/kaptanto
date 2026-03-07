@@ -12,7 +12,7 @@ Kaptanto delivers a single Go binary for universal database Change Data Capture.
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Shared event types, CLI skeleton, structured logging, pure Go build setup
+- [x] **Phase 1: Foundation** - Shared event types, CLI skeleton, structured logging, pure Go build setup (completed 2026-03-07)
 - [ ] **Phase 2: Postgres Source and Parser** - WAL consumption, pgoutput decoding, TOAST cache, schema evolution, checkpoint store
 - [ ] **Phase 3: Event Log** - Badger-based durable append-only store with partitioning, dedup, and TTL
 - [ ] **Phase 4: Backfill Engine** - Snapshot coordination with watermark dedup, keyset cursors, crash recovery
@@ -177,7 +177,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 1/2 | In progress | - |
+| 1. Foundation | 2/2 | Complete   | 2026-03-07 |
 | 2. Postgres Source and Parser | 0/? | Not started | - |
 | 3. Event Log | 0/? | Not started | - |
 | 4. Backfill Engine | 0/? | Not started | - |
