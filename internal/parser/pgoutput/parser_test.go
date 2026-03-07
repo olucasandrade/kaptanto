@@ -367,19 +367,18 @@ func TestIdempotencyKeyFormat(t *testing.T) {
 
 	// Expected format: "sourceID:schema.table:pkStr:op:lsn"
 	// pkStr is JSON-marshaled primary key map, e.g. {"id":"42"}
+	// NOTE: pkStr may contain colons (JSON syntax), so we validate by known prefix/suffix anchors.
 	key := ev.IdempotencyKey
-	parts := strings.SplitN(key, ":", 5)
-	require.Len(t, parts, 5, "idempotency key must have 5 colon-separated parts, got: %q", key)
-	assert.Equal(t, "main-pg", parts[0])
-	assert.Equal(t, fmt.Sprintf("%s.%s", testNamespace, testRelName), parts[1])
+	prefix := fmt.Sprintf("main-pg:%s.%s:", testNamespace, testRelName)
+	suffix := fmt.Sprintf(":insert:%s", lsn.String())
+	require.True(t, strings.HasPrefix(key, prefix), "idempotency key must start with %q, got: %q", prefix, key)
+	require.True(t, strings.HasSuffix(key, suffix), "idempotency key must end with %q, got: %q", suffix, key)
 
-	// parts[2] is pkStr — must be valid JSON containing the pk value.
+	// Extract pkStr: portion between the table segment and the op:lsn suffix.
+	pkStr := key[len(prefix) : len(key)-len(suffix)]
 	var pkMap map[string]any
-	require.NoError(t, json.Unmarshal([]byte(parts[2]), &pkMap), "pkStr must be valid JSON")
+	require.NoError(t, json.Unmarshal([]byte(pkStr), &pkMap), "pkStr must be valid JSON, got: %q", pkStr)
 	assert.Equal(t, "42", pkMap["id"])
-
-	assert.Equal(t, "insert", parts[3])
-	assert.Equal(t, lsn.String(), parts[4])
 }
 
 // TestNullColumnInInsert verifies that null columns ('n') produce nil values in the after-row.
