@@ -26,8 +26,8 @@ dist-ssr
 # GSD planning
 .planning/
 
-# Go binaries
-kaptanto
+# Go binaries (the compiled binary at root, not the source directory)
+/kaptanto
 /kaptanto-*
 
 # Build artifacts

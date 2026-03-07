@@ -2,7 +2,6 @@ package cmd_test
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 	"time"
 
