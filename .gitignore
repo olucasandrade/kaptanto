@@ -25,3 +25,23 @@ dist-ssr
 
 # GSD planning
 .planning/
+
+# Go binaries
+kaptanto
+/kaptanto-*
+
+# Build artifacts
+*.o
+*.a
+*.so
+
+# Vendor directory (using Go modules instead)
+vendor/
+
+# Test artifacts
+*.test
+*.prof
+*.out
+
+# Local data directory (kaptanto runtime state)
+data/
