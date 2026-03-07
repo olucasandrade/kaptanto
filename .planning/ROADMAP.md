@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Go module init, ChangeEvent types, ULID generation, structured logging
+- [x] 01-01-PLAN.md — Go module init, ChangeEvent types, ULID generation, structured logging
 - [ ] 01-02-PLAN.md — CLI skeleton with cobra flags, Makefile, pure-Go build verification
 
 ### Phase 2: Postgres Source and Parser
@@ -177,7 +177,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/? | Not started | - |
+| 1. Foundation | 1/2 | In progress | - |
 | 2. Postgres Source and Parser | 0/? | Not started | - |
 | 3. Event Log | 0/? | Not started | - |
 | 4. Backfill Engine | 0/? | Not started | - |
