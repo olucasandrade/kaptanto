@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
-	"github.com/jackc/pgx/v5"
 	"github.com/kaptanto/kaptanto/internal/checkpoint"
 	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/kaptanto/kaptanto/internal/eventlog"
 	"github.com/kaptanto/kaptanto/internal/parser/pgoutput"
 )
 
@@ -112,24 +113,66 @@ func EvalSlotCheck(slotPresent, wasEverConnected bool) (needsSnapshot bool) {
 // The connector emits decoded *event.ChangeEvent values on the channel
 // returned by Events().
 type PostgresConnector struct {
-	cfg    Config
-	store  checkpoint.CheckpointStore
-	idGen  *event.IDGenerator
-	parser *pgoutput.Parser
-	events chan *event.ChangeEvent
+	cfg      Config
+	store    checkpoint.CheckpointStore
+	idGen    *event.IDGenerator
+	parser   *pgoutput.Parser
+	events   chan *event.ChangeEvent
+	eventLog eventlog.EventLog
 }
 
-// New creates a PostgresConnector. Call Run(ctx) to start streaming.
+// New creates a PostgresConnector without an EventLog. Call Run(ctx) to start
+// streaming. When eventLog is nil the connector skips Append (backward-compatible
+// for callers that do not need the event log yet).
 func New(cfg Config, store checkpoint.CheckpointStore, idGen *event.IDGenerator) *PostgresConnector {
+	return NewWithEventLog(cfg, store, idGen, nil)
+}
+
+// NewWithEventLog creates a PostgresConnector with a durable EventLog. Every
+// ChangeEvent parsed from WAL will be passed to el.Append before being queued
+// on the events channel and before the source LSN is acknowledged to Postgres
+// (LOG-01 + CHK-01 ordering).
+//
+// If el is nil, Append is skipped — equivalent to calling New.
+func NewWithEventLog(cfg Config, store checkpoint.CheckpointStore, idGen *event.IDGenerator, el eventlog.EventLog) *PostgresConnector {
 	cfg.ApplyDefaults()
 	p := pgoutput.New(cfg.SourceID, idGen)
 	return &PostgresConnector{
-		cfg:    cfg,
-		store:  store,
-		idGen:  idGen,
-		parser: p,
-		events: make(chan *event.ChangeEvent, 1024),
+		cfg:      cfg,
+		store:    store,
+		idGen:    idGen,
+		parser:   p,
+		events:   make(chan *event.ChangeEvent, 1024),
+		eventLog: el,
 	}
+}
+
+// EventLog returns the EventLog wired into this connector, or nil if none was
+// provided. Exposed for testing.
+func (c *PostgresConnector) EventLog() eventlog.EventLog {
+	return c.eventLog
+}
+
+// AppendAndQueue durably appends ev to the event log (if configured) and then
+// forwards ev to the events channel. If Append fails, the error is returned
+// immediately and ev is NOT sent to the channel — the connector must not
+// advance the checkpoint in that case (CHK-01).
+//
+// When eventLog is nil, AppendAndQueue skips Append and forwards ev directly
+// (backward-compatible nil guard for Phase 4/5 wiring).
+func (c *PostgresConnector) AppendAndQueue(ctx context.Context, ev *event.ChangeEvent) error {
+	if c.eventLog != nil {
+		// LOG-01: event written durably before checkpoint is advanced (CHK-01 ordering).
+		if _, err := c.eventLog.Append(ev); err != nil {
+			return fmt.Errorf("eventlog: append: %w", err)
+		}
+	}
+	select {
+	case c.events <- ev:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
 }
 
 // Events returns the read-only channel on which ChangeEvents are emitted.
@@ -340,10 +383,9 @@ func (c *PostgresConnector) receiveLoop(
 				break
 			}
 			if ev != nil {
-				select {
-				case c.events <- ev:
-				case <-ctx.Done():
-					return ctx.Err()
+				// LOG-01: event written durably before checkpoint is advanced (CHK-01 ordering).
+				if err := c.AppendAndQueue(ctx, ev); err != nil {
+					return err
 				}
 			}
 
