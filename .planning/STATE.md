@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-08T03:54:56.557Z"
+last_updated: "2026-03-08T03:59:30Z"
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 3 of 10 (Event Log)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-03-08 -- Completed 03-01 (BadgerEventLog: FNV-1a partitioning, idempotent dedup, TTL expiry, LOG-01 through LOG-04)
+Plan: 2 of 2 in current phase
+Status: Phase complete
+Last activity: 2026-03-08 -- Completed 03-02 (EventLog wired into PostgresConnector via AppendAndQueue; LOG-01 + CHK-01 ordering enforced)
 
-Progress: [███░░░░░░░] 15%
+Progress: [████░░░░░░] 20%
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Progress: [███░░░░░░░] 15%
 *Updated after each plan completion*
 | Phase 02-postgres-source-and-parser P03 | 6 | 2 tasks | 7 files |
 | Phase 03-event-log P01 | 15 | 2 tasks | 6 files |
+| Phase 03-event-log P02 | 3 | 1 task (TDD) | 2 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - [Phase 03-01]: seq.Next() called OUTSIDE db.Update transaction — reduces MVCC read set, gaps in sequence acceptable
 - [Phase 03-01]: Fixed-width big-endian binary for all numeric key components — decimal ASCII breaks lexicographic sort order
 - [Phase 03-01]: Same retention TTL on partition entry and dedup entry — dedup must not expire before the entry it guards
+- [Phase 03-02]: AppendAndQueue exported as method on connector — enables black-box test of LOG-01 ordering without live Postgres; receiveLoop calls it in XLogData handler
+- [Phase 03-02]: New() delegates to NewWithEventLog(nil) — nil guard preserves backward compat; Phase 4 switches to NewWithEventLog with real BadgerEventLog
+- [Phase 03-02]: Append error triggers reconnect loop (not fatal crash) — Postgres re-delivers transaction from last ack'd LSN; BadgerEventLog dedup skips duplicate
 
 ### Pending Todos
 
@@ -90,5 +94,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 03-01-PLAN.md (BadgerEventLog with FNV-1a partitioning, idempotent dedup, TTL expiry, LOG-01 through LOG-04)
+Stopped at: Completed 03-02-PLAN.md (EventLog wired into PostgresConnector — Phase 3 complete)
 Resume file: None
