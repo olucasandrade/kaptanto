@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-07T21:16:53Z"
+last_updated: "2026-03-08T03:25:51.632Z"
 progress:
-  total_phases: 10
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 5
+  completed_plans: 5
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 2 of 10 (Postgres Source and Parser)
-Plan: 1 of ? in current phase
+Plan: 3 of 3 in current phase (PHASE COMPLETE)
 Status: In progress
-Last activity: 2026-03-07 -- Completed 02-01 (SQLite checkpoint store, CheckpointStore interface, WAL mode, pure-Go)
+Last activity: 2026-03-08 -- Completed 02-03 (PostgresConnector: replication loop, backoff, slot/publication, CHK-01 checkpoint ordering)
 
-Progress: [█░░░░░░░░░] 5%
+Progress: [██░░░░░░░░] 10%
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [█░░░░░░░░░] 5%
 - Trend: establishing baseline
 
 *Updated after each plan completion*
+| Phase 02-postgres-source-and-parser P03 | 6 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ Recent decisions affecting current work:
 - [02-01]: Load returns ("", nil) for unknown sourceID — first-run safe, not an error condition
 - [02-01]: WAL mode + NORMAL synchronous: db.Close() checkpoints WAL, satisfying CHK-03 graceful shutdown
 - [02-01]: Open() is a package-level constructor on SQLiteStore, not an interface method — keeps CheckpointStore interface lean
+- [Phase 02-03]: pgx/v5/pgconn is the correct package for replication connections — pglogrepl requires this exact type (not standalone jackc/pgconn)
+- [Phase 02-03]: EvalSlotCheck exported as pure function — enables SRC-06 snapshot detection unit testing without live DB
+- [Phase 02-03]: CHK-01 enforced: store.Save before SendStandbyStatusUpdate on Commit, co-located comment makes invariant visible
 
 ### Pending Todos
 
@@ -80,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-07
-Stopped at: Completed 02-01-PLAN.md (SQLite checkpoint store, CheckpointStore interface, WAL mode, pure-Go)
+Last session: 2026-03-08
+Stopped at: Completed 02-03-PLAN.md (PostgresConnector with replication loop, exponential backoff, slot/publication auto-setup, CHK-01 ordering)
 Resume file: None

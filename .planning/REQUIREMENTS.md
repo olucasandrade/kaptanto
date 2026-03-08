@@ -9,14 +9,14 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Source Connectors
 
-- [ ] **SRC-01**: Kaptanto connects to Postgres via logical replication using pgoutput plugin (Postgres 14-17)
-- [ ] **SRC-02**: Kaptanto auto-creates replication slot and publication for configured tables
-- [ ] **SRC-03**: Kaptanto responds to PrimaryKeepalive messages and sends periodic standby status updates
-- [ ] **SRC-04**: Kaptanto reconnects with configurable backoff on connection loss (2s initial, 60s max)
-- [ ] **SRC-05**: Kaptanto supports multi-host DSN for automatic primary detection after failover
-- [ ] **SRC-06**: Kaptanto detects missing replication slot after failover, creates new slot, and triggers re-snapshot
-- [ ] **SRC-07**: Kaptanto monitors WAL lag and emits warning when lag exceeds configurable threshold
-- [ ] **SRC-08**: Kaptanto validates REPLICA IDENTITY setting on connect and warns for tables using default
+- [x] **SRC-01**: Kaptanto connects to Postgres via logical replication using pgoutput plugin (Postgres 14-17)
+- [x] **SRC-02**: Kaptanto auto-creates replication slot and publication for configured tables
+- [x] **SRC-03**: Kaptanto responds to PrimaryKeepalive messages and sends periodic standby status updates
+- [x] **SRC-04**: Kaptanto reconnects with configurable backoff on connection loss (2s initial, 60s max)
+- [x] **SRC-05**: Kaptanto supports multi-host DSN for automatic primary detection after failover
+- [x] **SRC-06**: Kaptanto detects missing replication slot after failover, creates new slot, and triggers re-snapshot
+- [x] **SRC-07**: Kaptanto monitors WAL lag and emits warning when lag exceeds configurable threshold
+- [x] **SRC-08**: Kaptanto validates REPLICA IDENTITY setting on connect and warns for tables using default
 - [ ] **SRC-09**: Kaptanto connects to MongoDB via Change Streams on specific collections (MongoDB 4.2+)
 - [ ] **SRC-10**: Kaptanto persists MongoDB resume tokens and resumes from last token on restart
 - [ ] **SRC-11**: Kaptanto detects expired/invalid resume token and triggers automatic re-snapshot
@@ -149,14 +149,14 @@ Deferred to future release. Tracked but not in current roadmap.
 | CFG-01 | Phase 1 | Complete |
 | OBS-03 | Phase 1 | Complete (01-01) |
 | PRF-02 | Phase 1 | Complete |
-| SRC-01 | Phase 2 | Pending |
-| SRC-02 | Phase 2 | Pending |
-| SRC-03 | Phase 2 | Pending |
-| SRC-04 | Phase 2 | Pending |
-| SRC-05 | Phase 2 | Pending |
-| SRC-06 | Phase 2 | Pending |
-| SRC-07 | Phase 2 | Pending |
-| SRC-08 | Phase 2 | Pending |
+| SRC-01 | Phase 2 | Complete |
+| SRC-02 | Phase 2 | Complete |
+| SRC-03 | Phase 2 | Complete |
+| SRC-04 | Phase 2 | Complete |
+| SRC-05 | Phase 2 | Complete |
+| SRC-06 | Phase 2 | Complete |
+| SRC-07 | Phase 2 | Complete |
+| SRC-08 | Phase 2 | Complete |
 | PAR-01 | Phase 2 | Pending |
 | PAR-02 | Phase 2 | Pending |
 | PAR-03 | Phase 2 | Pending |
