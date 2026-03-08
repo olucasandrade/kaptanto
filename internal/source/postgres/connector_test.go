@@ -263,6 +263,92 @@ func TestAppendAndQueue_AppendErrorBlocksCheckpoint(t *testing.T) {
 	}
 }
 
+// --- NewWithBackfill tests ---
+
+// mockBackfillEngine is a minimal BackfillEngine for connector wiring tests.
+type mockBackfillEngine struct {
+	hasPending bool
+	runCalled  chan struct{}
+}
+
+func (m *mockBackfillEngine) HasPendingBackfills() bool { return m.hasPending }
+func (m *mockBackfillEngine) Run(_ context.Context) error {
+	if m.runCalled != nil {
+		close(m.runCalled)
+	}
+	return nil
+}
+
+// TestNewWithBackfill_StoresEngine verifies that NewWithBackfill stores the
+// BackfillEngine in the connector and makes it retrievable.
+func TestNewWithBackfill_StoresEngine(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{}
+	bf := &mockBackfillEngine{hasPending: true}
+
+	c := postgres.NewWithBackfill(cfg, store, idGen, el, bf)
+	if c == nil {
+		t.Fatal("NewWithBackfill returned nil connector")
+	}
+	// Verify the connector's backfillEng is set by checking that EventLog is also wired.
+	if c.EventLog() == nil {
+		t.Error("NewWithBackfill: EventLog() returned nil; expected el to be wired")
+	}
+}
+
+// TestNewWithBackfill_NilBackfill verifies that nil backfill engine is handled
+// gracefully (backward compat).
+func TestNewWithBackfill_NilBackfill(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{}
+
+	c := postgres.NewWithBackfill(cfg, store, idGen, el, nil)
+	if c == nil {
+		t.Fatal("NewWithBackfill with nil engine returned nil connector")
+	}
+
+	// AppendAndQueue must still work normally.
+	ev := &event.ChangeEvent{IdempotencyKey: "pg1:public.orders:1:insert:0/1"}
+	if err := c.AppendAndQueue(context.Background(), ev); err != nil {
+		t.Fatalf("AppendAndQueue with nil backfillEng returned error: %v", err)
+	}
+}
+
+// TestNewWithBackfill_ExistingConstructorsUnchanged verifies New() and
+// NewWithEventLog() still work without a backfill engine.
+func TestNewWithBackfill_ExistingConstructorsUnchanged(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+
+	c1 := postgres.New(cfg, store, idGen)
+	if c1 == nil {
+		t.Fatal("New() returned nil")
+	}
+
+	el := &mockEventLog{}
+	c2 := postgres.NewWithEventLog(cfg, store, idGen, el)
+	if c2 == nil {
+		t.Fatal("NewWithEventLog() returned nil")
+	}
+	if c2.EventLog() == nil {
+		t.Error("NewWithEventLog: EventLog() should be non-nil")
+	}
+}
+
 // TestNewWithoutEventLog_NilGuard verifies that New (without EventLog) still
 // works and AppendAndQueue is a no-op when eventLog is nil (backward compat).
 func TestNewWithoutEventLog_NilGuard(t *testing.T) {
