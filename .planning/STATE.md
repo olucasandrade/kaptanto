@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-08T03:25:51.632Z"
+last_updated: "2026-03-08T03:54:56.557Z"
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 7
+  completed_plans: 6
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
-**Current focus:** Phase 2: Postgres Source and Parser
+**Current focus:** Phase 3: Event Log (Badger)
 
 ## Current Position
 
-Phase: 2 of 10 (Postgres Source and Parser)
-Plan: 3 of 3 in current phase (PHASE COMPLETE)
+Phase: 3 of 10 (Event Log)
+Plan: 1 of 2 in current phase
 Status: In progress
-Last activity: 2026-03-08 -- Completed 02-03 (PostgresConnector: replication loop, backoff, slot/publication, CHK-01 checkpoint ordering)
+Last activity: 2026-03-08 -- Completed 03-01 (BadgerEventLog: FNV-1a partitioning, idempotent dedup, TTL expiry, LOG-01 through LOG-04)
 
-Progress: [██░░░░░░░░] 10%
+Progress: [███░░░░░░░] 15%
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Progress: [██░░░░░░░░] 10%
 
 *Updated after each plan completion*
 | Phase 02-postgres-source-and-parser P03 | 6 | 2 tasks | 7 files |
+| Phase 03-event-log P01 | 15 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,10 @@ Recent decisions affecting current work:
 - [Phase 02-03]: pgx/v5/pgconn is the correct package for replication connections — pglogrepl requires this exact type (not standalone jackc/pgconn)
 - [Phase 02-03]: EvalSlotCheck exported as pure function — enables SRC-06 snapshot detection unit testing without live DB
 - [Phase 02-03]: CHK-01 enforced: store.Save before SendStandbyStatusUpdate on Commit, co-located comment makes invariant visible
+- [Phase 03-01]: Badger sequences pre-advanced past 0 at Open — seq=0 is unambiguous duplicate-detected sentinel
+- [Phase 03-01]: seq.Next() called OUTSIDE db.Update transaction — reduces MVCC read set, gaps in sequence acceptable
+- [Phase 03-01]: Fixed-width big-endian binary for all numeric key components — decimal ASCII breaks lexicographic sort order
+- [Phase 03-01]: Same retention TTL on partition entry and dedup entry — dedup must not expire before the entry it guards
 
 ### Pending Todos
 
@@ -85,5 +90,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 02-03-PLAN.md (PostgresConnector with replication loop, exponential backoff, slot/publication auto-setup, CHK-01 ordering)
+Stopped at: Completed 03-01-PLAN.md (BadgerEventLog with FNV-1a partitioning, idempotent dedup, TTL expiry, LOG-01 through LOG-04)
 Resume file: None

@@ -181,7 +181,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete   | 2026-03-07 |
 | 2. Postgres Source and Parser | 3/3 | Complete   | 2026-03-08 |
-| 3. Event Log | 0/2 | Not started | - |
+| 3. Event Log | 1/2 | In Progress|  |
 | 4. Backfill Engine | 0/? | Not started | - |
 | 5. Router and stdout Output | 0/? | Not started | - |
 | 6. SSE and gRPC Servers | 0/? | Not started | - |

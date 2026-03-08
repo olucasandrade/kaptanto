@@ -24,18 +24,18 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Parser
 
-- [ ] **PAR-01**: Kaptanto decodes pgoutput wire format (Relation, Insert, Update, Delete, Begin, Commit messages)
-- [ ] **PAR-02**: Kaptanto maintains a TOAST cache and merges unchanged markers with cached values for complete rows
-- [ ] **PAR-03**: Kaptanto detects schema evolution (new Relation messages) and updates the RelationCache
+- [x] **PAR-01**: Kaptanto decodes pgoutput wire format (Relation, Insert, Update, Delete, Begin, Commit messages)
+- [x] **PAR-02**: Kaptanto maintains a TOAST cache and merges unchanged markers with cached values for complete rows
+- [x] **PAR-03**: Kaptanto detects schema evolution (new Relation messages) and updates the RelationCache
 - [ ] **PAR-04**: Kaptanto normalizes MongoDB BSON documents into the unified ChangeEvent format
-- [ ] **PAR-05**: Kaptanto generates deterministic idempotency keys: source:schema.table:pk:op:position
+- [x] **PAR-05**: Kaptanto generates deterministic idempotency keys: source:schema.table:pk:op:position
 
 ### Event Log
 
-- [ ] **LOG-01**: Kaptanto durably writes every parsed event to an embedded Badger store before advancing source checkpoint
-- [ ] **LOG-02**: Events are partitioned by hash(grouping_key) % num_partitions (default 64)
-- [ ] **LOG-03**: Events are deduplicated by event ID on write (idempotent append)
-- [ ] **LOG-04**: Events automatically expire after configurable retention period (default 1 hour)
+- [x] **LOG-01**: Kaptanto durably writes every parsed event to an embedded Badger store before advancing source checkpoint
+- [x] **LOG-02**: Events are partitioned by hash(grouping_key) % num_partitions (default 64)
+- [x] **LOG-03**: Events are deduplicated by event ID on write (idempotent append)
+- [x] **LOG-04**: Events automatically expire after configurable retention period (default 1 hour)
 
 ### Backfill Engine
 
@@ -157,17 +157,17 @@ Deferred to future release. Tracked but not in current roadmap.
 | SRC-06 | Phase 2 | Complete |
 | SRC-07 | Phase 2 | Complete |
 | SRC-08 | Phase 2 | Complete |
-| PAR-01 | Phase 2 | Pending |
-| PAR-02 | Phase 2 | Pending |
-| PAR-03 | Phase 2 | Pending |
-| PAR-05 | Phase 2 | Pending |
+| PAR-01 | Phase 2 | Complete (02-02) |
+| PAR-02 | Phase 2 | Complete (02-02) |
+| PAR-03 | Phase 2 | Complete (02-02) |
+| PAR-05 | Phase 2 | Complete (02-02) |
 | CHK-01 | Phase 2 | Complete |
 | CHK-03 | Phase 2 | Complete |
 | CHK-04 | Phase 2 | Complete |
-| LOG-01 | Phase 3 | Pending |
-| LOG-02 | Phase 3 | Pending |
-| LOG-03 | Phase 3 | Pending |
-| LOG-04 | Phase 3 | Pending |
+| LOG-01 | Phase 3 | Complete |
+| LOG-02 | Phase 3 | Complete |
+| LOG-03 | Phase 3 | Complete |
+| LOG-04 | Phase 3 | Complete |
 | BKF-01 | Phase 4 | Pending |
 | BKF-02 | Phase 4 | Pending |
 | BKF-03 | Phase 4 | Pending |
