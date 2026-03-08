@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Postgres Source and Parser** - WAL consumption, pgoutput decoding, TOAST cache, schema evolution, checkpoint store (completed 2026-03-08)
 - [x] **Phase 3: Event Log** - Badger-based durable append-only store with partitioning, dedup, and TTL (completed 2026-03-08)
 - [x] **Phase 4: Backfill Engine** - Snapshot coordination with watermark dedup, keyset cursors, crash recovery (completed 2026-03-08)
-- [x] **Phase 5: Router and stdout Output** - Partitioned routing with per-key ordering, consumer isolation, poison pill handling, NDJSON output (completed 2026-03-08)
+- [ ] **Phase 5: Router and stdout Output** - Partitioned routing with per-key ordering, consumer isolation, poison pill handling, NDJSON output (gap closure in progress)
 - [ ] **Phase 6: SSE and gRPC Servers** - Full output server suite with consumer cursors, filtering, metrics, and health endpoint
 - [ ] **Phase 7: Configuration and Multi-Source** - YAML config parsing, column filtering, SQL WHERE conditions
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
@@ -97,11 +97,12 @@ Plans:
   2. A slow or failing consumer does not block delivery to other consumers or other message groups within the same partition
   3. Failed events are retried with exponential backoff and moved to dead-letter after max retries
   4. Running Kaptanto with `--output stdout` produces one NDJSON line per event on standard output
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [x] 05-01-PLAN.md — Router core: Consumer interface, ConsumerCursorStore interface, partition goroutines, message group blocking (RTR-01, RTR-02, RTR-03, RTR-04)
-- [ ] 05-02-PLAN.md — Retry scheduler and stdout writer: exponential backoff, dead-letter, StdoutWriter NDJSON output (RTR-05, OUT-01)
+- [x] 05-02-PLAN.md — Retry scheduler and stdout writer: exponential backoff, dead-letter, StdoutWriter NDJSON output (RTR-05, OUT-01)
+- [ ] 05-03-PLAN.md — Gap closure: wire RetryScheduler into Router.Run and Router.dispatch, remove duplicate retryRecord type (RTR-05)
 
 ### Phase 6: SSE and gRPC Servers
 **Goal**: Multiple independent consumers can connect via SSE or gRPC to receive events, with proper resume, backpressure, filtering, and observability
@@ -183,7 +184,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Postgres Source and Parser | 3/3 | Complete   | 2026-03-08 |
 | 3. Event Log | 2/2 | Complete   | 2026-03-08 |
 | 4. Backfill Engine | 2/2 | Complete   | 2026-03-08 |
-| 5. Router and stdout Output | 2/2 | Complete   | 2026-03-08 |
+| 5. Router and stdout Output | 2/3 | Gap closure | - |
 | 6. SSE and gRPC Servers | 0/? | Not started | - |
 | 7. Configuration and Multi-Source | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
