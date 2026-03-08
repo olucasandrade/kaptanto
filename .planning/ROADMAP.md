@@ -100,7 +100,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Router core: Consumer interface, ConsumerCursorStore interface, partition goroutines, message group blocking (RTR-01, RTR-02, RTR-03, RTR-04)
+- [x] 05-01-PLAN.md — Router core: Consumer interface, ConsumerCursorStore interface, partition goroutines, message group blocking (RTR-01, RTR-02, RTR-03, RTR-04)
 - [ ] 05-02-PLAN.md — Retry scheduler and stdout writer: exponential backoff, dead-letter, StdoutWriter NDJSON output (RTR-05, OUT-01)
 
 ### Phase 6: SSE and gRPC Servers
@@ -183,7 +183,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Postgres Source and Parser | 3/3 | Complete   | 2026-03-08 |
 | 3. Event Log | 2/2 | Complete   | 2026-03-08 |
 | 4. Backfill Engine | 2/2 | Complete   | 2026-03-08 |
-| 5. Router and stdout Output | 0/2 | Not started | - |
+| 5. Router and stdout Output | 1/2 | In progress | - |
 | 6. SSE and gRPC Servers | 0/? | Not started | - |
 | 7. Configuration and Multi-Source | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |

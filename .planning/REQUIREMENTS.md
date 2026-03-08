@@ -47,10 +47,10 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Router
 
-- [ ] **RTR-01**: Events are routed to partitions based on configurable grouping key (default: primary key)
-- [ ] **RTR-02**: Each partition is served by a dedicated goroutine delivering events sequentially
-- [ ] **RTR-03**: Each consumer has independent cursors per partition (consumer isolation)
-- [ ] **RTR-04**: Failed events block only their message group, not the entire partition (poison pill isolation)
+- [x] **RTR-01**: Events are routed to partitions based on configurable grouping key (default: primary key)
+- [x] **RTR-02**: Each partition is served by a dedicated goroutine delivering events sequentially
+- [x] **RTR-03**: Each consumer has independent cursors per partition (consumer isolation)
+- [x] **RTR-04**: Failed events block only their message group, not the entire partition (poison pill isolation)
 - [ ] **RTR-05**: Failed events are retried with exponential backoff and moved to dead-letter after max retries
 
 ### Output Servers
@@ -175,10 +175,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | BKF-05 | Phase 4 | Complete |
 | EVT-03 | Phase 4 | Complete |
 | EVT-04 | Phase 4 | Complete |
-| RTR-01 | Phase 5 | Pending |
-| RTR-02 | Phase 5 | Pending |
-| RTR-03 | Phase 5 | Pending |
-| RTR-04 | Phase 5 | Pending |
+| RTR-01 | Phase 5 | Complete |
+| RTR-02 | Phase 5 | Complete |
+| RTR-03 | Phase 5 | Complete |
+| RTR-04 | Phase 5 | Complete |
 | RTR-05 | Phase 5 | Pending |
 | OUT-01 | Phase 5 | Pending |
 | OUT-02 | Phase 6 | Pending |

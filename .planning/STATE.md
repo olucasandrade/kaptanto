@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-08T13:14:39.523Z"
+last_updated: "2026-03-08T21:03:53Z"
 progress:
-  total_phases: 4
+  total_phases: 10
   completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 10
+  completed_plans: 10
 ---
 
 # Project State
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
-**Current focus:** Phase 4: Backfill Engine
+**Current focus:** Phase 5: Router and Stdout Output
 
 ## Current Position
 
-Phase: 4 of 10 (Backfill Engine)
-Plan: 2 of 2 in current phase
-Status: Phase 4 complete
-Last activity: 2026-03-08 -- Completed 04-02 (BackfillEngineImpl full snapshot loop + NewWithBackfill connector wiring)
+Phase: 5 of 10 (Router and Stdout Output)
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-03-08 -- Completed 05-01 (Router core: Consumer interface, partition goroutines, per-key message-group blocking)
 
 Progress: [█████░░░░░] 25%
 
@@ -53,6 +53,7 @@ Progress: [█████░░░░░] 25%
 | Phase 03-event-log P02 | 3 | 1 task (TDD) | 2 files |
 | Phase 04-backfill-engine P01 | 4 | 2 tasks | 7 files |
 | Phase 04-backfill-engine P02 | 3 | 2 tasks | 4 files |
+| Phase 05-router-and-stdout-output P01 | 4 | 2 tasks (TDD) | 2 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,10 @@ Recent decisions affecting current work:
 - [Phase 04-02]: BackfillEngineImpl coexists with engine struct — separate NewBackfillEngine constructor for production use with AppendFn/OpenConnFn
 - [Phase 04-02]: appendMu sync.Mutex added to PostgresConnector — serializes concurrent eventLog.Append from WAL and backfill goroutines without restructuring AppendAndQueue
 - [Phase 04-02]: Backfill goroutine guarded by HasPendingBackfills() + nil check — starts only after StartReplication succeeds
+- [Phase 05-01]: Cursor stores next-to-read seq (not last-delivered) — after delivering seq N, cursor becomes N+1; initial cursor=1 means read from seq 1; prevents infinite re-delivery
+- [Phase 05-01]: NewNoopCursorStore exported as constructor — enables direct verification of LoadCursor=1 invariant in tests without Router internals
+- [Phase 05-01]: dispatch serialized under mu.Lock for entire fan-out — keeps blockedGroups and cursorByPartition mutations serialized; Deliver expected to be fast (RTR-04)
+- [Phase 05-01]: runPartition never returns on ReadPartition error — logs and retries with pollInterval; only ctx.Done() exits (RTR-02)
 
 ### Pending Todos
 
@@ -101,5 +106,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 04-02-PLAN.md (BackfillEngineImpl wiring + NewWithBackfill connector)
+Stopped at: Completed 05-01-PLAN.md (Router core: Consumer interface + per-key blocking)
 Resume file: None
