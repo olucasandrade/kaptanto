@@ -80,20 +80,11 @@ func (n *noopCursorStore) LoadCursor(_ context.Context, consumerID string, parti
 	return v, nil
 }
 
-// retryRecord describes a delivery that has failed and must be retried or
-// held for a blocked message group.
-type retryRecord struct {
-	entry       eventlog.LogEntry
-	attempts    int
-	nextRetryAt time.Time
-	consumerID  string
-}
-
-// consumerState tracks per-consumer runtime state: blocked message groups and
-// the last successfully delivered seq per partition.
+// consumerState tracks per-consumer runtime state: the last successfully
+// delivered seq per partition. Blocked message group state is owned by
+// RetryScheduler (rs field on Router), not by consumerState.
 type consumerState struct {
-	consumer         Consumer
-	blockedGroups    map[string]*retryRecord // key = string(entry.Event.Key)
+	consumer          Consumer
 	cursorByPartition map[uint32]uint64
 }
 
@@ -106,6 +97,7 @@ type Router struct {
 	consumers     []consumerState
 	mu            sync.RWMutex
 	cursorStore   ConsumerCursorStore
+	rs            *RetryScheduler
 }
 
 // NewRouter creates a new Router. If cs is nil, an in-memory noopCursorStore
@@ -118,6 +110,7 @@ func NewRouter(el eventlog.EventLog, numPartitions uint32, cs ConsumerCursorStor
 		eventLog:      el,
 		numPartitions: numPartitions,
 		cursorStore:   cs,
+		rs:            NewRetryScheduler(),
 	}
 }
 
@@ -130,7 +123,6 @@ func (r *Router) Register(c Consumer) {
 
 	cs := consumerState{
 		consumer:          c,
-		blockedGroups:     make(map[string]*retryRecord),
 		cursorByPartition: make(map[uint32]uint64),
 	}
 
@@ -151,6 +143,8 @@ func (r *Router) Register(c Consumer) {
 // cancelled. Returns nil when ctx.Done() fires — it never returns a non-nil
 // error for transient ReadPartition failures.
 func (r *Router) Run(ctx context.Context) error {
+	go r.rs.Run(ctx)
+
 	var wg sync.WaitGroup
 	for p := uint32(0); p < r.numPartitions; p++ {
 		wg.Add(1)
@@ -245,7 +239,8 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 		cs := &r.consumers[i]
 
 		// Skip entry if this consumer has a blocked group for this key.
-		if _, blocked := cs.blockedGroups[groupKey]; blocked {
+		// Blocked state is owned by RetryScheduler (RTR-05).
+		if r.rs.IsBlocked(cs.consumer.ID(), groupKey) {
 			continue
 		}
 
@@ -256,12 +251,13 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 				"seq", entry.Seq,
 				"err", err,
 			)
-			cs.blockedGroups[groupKey] = &retryRecord{
-				entry:      entry,
-				attempts:   1,
-				nextRetryAt: time.Now(),
-				consumerID: cs.consumer.ID(),
+			rec := &RetryRecord{
+				Entry:       entry,
+				Attempts:    1,
+				NextRetryAt: time.Now(),
+				ConsumerID:  cs.consumer.ID(),
 			}
+			r.rs.AddBlocked(cs.consumer, groupKey, rec)
 			continue
 		}
 

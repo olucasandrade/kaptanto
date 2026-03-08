@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/kaptanto/kaptanto/internal/eventlog"
@@ -90,7 +91,12 @@ type consumerRetryState struct {
 // RetryScheduler manages retry state for an arbitrary set of consumers.
 // It is intentionally decoupled from Router so that it can be unit-tested
 // without a live EventLog.
+//
+// All exported methods are safe for concurrent use. The internal mu guards
+// the states map, which is read by Router.dispatch (via IsBlocked/AddBlocked)
+// and written by Tick (via Run goroutine).
 type RetryScheduler struct {
+	mu     sync.Mutex
 	states map[string]*consumerRetryState // key = consumer.ID()
 }
 
@@ -99,8 +105,9 @@ func NewRetryScheduler() *RetryScheduler {
 	return &RetryScheduler{states: make(map[string]*consumerRetryState)}
 }
 
-// ensureState returns the consumerRetryState for c, creating it if absent.
-func (rs *RetryScheduler) ensureState(c Consumer) *consumerRetryState {
+// ensureStateLocked returns the consumerRetryState for c, creating it if
+// absent. Caller must hold rs.mu.
+func (rs *RetryScheduler) ensureStateLocked(c Consumer) *consumerRetryState {
 	id := c.ID()
 	if s, ok := rs.states[id]; ok {
 		return s
@@ -117,13 +124,17 @@ func (rs *RetryScheduler) ensureState(c Consumer) *consumerRetryState {
 // This is called by Router.dispatch when initial delivery fails, and is also
 // used directly by tests.
 func (rs *RetryScheduler) AddBlocked(c Consumer, groupKey string, rec *RetryRecord) {
-	s := rs.ensureState(c)
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	s := rs.ensureStateLocked(c)
 	s.blockedGroups[groupKey] = rec
 }
 
 // BlockedCount returns the number of blocked groups for consumer c.
 // Used by tests to assert dead-lettering cleared the map.
 func (rs *RetryScheduler) BlockedCount(c Consumer) int {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
 	id := c.ID()
 	s, ok := rs.states[id]
 	if !ok {
@@ -135,6 +146,8 @@ func (rs *RetryScheduler) BlockedCount(c Consumer) int {
 // ForceRetryNow sets nextRetryAt to the past for a given consumer + groupKey
 // so the next Tick call will attempt delivery immediately. Used only in tests.
 func (rs *RetryScheduler) ForceRetryNow(c Consumer, groupKey string) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
 	id := c.ID()
 	s, ok := rs.states[id]
 	if !ok {
@@ -147,11 +160,27 @@ func (rs *RetryScheduler) ForceRetryNow(c Consumer, groupKey string) {
 	rec.NextRetryAt = time.Now().Add(-time.Second)
 }
 
+// IsBlocked reports whether the given (consumerID, groupKey) pair is currently
+// in the blocked state managed by this RetryScheduler. Router.dispatch calls
+// this to skip events whose message group is awaiting a retry attempt.
+func (rs *RetryScheduler) IsBlocked(consumerID, groupKey string) bool {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	s, ok := rs.states[consumerID]
+	if !ok {
+		return false
+	}
+	_, blocked := s.blockedGroups[groupKey]
+	return blocked
+}
+
 // Tick iterates all consumers' blocked groups and re-attempts delivery for
 // entries whose NextRetryAt is in the past. On success the entry is removed.
 // On failure the attempt counter is incremented and NextRetryAt is pushed
 // forward. After maxRetries failures the entry is dead-lettered.
 func (rs *RetryScheduler) Tick(ctx context.Context) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
 	now := time.Now()
 	for _, s := range rs.states {
 		for groupKey, rec := range s.blockedGroups {
