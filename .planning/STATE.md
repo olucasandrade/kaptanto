@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-08T21:09:34Z"
+last_updated: "2026-03-08T21:49:06Z"
 progress:
   total_phases: 10
   completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 11
+  completed_plans: 11
 ---
 
 # Project State
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 5 of 10 (Router and Stdout Output)
-Plan: 2 of 2 in current phase
+Plan: 3 of 3 in current phase
 Status: In progress
-Last activity: 2026-03-08 -- Completed 05-02 (Retry scheduler RTR-05 + StdoutWriter OUT-01)
+Last activity: 2026-03-08 -- Completed 05-03 (RetryScheduler wired into Router — RTR-05 gap closed end-to-end)
 
 Progress: [█████░░░░░] 25%
 
@@ -55,6 +55,7 @@ Progress: [█████░░░░░] 25%
 | Phase 04-backfill-engine P02 | 3 | 2 tasks | 4 files |
 | Phase 05-router-and-stdout-output P01 | 4 | 2 tasks (TDD) | 2 files |
 | Phase 05-router-and-stdout-output P02 | 2 | 2 tasks (TDD) | 4 files |
+| Phase 05-router-and-stdout-output P03 | 4 | 2 tasks (TDD) | 3 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,8 @@ Recent decisions affecting current work:
 - [Phase 05-02]: RetryScheduler decoupled from Router with exported AddBlocked/BlockedCount/ForceRetryNow helpers — makes retry behavior unit-testable without a live EventLog or Router
 - [Phase 05-02]: RetryRecord exported (capital R) — tests outside the package can construct and pass RetryRecord to AddBlocked; router.go retryRecord (lowercase) is unaffected
 - [Phase 05-02]: StdoutWriter returns raw encoder error — RetryScheduler isPermanentError handles pipe errors; no wrapping needed in writer
+- [Phase 05-03]: IsBlocked approach (option c): RetryScheduler exposes IsBlocked(consumerID, groupKey) — dispatch queries it for skip check; consumerState.blockedGroups removed entirely
+- [Phase 05-03]: sync.Mutex on RetryScheduler — Tick goroutine and dispatch goroutine access rs.states concurrently; rs.mu guards all access; no deadlock (Deliver holds no locks)
 
 ### Pending Todos
 
@@ -110,5 +113,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 05-02-PLAN.md (Retry scheduler RTR-05 + StdoutWriter OUT-01)
+Stopped at: Completed 05-03-PLAN.md (RetryScheduler wired into Router — RTR-05 gap closed end-to-end)
 Resume file: None
