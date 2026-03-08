@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-08T21:03:53Z"
+last_updated: "2026-03-08T21:09:34Z"
 progress:
   total_phases: 10
   completed_phases: 4
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 5 of 10 (Router and Stdout Output)
-Plan: 1 of 2 in current phase
+Plan: 2 of 2 in current phase
 Status: In progress
-Last activity: 2026-03-08 -- Completed 05-01 (Router core: Consumer interface, partition goroutines, per-key message-group blocking)
+Last activity: 2026-03-08 -- Completed 05-02 (Retry scheduler RTR-05 + StdoutWriter OUT-01)
 
 Progress: [█████░░░░░] 25%
 
@@ -54,6 +54,7 @@ Progress: [█████░░░░░] 25%
 | Phase 04-backfill-engine P01 | 4 | 2 tasks | 7 files |
 | Phase 04-backfill-engine P02 | 3 | 2 tasks | 4 files |
 | Phase 05-router-and-stdout-output P01 | 4 | 2 tasks (TDD) | 2 files |
+| Phase 05-router-and-stdout-output P02 | 2 | 2 tasks (TDD) | 4 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,9 @@ Recent decisions affecting current work:
 - [Phase 05-01]: NewNoopCursorStore exported as constructor — enables direct verification of LoadCursor=1 invariant in tests without Router internals
 - [Phase 05-01]: dispatch serialized under mu.Lock for entire fan-out — keeps blockedGroups and cursorByPartition mutations serialized; Deliver expected to be fast (RTR-04)
 - [Phase 05-01]: runPartition never returns on ReadPartition error — logs and retries with pollInterval; only ctx.Done() exits (RTR-02)
+- [Phase 05-02]: RetryScheduler decoupled from Router with exported AddBlocked/BlockedCount/ForceRetryNow helpers — makes retry behavior unit-testable without a live EventLog or Router
+- [Phase 05-02]: RetryRecord exported (capital R) — tests outside the package can construct and pass RetryRecord to AddBlocked; router.go retryRecord (lowercase) is unaffected
+- [Phase 05-02]: StdoutWriter returns raw encoder error — RetryScheduler isPermanentError handles pipe errors; no wrapping needed in writer
 
 ### Pending Todos
 
@@ -106,5 +110,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 05-01-PLAN.md (Router core: Consumer interface + per-key blocking)
+Stopped at: Completed 05-02-PLAN.md (Retry scheduler RTR-05 + StdoutWriter OUT-01)
 Resume file: None

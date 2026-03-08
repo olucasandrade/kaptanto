@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Postgres Source and Parser** - WAL consumption, pgoutput decoding, TOAST cache, schema evolution, checkpoint store (completed 2026-03-08)
 - [x] **Phase 3: Event Log** - Badger-based durable append-only store with partitioning, dedup, and TTL (completed 2026-03-08)
 - [x] **Phase 4: Backfill Engine** - Snapshot coordination with watermark dedup, keyset cursors, crash recovery (completed 2026-03-08)
-- [ ] **Phase 5: Router and stdout Output** - Partitioned routing with per-key ordering, consumer isolation, poison pill handling, NDJSON output
+- [x] **Phase 5: Router and stdout Output** - Partitioned routing with per-key ordering, consumer isolation, poison pill handling, NDJSON output (completed 2026-03-08)
 - [ ] **Phase 6: SSE and gRPC Servers** - Full output server suite with consumer cursors, filtering, metrics, and health endpoint
 - [ ] **Phase 7: Configuration and Multi-Source** - YAML config parsing, column filtering, SQL WHERE conditions
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
@@ -183,7 +183,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Postgres Source and Parser | 3/3 | Complete   | 2026-03-08 |
 | 3. Event Log | 2/2 | Complete   | 2026-03-08 |
 | 4. Backfill Engine | 2/2 | Complete   | 2026-03-08 |
-| 5. Router and stdout Output | 1/2 | In progress | - |
+| 5. Router and stdout Output | 2/2 | Complete   | 2026-03-08 |
 | 6. SSE and gRPC Servers | 0/? | Not started | - |
 | 7. Configuration and Multi-Source | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |

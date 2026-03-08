@@ -51,11 +51,11 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 - [x] **RTR-02**: Each partition is served by a dedicated goroutine delivering events sequentially
 - [x] **RTR-03**: Each consumer has independent cursors per partition (consumer isolation)
 - [x] **RTR-04**: Failed events block only their message group, not the entire partition (poison pill isolation)
-- [ ] **RTR-05**: Failed events are retried with exponential backoff and moved to dead-letter after max retries
+- [x] **RTR-05**: Failed events are retried with exponential backoff and moved to dead-letter after max retries
 
 ### Output Servers
 
-- [ ] **OUT-01**: stdout output writes one NDJSON line per event
+- [x] **OUT-01**: stdout output writes one NDJSON line per event
 - [ ] **OUT-02**: SSE server supports multiple independent consumer connections
 - [ ] **OUT-03**: SSE server supports Last-Event-ID header for automatic resume on reconnect
 - [ ] **OUT-04**: SSE server sends periodic ping comments to keep connections alive through proxies
@@ -179,8 +179,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | RTR-02 | Phase 5 | Complete |
 | RTR-03 | Phase 5 | Complete |
 | RTR-04 | Phase 5 | Complete |
-| RTR-05 | Phase 5 | Pending |
-| OUT-01 | Phase 5 | Pending |
+| RTR-05 | Phase 5 | Complete |
+| OUT-01 | Phase 5 | Complete |
 | OUT-02 | Phase 6 | Pending |
 | OUT-03 | Phase 6 | Pending |
 | OUT-04 | Phase 6 | Pending |
