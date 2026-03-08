@@ -206,3 +206,89 @@ func seqs(entries []eventlog.LogEntry) []uint64 {
 	}
 	return out
 }
+
+// fakeConsumerWithRetry is like fakeConsumer but fails the first N deliveries
+// for badKey, then succeeds on subsequent calls. It is used to verify that
+// RetryScheduler is wired into Router so the blocked entry is eventually
+// re-attempted and delivered.
+type fakeConsumerWithRetry struct {
+	id      string
+	badKey  string
+	failMax int // number of times to fail before succeeding
+
+	mu      sync.Mutex
+	calls   int
+	entries []eventlog.LogEntry
+}
+
+func (f *fakeConsumerWithRetry) ID() string { return f.id }
+
+func (f *fakeConsumerWithRetry) Deliver(_ context.Context, entry eventlog.LogEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if string(entry.Event.Key) == f.badKey {
+		if f.calls < f.failMax {
+			f.calls++
+			return errFail
+		}
+	}
+	f.entries = append(f.entries, entry)
+	return nil
+}
+
+func (f *fakeConsumerWithRetry) delivered() []eventlog.LogEntry {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]eventlog.LogEntry, len(f.entries))
+	copy(out, f.entries)
+	return out
+}
+
+// TestRetrySchedulerWiredToRouter verifies that a failed delivery is
+// eventually retried by Router. The test uses fakeConsumerWithRetry which
+// fails the first call for badKey and succeeds on subsequent calls.
+//
+// Without RetryScheduler wired into Router.Run and Router.dispatch, the
+// blocked entry is never re-attempted and the test fails (seq=1 never
+// appears in delivered entries).
+//
+// With wiring in place, RetryScheduler.Tick fires at retryTickInterval
+// and re-delivers the blocked entry. The test waits long enough for at
+// least two ticks.
+func TestRetrySchedulerWiredToRouter(t *testing.T) {
+	// Partition 0 has one entry with badKey. Consumer fails once then succeeds.
+	entry := makeEntry(1, `"retry-key"`)
+	el := newFakeEventLog(map[uint32][]eventlog.LogEntry{
+		0: {entry},
+	})
+
+	consumer := &fakeConsumerWithRetry{
+		id:      "c-retry",
+		badKey:  `"retry-key"`,
+		failMax: 1,
+	}
+
+	r := router.NewRouter(el, 1, nil)
+	r.Register(consumer)
+
+	// Allow 3 seconds so RetryScheduler can tick at least twice (tick every 1s).
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := r.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := consumer.delivered()
+	if len(got) == 0 {
+		t.Fatal("expected seq=1 to be retried and delivered, but delivered list is empty")
+	}
+	foundSeq1 := false
+	for _, e := range got {
+		if e.Seq == 1 {
+			foundSeq1 = true
+		}
+	}
+	if !foundSeq1 {
+		t.Errorf("expected seq=1 to appear in delivered entries, got seqs: %v", seqs(got))
+	}
+}
