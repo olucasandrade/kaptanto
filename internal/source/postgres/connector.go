@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/kaptanto/kaptanto/internal/backfill"
 	"github.com/kaptanto/kaptanto/internal/checkpoint"
 	"github.com/kaptanto/kaptanto/internal/event"
 	"github.com/kaptanto/kaptanto/internal/eventlog"
@@ -113,12 +115,17 @@ func EvalSlotCheck(slotPresent, wasEverConnected bool) (needsSnapshot bool) {
 // The connector emits decoded *event.ChangeEvent values on the channel
 // returned by Events().
 type PostgresConnector struct {
-	cfg      Config
-	store    checkpoint.CheckpointStore
-	idGen    *event.IDGenerator
-	parser   *pgoutput.Parser
-	events   chan *event.ChangeEvent
-	eventLog eventlog.EventLog
+	cfg         Config
+	store       checkpoint.CheckpointStore
+	idGen       *event.IDGenerator
+	parser      *pgoutput.Parser
+	events      chan *event.ChangeEvent
+	eventLog    eventlog.EventLog
+	backfillEng backfill.BackfillEngine
+	// appendMu serializes eventLog.Append calls. Both the WAL goroutine and
+	// the backfill goroutine call AppendAndQueue concurrently; without this
+	// mutex, concurrent Append calls to BadgerDB would race (Pitfall 2).
+	appendMu sync.Mutex
 }
 
 // New creates a PostgresConnector without an EventLog. Call Run(ctx) to start
@@ -147,6 +154,23 @@ func NewWithEventLog(cfg Config, store checkpoint.CheckpointStore, idGen *event.
 	}
 }
 
+// NewWithBackfill creates a PostgresConnector with a durable EventLog and a
+// BackfillEngine. The backfill engine is started after WAL replication begins
+// (in connectAndStream) when HasPendingBackfills() returns true.
+//
+// If bf is nil, the connector behaves identically to NewWithEventLog.
+func NewWithBackfill(
+	cfg Config,
+	store checkpoint.CheckpointStore,
+	idGen *event.IDGenerator,
+	el eventlog.EventLog,
+	bf backfill.BackfillEngine,
+) *PostgresConnector {
+	c := NewWithEventLog(cfg, store, idGen, el)
+	c.backfillEng = bf
+	return c
+}
+
 // EventLog returns the EventLog wired into this connector, or nil if none was
 // provided. Exposed for testing.
 func (c *PostgresConnector) EventLog() eventlog.EventLog {
@@ -163,7 +187,11 @@ func (c *PostgresConnector) EventLog() eventlog.EventLog {
 func (c *PostgresConnector) AppendAndQueue(ctx context.Context, ev *event.ChangeEvent) error {
 	if c.eventLog != nil {
 		// LOG-01: event written durably before checkpoint is advanced (CHK-01 ordering).
-		if _, err := c.eventLog.Append(ev); err != nil {
+		// appendMu serializes concurrent Append calls from WAL goroutine and backfill goroutine.
+		c.appendMu.Lock()
+		_, err := c.eventLog.Append(ev)
+		c.appendMu.Unlock()
+		if err != nil {
 			return fmt.Errorf("eventlog: append: %w", err)
 		}
 	}
@@ -287,6 +315,17 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		},
 	); err != nil {
 		return fmt.Errorf("postgres: start replication: %w", err)
+	}
+
+	// 12a. Launch backfill goroutine if backfill engine has pending work.
+	// The backfill engine delivers events via AppendAndQueue (same path as WAL events),
+	// which serializes Append calls via appendMu — no concurrent BadgerDB writes (Pitfall 2).
+	if c.backfillEng != nil && c.backfillEng.HasPendingBackfills() {
+		go func() {
+			if err := c.backfillEng.Run(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("backfill engine: run failed", "error", err)
+			}
+		}()
 	}
 
 	// 13. WAL lag monitoring goroutine (SRC-07).
