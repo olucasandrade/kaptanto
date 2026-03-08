@@ -85,8 +85,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md — Backfill Engine core package (BackfillState, KeysetCursor, WatermarkChecker, BatchOptimizer, BackfillStore, snapshot read + control events, TDD)
+- [ ] 04-02-PLAN.md — Connector wiring (NewWithBackfill, backfill goroutine launch, AppendAndQueue serialization)
 
 ### Phase 5: Router and stdout Output
 **Goal**: Events flow from the Event Log through a partitioned router to consumers, with per-key ordering preserved and a working stdout NDJSON output
@@ -182,7 +182,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Foundation | 2/2 | Complete   | 2026-03-07 |
 | 2. Postgres Source and Parser | 3/3 | Complete   | 2026-03-08 |
 | 3. Event Log | 2/2 | Complete   | 2026-03-08 |
-| 4. Backfill Engine | 0/? | Not started | - |
+| 4. Backfill Engine | 0/2 | Not started | - |
 | 5. Router and stdout Output | 0/? | Not started | - |
 | 6. SSE and gRPC Servers | 0/? | Not started | - |
 | 7. Configuration and Multi-Source | 0/? | Not started | - |
