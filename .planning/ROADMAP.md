@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Shared event types, CLI skeleton, structured logging, pure Go build setup (completed 2026-03-07)
 - [x] **Phase 2: Postgres Source and Parser** - WAL consumption, pgoutput decoding, TOAST cache, schema evolution, checkpoint store (completed 2026-03-08)
 - [x] **Phase 3: Event Log** - Badger-based durable append-only store with partitioning, dedup, and TTL (completed 2026-03-08)
-- [ ] **Phase 4: Backfill Engine** - Snapshot coordination with watermark dedup, keyset cursors, crash recovery
+- [x] **Phase 4: Backfill Engine** - Snapshot coordination with watermark dedup, keyset cursors, crash recovery (completed 2026-03-08)
 - [ ] **Phase 5: Router and stdout Output** - Partitioned routing with per-key ordering, consumer isolation, poison pill handling, NDJSON output
 - [ ] **Phase 6: SSE and gRPC Servers** - Full output server suite with consumer cursors, filtering, metrics, and health endpoint
 - [ ] **Phase 7: Configuration and Multi-Source** - YAML config parsing, column filtering, SQL WHERE conditions
@@ -85,8 +85,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Backfill Engine core package (BackfillState, KeysetCursor, WatermarkChecker, BatchOptimizer, BackfillStore, snapshot read + control events, TDD)
-- [ ] 04-02-PLAN.md — Connector wiring (NewWithBackfill, backfill goroutine launch, AppendAndQueue serialization)
+- [x] 04-01-PLAN.md — Backfill Engine core package (BackfillState, KeysetCursor, WatermarkChecker, BatchOptimizer, BackfillStore, snapshot read + control events, TDD)
+- [x] 04-02-PLAN.md — Connector wiring (NewWithBackfill, backfill goroutine launch, AppendAndQueue serialization)
 
 ### Phase 5: Router and stdout Output
 **Goal**: Events flow from the Event Log through a partitioned router to consumers, with per-key ordering preserved and a working stdout NDJSON output
@@ -182,7 +182,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Foundation | 2/2 | Complete   | 2026-03-07 |
 | 2. Postgres Source and Parser | 3/3 | Complete   | 2026-03-08 |
 | 3. Event Log | 2/2 | Complete   | 2026-03-08 |
-| 4. Backfill Engine | 1/2 | In Progress|  |
+| 4. Backfill Engine | 2/2 | Complete   | 2026-03-08 |
 | 5. Router and stdout Output | 0/? | Not started | - |
 | 6. SSE and gRPC Servers | 0/? | Not started | - |
 | 7. Configuration and Multi-Source | 0/? | Not started | - |

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-08T13:04:06.777Z"
+last_updated: "2026-03-08T13:09:00.000Z"
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 4 of 10 (Backfill Engine)
-Plan: 1 of 2 in current phase
-Status: Plan 1 complete
-Last activity: 2026-03-08 -- Completed 04-01 (Backfill Engine core package: keyset cursor, watermark, SQLite store, adaptive batch, all 5 strategies, EVT-03/EVT-04)
+Plan: 2 of 2 in current phase
+Status: Phase 4 complete
+Last activity: 2026-03-08 -- Completed 04-02 (BackfillEngineImpl full snapshot loop + NewWithBackfill connector wiring)
 
-Progress: [████░░░░░░] 22%
+Progress: [█████░░░░░] 25%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [████░░░░░░] 22%
 | Phase 03-event-log P01 | 15 | 2 tasks | 6 files |
 | Phase 03-event-log P02 | 3 | 1 task (TDD) | 2 files |
 | Phase 04-backfill-engine P01 | 4 | 2 tasks | 7 files |
+| Phase 04-backfill-engine P02 | 3 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 03-02]: Append error triggers reconnect loop (not fatal crash) — Postgres re-delivers transaction from last ack'd LSN; BadgerEventLog dedup skips duplicate
 - [Phase 04-backfill-engine]: PartitionOf exported from badger.go — watermark.go needs cross-package access without circular dependency
 - [Phase 04-backfill-engine]: snapshotTable stubbed in 04-01; full pgx.Conn loop wired in Plan 04-02 — keeps backfill engine testable without live DB
+- [Phase 04-02]: BackfillEngineImpl coexists with engine struct — separate NewBackfillEngine constructor for production use with AppendFn/OpenConnFn
+- [Phase 04-02]: appendMu sync.Mutex added to PostgresConnector — serializes concurrent eventLog.Append from WAL and backfill goroutines without restructuring AppendAndQueue
+- [Phase 04-02]: Backfill goroutine guarded by HasPendingBackfills() + nil check — starts only after StartReplication succeeds
 
 ### Pending Todos
 
@@ -97,5 +101,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 04-01-PLAN.md (Backfill Engine core package)
+Stopped at: Completed 04-02-PLAN.md (BackfillEngineImpl wiring + NewWithBackfill connector)
 Resume file: None
