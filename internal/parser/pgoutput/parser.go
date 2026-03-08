@@ -194,6 +194,13 @@ func (p *Parser) newEvent(
 	}
 }
 
+// ClearRelationCache resets the relation cache. It must be called at the start
+// of every new replication session — Postgres re-sends RelationMessages at the
+// beginning of each session, so stale OID → schema mappings must be evicted.
+func (p *Parser) ClearRelationCache() {
+	p.relations = NewRelationCache()
+}
+
 // marshalPK JSON-marshals the primary key map into a compact string.
 // Returns "{}" on marshal failure (should not happen with string/nil values).
 func marshalPK(pkMap map[string]any) string {
