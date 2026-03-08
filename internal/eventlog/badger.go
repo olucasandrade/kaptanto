@@ -80,7 +80,7 @@ func Open(dir string, numPartitions uint32, retention time.Duration) (*BadgerEve
 // the sequence lock inside a read-write transaction. Gaps in sequence numbers are
 // acceptable (anti-pattern note from research).
 func (b *BadgerEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
-	partition := partitionOf(ev.Key, b.numPartitions)
+	partition := PartitionOf(ev.Key, b.numPartitions)
 
 	val, err := json.Marshal(ev)
 	if err != nil {
@@ -190,10 +190,10 @@ func (b *BadgerEventLog) Close() error {
 	return b.db.Close()
 }
 
-// partitionOf returns the partition index for the given groupingKey using FNV-1a.
+// PartitionOf returns the partition index for the given groupingKey using FNV-1a.
 // The grouping key is the raw JSON bytes of the event's primary key (ev.Key).
 // This is deterministic across restarts because Key is deterministic.
-func partitionOf(groupingKey []byte, numPartitions uint32) uint32 {
+func PartitionOf(groupingKey []byte, numPartitions uint32) uint32 {
 	h := fnv.New32a()
 	h.Write(groupingKey)
 	return h.Sum32() % numPartitions
