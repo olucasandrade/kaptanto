@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/kaptanto/kaptanto/internal/backfill"
 	"github.com/kaptanto/kaptanto/internal/event"
 	"github.com/kaptanto/kaptanto/internal/eventlog"
@@ -334,6 +335,85 @@ func TestBackfillEngine_SnapshotAndStream_HasPending(t *testing.T) {
 
 	engine := backfill.NewEngine([]backfill.BackfillConfig{cfg}, store, nil)
 	assert.True(t, engine.HasPendingBackfills(), "snapshot_and_stream should report pending backfills")
+}
+
+// --- BackfillEngineImpl: AppendFn + OpenConnFn integration ---
+
+func TestBackfillEngineImpl_StreamOnly_HasNoPending(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer store.Close()
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Schema:        "public",
+		Table:         "orders",
+		Strategy:      "stream_only",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	idGen := event.NewIDGenerator()
+	appendFn := func(_ context.Context, _ *event.ChangeEvent) error { return nil }
+	openConnFn := func(_ context.Context) (*pgx.Conn, error) { return nil, nil }
+
+	eng := backfill.NewBackfillEngine([]backfill.BackfillConfig{cfg}, store, idGen, appendFn, openConnFn)
+	assert.False(t, eng.HasPendingBackfills(), "stream_only should not report pending backfills")
+}
+
+func TestBackfillEngineImpl_StreamOnly_Run_MarksCompleted(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer store.Close()
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Schema:        "public",
+		Table:         "orders",
+		Strategy:      "stream_only",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	idGen := event.NewIDGenerator()
+	var appended []*event.ChangeEvent
+	appendFn := func(_ context.Context, ev *event.ChangeEvent) error {
+		appended = append(appended, ev)
+		return nil
+	}
+	openConnFn := func(_ context.Context) (*pgx.Conn, error) { return nil, nil }
+
+	eng := backfill.NewBackfillEngine([]backfill.BackfillConfig{cfg}, store, idGen, appendFn, openConnFn)
+	err = eng.Run(context.Background())
+	require.NoError(t, err)
+
+	state, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, "completed", state.Status)
+	assert.Empty(t, appended, "stream_only should not emit any events")
+}
+
+func TestBackfillEngineImpl_SnapshotAndStream_HasPending(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer store.Close()
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Schema:        "public",
+		Table:         "orders",
+		Strategy:      "snapshot_and_stream",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	idGen := event.NewIDGenerator()
+	appendFn := func(_ context.Context, _ *event.ChangeEvent) error { return nil }
+	openConnFn := func(_ context.Context) (*pgx.Conn, error) { return nil, nil }
+
+	eng := backfill.NewBackfillEngine([]backfill.BackfillConfig{cfg}, store, idGen, appendFn, openConnFn)
+	assert.True(t, eng.HasPendingBackfills(), "snapshot_and_stream should report pending backfills on first run")
 }
 
 // --- EVT-03: Snapshot read event shape ---
