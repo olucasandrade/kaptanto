@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-08T03:59:30Z"
+last_updated: "2026-03-08T13:04:06.777Z"
 progress:
-  total_phases: 3
-  completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_phases: 4
+  completed_phases: 3
+  total_plans: 9
+  completed_plans: 8
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
-**Current focus:** Phase 3: Event Log (Badger)
+**Current focus:** Phase 4: Backfill Engine
 
 ## Current Position
 
-Phase: 3 of 10 (Event Log)
-Plan: 2 of 2 in current phase
-Status: Phase complete
-Last activity: 2026-03-08 -- Completed 03-02 (EventLog wired into PostgresConnector via AppendAndQueue; LOG-01 + CHK-01 ordering enforced)
+Phase: 4 of 10 (Backfill Engine)
+Plan: 1 of 2 in current phase
+Status: Plan 1 complete
+Last activity: 2026-03-08 -- Completed 04-01 (Backfill Engine core package: keyset cursor, watermark, SQLite store, adaptive batch, all 5 strategies, EVT-03/EVT-04)
 
-Progress: [████░░░░░░] 20%
+Progress: [████░░░░░░] 22%
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [████░░░░░░] 20%
 | Phase 02-postgres-source-and-parser P03 | 6 | 2 tasks | 7 files |
 | Phase 03-event-log P01 | 15 | 2 tasks | 6 files |
 | Phase 03-event-log P02 | 3 | 1 task (TDD) | 2 files |
+| Phase 04-backfill-engine P01 | 4 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 03-02]: AppendAndQueue exported as method on connector — enables black-box test of LOG-01 ordering without live Postgres; receiveLoop calls it in XLogData handler
 - [Phase 03-02]: New() delegates to NewWithEventLog(nil) — nil guard preserves backward compat; Phase 4 switches to NewWithEventLog with real BadgerEventLog
 - [Phase 03-02]: Append error triggers reconnect loop (not fatal crash) — Postgres re-delivers transaction from last ack'd LSN; BadgerEventLog dedup skips duplicate
+- [Phase 04-backfill-engine]: PartitionOf exported from badger.go — watermark.go needs cross-package access without circular dependency
+- [Phase 04-backfill-engine]: snapshotTable stubbed in 04-01; full pgx.Conn loop wired in Plan 04-02 — keeps backfill engine testable without live DB
 
 ### Pending Todos
 
@@ -94,5 +97,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 03-02-PLAN.md (EventLog wired into PostgresConnector — Phase 3 complete)
+Stopped at: Completed 04-01-PLAN.md (Backfill Engine core package)
 Resume file: None
