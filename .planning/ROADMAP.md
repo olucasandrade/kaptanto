@@ -69,7 +69,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
+- [ ] 03-01-PLAN.md — BadgerEventLog implementation (EventLog interface, key encoding, Append with dedup+TTL, ReadPartition, TDD)
+- [ ] 03-02-PLAN.md — Connector wiring (add EventLog field to PostgresConnector, Append before store.Save in receiveLoop)
 
 ### Phase 4: Backfill Engine
 **Goal**: Kaptanto can snapshot existing table data and coordinate it with the live WAL stream so consumers see a complete, consistent view
@@ -180,7 +181,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete   | 2026-03-07 |
 | 2. Postgres Source and Parser | 3/3 | Complete   | 2026-03-08 |
-| 3. Event Log | 0/? | Not started | - |
+| 3. Event Log | 0/2 | Not started | - |
 | 4. Backfill Engine | 0/? | Not started | - |
 | 5. Router and stdout Output | 0/? | Not started | - |
 | 6. SSE and gRPC Servers | 0/? | Not started | - |
