@@ -1,10 +1,65 @@
 package postgres_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/kaptanto/kaptanto/internal/checkpoint"
+	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/kaptanto/kaptanto/internal/eventlog"
 	"github.com/kaptanto/kaptanto/internal/source/postgres"
 )
+
+// --- Mock EventLog ---
+
+// mockEventLog records calls to Append for ordering assertions in tests.
+type mockEventLog struct {
+	appendCalls []*event.ChangeEvent
+	appendErr   error
+	appendSeq   uint64
+}
+
+func (m *mockEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
+	m.appendCalls = append(m.appendCalls, ev)
+	if m.appendErr != nil {
+		return 0, m.appendErr
+	}
+	m.appendSeq++
+	return m.appendSeq, nil
+}
+
+func (m *mockEventLog) ReadPartition(_ context.Context, _ uint32, _ uint64, _ int) ([]eventlog.LogEntry, error) {
+	return nil, nil
+}
+
+func (m *mockEventLog) Close() error { return nil }
+
+// --- Mock CheckpointStore ---
+
+// mockCheckpointStore records Save calls to verify CHK-01 ordering.
+type mockCheckpointStore struct {
+	saveCalls int
+	loadLSN   string
+	saveErr   error
+}
+
+func (m *mockCheckpointStore) Save(_ context.Context, _, _ string) error {
+	m.saveCalls++
+	return m.saveErr
+}
+
+func (m *mockCheckpointStore) Load(_ context.Context, _ string) (string, error) {
+	return m.loadLSN, nil
+}
+
+func (m *mockCheckpointStore) Close() error { return nil }
+
+// Ensure mocks satisfy interfaces at compile time.
+var _ eventlog.EventLog = (*mockEventLog)(nil)
+var _ checkpoint.CheckpointStore = (*mockCheckpointStore)(nil)
+
+// --- Existing tests (Test D: must still pass) ---
 
 // TestDefaultSlotName verifies that slotName defaults to "kaptanto_" + SourceID
 // when left empty.
@@ -108,3 +163,134 @@ func TestSlotCheckResult(t *testing.T) {
 
 // Integration tests that require a live Postgres are tagged and excluded from
 // the default test run. See connector_integration_test.go.
+
+// --- New tests for EventLog wiring (Tests A, B, C) ---
+
+// TestNewWithEventLog_NonNil verifies that NewWithEventLog creates a connector
+// with a non-nil EventLog field accessible via the EventLog() accessor (Test A).
+func TestNewWithEventLog_NonNil(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{}
+
+	c := postgres.NewWithEventLog(cfg, store, idGen, el)
+	if c == nil {
+		t.Fatal("NewWithEventLog returned nil connector")
+	}
+	if c.EventLog() == nil {
+		t.Error("EventLog() returned nil; expected non-nil eventlog.EventLog")
+	}
+}
+
+// TestAppendAndQueue_AppendCalledBeforeSend verifies that AppendAndQueue calls
+// eventLog.Append with the event before forwarding it to the events channel
+// (Test B: LOG-01 ordering).
+func TestAppendAndQueue_AppendCalledBeforeSend(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{}
+
+	c := postgres.NewWithEventLog(cfg, store, idGen, el)
+
+	ev := &event.ChangeEvent{IdempotencyKey: "pg1:public.orders:1:insert:0/1"}
+
+	ctx := context.Background()
+	err := c.AppendAndQueue(ctx, ev)
+	if err != nil {
+		t.Fatalf("AppendAndQueue returned unexpected error: %v", err)
+	}
+
+	// Append must have been called.
+	if len(el.appendCalls) != 1 {
+		t.Fatalf("expected 1 Append call, got %d", len(el.appendCalls))
+	}
+	if el.appendCalls[0] != ev {
+		t.Error("Append was called with wrong event")
+	}
+
+	// Event must be on the channel.
+	select {
+	case got := <-c.Events():
+		if got != ev {
+			t.Error("channel received wrong event")
+		}
+	default:
+		t.Error("event not forwarded to channel")
+	}
+}
+
+// TestAppendAndQueue_AppendErrorBlocksCheckpoint verifies that if Append
+// returns an error, AppendAndQueue returns that error and does NOT proceed
+// (Test C: CHK-01 — store.Save must not be called if Append fails).
+func TestAppendAndQueue_AppendErrorBlocksCheckpoint(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{appendErr: errors.New("badger: disk full")}
+
+	c := postgres.NewWithEventLog(cfg, store, idGen, el)
+
+	ev := &event.ChangeEvent{IdempotencyKey: "pg1:public.orders:1:insert:0/1"}
+
+	ctx := context.Background()
+	err := c.AppendAndQueue(ctx, ev)
+	if err == nil {
+		t.Fatal("expected AppendAndQueue to return error when Append fails, got nil")
+	}
+
+	// store.Save must NOT have been called (CHK-01).
+	if store.saveCalls > 0 {
+		t.Errorf("store.Save was called %d times; expected 0 (CHK-01 violated)", store.saveCalls)
+	}
+
+	// Event must NOT be on the channel.
+	select {
+	case <-c.Events():
+		t.Error("event was forwarded to channel despite Append failure")
+	default:
+		// correct — channel should be empty
+	}
+}
+
+// TestNewWithoutEventLog_NilGuard verifies that New (without EventLog) still
+// works and AppendAndQueue is a no-op when eventLog is nil (backward compat).
+func TestNewWithoutEventLog_NilGuard(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+
+	c := postgres.New(cfg, store, idGen)
+
+	ev := &event.ChangeEvent{IdempotencyKey: "pg1:public.orders:1:insert:0/1"}
+
+	ctx := context.Background()
+	// Should not panic with nil eventLog.
+	err := c.AppendAndQueue(ctx, ev)
+	if err != nil {
+		t.Fatalf("AppendAndQueue with nil eventLog returned error: %v", err)
+	}
+
+	// Event should still be forwarded to the channel (nil guard skips Append).
+	select {
+	case got := <-c.Events():
+		if got != ev {
+			t.Error("channel received wrong event")
+		}
+	default:
+		t.Error("event not forwarded to channel when eventLog is nil")
+	}
+}
