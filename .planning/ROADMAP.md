@@ -102,7 +102,7 @@ Plans:
 Plans:
 - [x] 05-01-PLAN.md — Router core: Consumer interface, ConsumerCursorStore interface, partition goroutines, message group blocking (RTR-01, RTR-02, RTR-03, RTR-04)
 - [x] 05-02-PLAN.md — Retry scheduler and stdout writer: exponential backoff, dead-letter, StdoutWriter NDJSON output (RTR-05, OUT-01)
-- [ ] 05-03-PLAN.md — Gap closure: wire RetryScheduler into Router.Run and Router.dispatch, remove duplicate retryRecord type (RTR-05)
+- [x] 05-03-PLAN.md — Gap closure: wire RetryScheduler into Router.Run and Router.dispatch, remove duplicate retryRecord type (RTR-05)
 
 ### Phase 6: SSE and gRPC Servers
 **Goal**: Multiple independent consumers can connect via SSE or gRPC to receive events, with proper resume, backpressure, filtering, and observability
@@ -114,12 +114,13 @@ Plans:
   3. Consumer cursors are flushed to the checkpoint store periodically and consumers resume from their last position on reconnect
   4. Table and operation filtering restricts which events each consumer receives
   5. Prometheus metrics (lag, throughput, errors, consumer lag) and /healthz endpoint are operational
-**Plans**: 2 plans
+**Plans**: 4 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
-- [ ] 06-03: TBD
+- [ ] 06-01-PLAN.md — SQLiteCursorStore (CHK-02) + EventFilter table/operation allow-list (CFG-03, CFG-04)
+- [ ] 06-02-PLAN.md — Prometheus metrics with custom registry (OBS-01) + /healthz endpoint (OBS-02)
+- [ ] 06-03-PLAN.md — SSE server: SSEConsumer + SSEServer with CORS, ping, Last-Event-ID resume (OUT-02, OUT-03, OUT-04, OUT-05)
+- [ ] 06-04-PLAN.md — gRPC server: proto + GRPCConsumer channel bridge + Subscribe/Acknowledge RPCs (OUT-06, OUT-07, OUT-08)
 
 ### Phase 7: Configuration and Multi-Source
 **Goal**: Kaptanto supports rich YAML configuration for multi-source setups with fine-grained per-table filtering
@@ -185,7 +186,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Event Log | 2/2 | Complete   | 2026-03-08 |
 | 4. Backfill Engine | 2/2 | Complete   | 2026-03-08 |
 | 5. Router and stdout Output | 3/3 | Complete   | 2026-03-08 |
-| 6. SSE and gRPC Servers | 0/? | Not started | - |
+| 6. SSE and gRPC Servers | 0/4 | Not started | - |
 | 7. Configuration and Multi-Source | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |
