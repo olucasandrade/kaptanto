@@ -89,8 +89,8 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Observability
 
-- [ ] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
-- [ ] **OBS-02**: Kaptanto exposes /healthz endpoint returning 200 when healthy, 503 with diagnostic JSON when not
+- [x] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
+- [x] **OBS-02**: Kaptanto exposes /healthz endpoint returning 200 when healthy, 503 with diagnostic JSON when not
 - [x] **OBS-03**: Kaptanto emits structured JSON logs with configurable level (debug, info, warn, error)
 
 ### Event Schema
@@ -191,8 +191,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | CHK-02 | Phase 6 | Pending |
 | CFG-03 | Phase 6 | Pending |
 | CFG-04 | Phase 6 | Pending |
-| OBS-01 | Phase 6 | Pending |
-| OBS-02 | Phase 6 | Pending |
+| OBS-01 | Phase 6 | Complete |
+| OBS-02 | Phase 6 | Complete |
 | CFG-02 | Phase 7 | Pending |
 | CFG-05 | Phase 7 | Pending |
 | CFG-06 | Phase 7 | Pending |

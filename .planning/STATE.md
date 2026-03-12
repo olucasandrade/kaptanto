@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 ## Current Position
 
-Phase: 5 of 10 (Router and Stdout Output)
-Plan: 3 of 3 in current phase
+Phase: 6 of 10 (SSE and gRPC Servers)
+Plan: 2 of 4 in current phase
 Status: In progress
-Last activity: 2026-03-08 -- Completed 05-03 (RetryScheduler wired into Router — RTR-05 gap closed end-to-end)
+Last activity: 2026-03-12 -- Completed 06-02 (Observability: KaptantoMetrics + HealthHandler — OBS-01, OBS-02)
 
-Progress: [█████░░░░░] 25%
+Progress: [██████░░░░] 30%
 
 ## Performance Metrics
 
@@ -101,6 +101,9 @@ Recent decisions affecting current work:
 - [Phase 05-02]: StdoutWriter returns raw encoder error — RetryScheduler isPermanentError handles pipe errors; no wrapping needed in writer
 - [Phase 05-03]: IsBlocked approach (option c): RetryScheduler exposes IsBlocked(consumerID, groupKey) — dispatch queries it for skip check; consumerState.blockedGroups removed entirely
 - [Phase 05-03]: sync.Mutex on RetryScheduler — Tick goroutine and dispatch goroutine access rs.states concurrently; rs.mu guards all access; no deadlock (Deliver holds no locks)
+- [Phase 06-02]: KaptantoMetrics uses prometheus.NewRegistry() per instance — prevents double-registration panics in tests; no global DefaultRegisterer usage
+- [Phase 06-02]: HealthHandler accepts []HealthProbe at construction time — stateless after creation, safe for concurrent requests
+- [Phase 06-02]: promhttp.HandlerFor(reg, HandlerOpts{Registry: reg}) — passes custom registry for both metric exposition and internal error counting
 
 ### Pending Todos
 
@@ -112,6 +115,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-08
-Stopped at: Completed 05-03-PLAN.md (RetryScheduler wired into Router — RTR-05 gap closed end-to-end)
+Last session: 2026-03-12
+Stopped at: Completed 06-02-PLAN.md (Observability — KaptantoMetrics + HealthHandler — OBS-01, OBS-02)
 Resume file: None
