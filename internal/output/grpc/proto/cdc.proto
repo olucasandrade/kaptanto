@@ -1,0 +1,39 @@
+syntax = "proto3";
+package kaptanto.v1;
+option go_package = "github.com/kaptanto/kaptanto/internal/output/grpc/proto";
+
+// CdcStream is the gRPC service for streaming Change Data Capture events.
+service CdcStream {
+  // Subscribe opens a server-streaming RPC delivering ChangeEvents to the caller.
+  // Events are filtered by tables and operations in SubscribeRequest.
+  rpc Subscribe(SubscribeRequest) returns (stream ChangeEvent);
+
+  // Acknowledge advances the consumer's durable cursor to the given sequence.
+  // Call after successfully processing an event to persist the resume position.
+  rpc Acknowledge(AcknowledgeRequest) returns (AcknowledgeResponse);
+}
+
+message SubscribeRequest {
+  string consumer_id         = 1; // stable consumer identifier
+  repeated string tables     = 2; // empty = all tables (CFG-03)
+  repeated string operations = 3; // empty = all operations (CFG-04)
+}
+
+message ChangeEvent {
+  string id              = 1; // ULID string
+  string idempotency_key = 2;
+  string operation       = 3; // insert | update | delete | read | control
+  string table           = 4;
+  bytes  payload         = 5; // full JSON-encoded ChangeEvent (OUT-07 JSON fallback)
+}
+
+message AcknowledgeRequest {
+  string consumer_id   = 1;
+  string event_id      = 2; // ULID of the last processed event
+  uint32 partition_id  = 3; // partition to advance cursor on
+  uint64 seq           = 4; // Event Log sequence to advance to
+}
+
+message AcknowledgeResponse {
+  bool ok = 1;
+}
