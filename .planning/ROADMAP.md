@@ -123,17 +123,19 @@ Plans:
 - [ ] 06-04-PLAN.md — gRPC server: proto + GRPCConsumer channel bridge + Subscribe/Acknowledge RPCs (OUT-06, OUT-07, OUT-08)
 
 ### Phase 7: Configuration and Multi-Source
-**Goal**: Kaptanto supports rich YAML configuration for multi-source setups with fine-grained per-table filtering
+**Goal**: Kaptanto supports YAML configuration with fine-grained per-table column and row filtering, and the root command runs the full pipeline
 **Depends on**: Phase 6
 **Requirements**: CFG-02, CFG-05, CFG-06
 **Success Criteria** (what must be TRUE):
   1. Kaptanto parses a YAML config file defining multiple sources with per-table settings and output modes
   2. Column filtering restricts which columns appear in events for configured tables
   3. SQL WHERE condition filtering restricts which rows produce events for configured tables
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 07-01: TBD
+- [ ] 07-01-PLAN.md — Config package: Config/TableConfig structs, Load(), Defaults(), Merge() with CLI flag precedence (CFG-02)
+- [ ] 07-02-PLAN.md — Column filter (ApplyColumnFilter) and WHERE row filter (RowFilter with mini expression evaluator) (CFG-05, CFG-06)
+- [ ] 07-03-PLAN.md — Root command wiring: replace RunE no-op with real pipeline startup using config + filters (CFG-02, CFG-05, CFG-06)
 
 ### Phase 8: High Availability
 **Goal**: Two Kaptanto instances can run against the same database with automatic failover via leader election
