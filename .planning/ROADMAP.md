@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Event Log** - Badger-based durable append-only store with partitioning, dedup, and TTL (completed 2026-03-08)
 - [x] **Phase 4: Backfill Engine** - Snapshot coordination with watermark dedup, keyset cursors, crash recovery (completed 2026-03-08)
 - [x] **Phase 5: Router and stdout Output** - Partitioned routing with per-key ordering, consumer isolation, poison pill handling, NDJSON output (gap closure in progress) (completed 2026-03-08)
-- [ ] **Phase 6: SSE and gRPC Servers** - Full output server suite with consumer cursors, filtering, metrics, and health endpoint
+- [x] **Phase 6: SSE and gRPC Servers** - Full output server suite with consumer cursors, filtering, metrics, and health endpoint (completed 2026-03-12)
 - [ ] **Phase 7: Configuration and Multi-Source** - YAML config parsing, column filtering, SQL WHERE conditions
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
 - [ ] **Phase 9: MongoDB Connector** - Change Streams consumption, BSON normalization, resume token persistence
@@ -186,7 +186,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Event Log | 2/2 | Complete   | 2026-03-08 |
 | 4. Backfill Engine | 2/2 | Complete   | 2026-03-08 |
 | 5. Router and stdout Output | 3/3 | Complete   | 2026-03-08 |
-| 6. SSE and gRPC Servers | 1/4 | In Progress|  |
+| 6. SSE and gRPC Servers | 4/4 | Complete   | 2026-03-12 |
 | 7. Configuration and Multi-Source | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |
