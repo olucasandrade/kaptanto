@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/kaptanto/kaptanto/internal/output"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -26,7 +27,7 @@ func makeEvent(op event.Operation, before, after string) *event.ChangeEvent {
 
 // TestParseRowFilter_Empty verifies that an empty expression produces a no-op filter.
 func TestParseRowFilter_Empty(t *testing.T) {
-	f, err := ParseRowFilter("")
+	f, err := output.ParseRowFilter("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestParseRowFilter_ValidExpr(t *testing.T) {
 		"NOT a = 'z'",
 	}
 	for _, expr := range cases {
-		_, err := ParseRowFilter(expr)
+		_, err := output.ParseRowFilter(expr)
 		if err != nil {
 			t.Errorf("expr %q: unexpected parse error: %v", expr, err)
 		}
@@ -64,7 +65,7 @@ func TestParseRowFilter_InvalidExpr(t *testing.T) {
 		"LIKE '%foo%'",
 	}
 	for _, expr := range cases {
-		_, err := ParseRowFilter(expr)
+		_, err := output.ParseRowFilter(expr)
 		if err == nil {
 			t.Errorf("expr %q: expected parse error but got nil", expr)
 		}
@@ -73,7 +74,7 @@ func TestParseRowFilter_InvalidExpr(t *testing.T) {
 
 // TestRowFilter_MatchNotEqual verifies != comparison.
 func TestRowFilter_MatchNotEqual(t *testing.T) {
-	f, err := ParseRowFilter("status != 'cancelled'")
+	f, err := output.ParseRowFilter("status != 'cancelled'")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestRowFilter_MatchNotEqual(t *testing.T) {
 
 // TestRowFilter_MatchDeleteUsesBefore verifies that delete events evaluate against Before.
 func TestRowFilter_MatchDeleteUsesBefore(t *testing.T) {
-	f, err := ParseRowFilter("status != 'cancelled'")
+	f, err := output.ParseRowFilter("status != 'cancelled'")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestRowFilter_MatchDeleteUsesBefore(t *testing.T) {
 
 // TestRowFilter_MatchIsNull verifies IS NULL evaluation.
 func TestRowFilter_MatchIsNull(t *testing.T) {
-	f, err := ParseRowFilter("col IS NULL")
+	f, err := output.ParseRowFilter("col IS NULL")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -128,7 +129,7 @@ func TestRowFilter_MatchIsNull(t *testing.T) {
 
 // TestRowFilter_MatchIsNotNull verifies IS NOT NULL evaluation.
 func TestRowFilter_MatchIsNotNull(t *testing.T) {
-	f, err := ParseRowFilter("col IS NOT NULL")
+	f, err := output.ParseRowFilter("col IS NOT NULL")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -146,7 +147,7 @@ func TestRowFilter_MatchIsNotNull(t *testing.T) {
 
 // TestRowFilter_MatchIn verifies IN list evaluation.
 func TestRowFilter_MatchIn(t *testing.T) {
-	f, err := ParseRowFilter("status IN ('active','pending')")
+	f, err := output.ParseRowFilter("status IN ('active','pending')")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -164,7 +165,7 @@ func TestRowFilter_MatchIn(t *testing.T) {
 
 // TestRowFilter_MatchAnd verifies AND evaluation.
 func TestRowFilter_MatchAnd(t *testing.T) {
-	f, err := ParseRowFilter("a = 'x' AND b = 'y'")
+	f, err := output.ParseRowFilter("a = 'x' AND b = 'y'")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -182,7 +183,7 @@ func TestRowFilter_MatchAnd(t *testing.T) {
 
 // TestRowFilter_MatchOr verifies OR evaluation.
 func TestRowFilter_MatchOr(t *testing.T) {
-	f, err := ParseRowFilter("a = 'z' OR a = 'x'")
+	f, err := output.ParseRowFilter("a = 'z' OR a = 'x'")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -200,7 +201,7 @@ func TestRowFilter_MatchOr(t *testing.T) {
 
 // TestRowFilter_MatchNot verifies NOT evaluation.
 func TestRowFilter_MatchNot(t *testing.T) {
-	f, err := ParseRowFilter("NOT a = 'z'")
+	f, err := output.ParseRowFilter("NOT a = 'z'")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -218,7 +219,7 @@ func TestRowFilter_MatchNot(t *testing.T) {
 
 // TestRowFilter_MatchNumericComparison verifies numeric > comparison.
 func TestRowFilter_MatchNumericComparison(t *testing.T) {
-	f, err := ParseRowFilter("amount > 50")
+	f, err := output.ParseRowFilter("amount > 50")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -236,7 +237,7 @@ func TestRowFilter_MatchNumericComparison(t *testing.T) {
 
 // TestRowFilter_MatchEqual verifies = comparison.
 func TestRowFilter_MatchEqual(t *testing.T) {
-	f, err := ParseRowFilter("status = 'active'")
+	f, err := output.ParseRowFilter("status = 'active'")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -254,7 +255,7 @@ func TestRowFilter_MatchEqual(t *testing.T) {
 
 // TestRowFilter_MatchGreaterThanOrEqual verifies >= comparison.
 func TestRowFilter_MatchGreaterThanOrEqual(t *testing.T) {
-	f, err := ParseRowFilter("amount >= 50")
+	f, err := output.ParseRowFilter("amount >= 50")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -272,7 +273,7 @@ func TestRowFilter_MatchGreaterThanOrEqual(t *testing.T) {
 
 // TestRowFilter_MatchLessThan verifies < comparison.
 func TestRowFilter_MatchLessThan(t *testing.T) {
-	f, err := ParseRowFilter("amount < 50")
+	f, err := output.ParseRowFilter("amount < 50")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -290,7 +291,7 @@ func TestRowFilter_MatchLessThan(t *testing.T) {
 
 // TestRowFilter_MatchLessThanOrEqual verifies <= comparison.
 func TestRowFilter_MatchLessThanOrEqual(t *testing.T) {
-	f, err := ParseRowFilter("amount <= 50")
+	f, err := output.ParseRowFilter("amount <= 50")
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

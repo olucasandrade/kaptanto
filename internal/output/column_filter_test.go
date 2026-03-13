@@ -3,11 +3,13 @@ package output_test
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/kaptanto/kaptanto/internal/output"
 )
 
 // TestApplyColumnFilter_NilInput verifies that a nil raw JSON input passes through unchanged.
 func TestApplyColumnFilter_NilInput(t *testing.T) {
-	result, err := ApplyColumnFilter(nil, []string{"id"})
+	result, err := output.ApplyColumnFilter(nil, []string{"id"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -19,7 +21,7 @@ func TestApplyColumnFilter_NilInput(t *testing.T) {
 // TestApplyColumnFilter_NilAllowList verifies that a nil allow-list is a pass-through.
 func TestApplyColumnFilter_NilAllowList(t *testing.T) {
 	raw := json.RawMessage(`{"id":1,"status":"ok"}`)
-	result, err := ApplyColumnFilter(raw, nil)
+	result, err := output.ApplyColumnFilter(raw, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -31,7 +33,7 @@ func TestApplyColumnFilter_NilAllowList(t *testing.T) {
 // TestApplyColumnFilter_EmptyAllowList verifies that an empty allow-list is a pass-through.
 func TestApplyColumnFilter_EmptyAllowList(t *testing.T) {
 	raw := json.RawMessage(`{"id":1,"status":"ok"}`)
-	result, err := ApplyColumnFilter(raw, []string{})
+	result, err := output.ApplyColumnFilter(raw, []string{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -43,7 +45,7 @@ func TestApplyColumnFilter_EmptyAllowList(t *testing.T) {
 // TestApplyColumnFilter_FiltersColumns verifies that only allowed columns appear in the output.
 func TestApplyColumnFilter_FiltersColumns(t *testing.T) {
 	raw := json.RawMessage(`{"id":1,"status":"ok","internal":"x"}`)
-	result, err := ApplyColumnFilter(raw, []string{"id", "status"})
+	result, err := output.ApplyColumnFilter(raw, []string{"id", "status"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,7 +73,7 @@ func TestApplyColumnFilter_NoMutation(t *testing.T) {
 	original := make(json.RawMessage, len(raw))
 	copy(original, raw)
 
-	result, err := ApplyColumnFilter(raw, []string{"id", "status"})
+	result, err := output.ApplyColumnFilter(raw, []string{"id", "status"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -93,7 +95,7 @@ func TestApplyColumnFilter_NonObjectJSON(t *testing.T) {
 	allowed := []string{"id"}
 	for _, tc := range cases {
 		raw := json.RawMessage(tc)
-		result, err := ApplyColumnFilter(raw, allowed)
+		result, err := output.ApplyColumnFilter(raw, allowed)
 		if err != nil {
 			t.Errorf("input %q: unexpected error: %v", tc, err)
 		}
