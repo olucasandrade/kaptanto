@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 ## Current Position
 
-Phase: 6 of 10 (SSE and gRPC Servers)
-Plan: 2 of 4 in current phase
+Phase: 7 of 10 (Configuration and Multi-Source)
+Plan: 1 of 4 in current phase
 Status: In progress
-Last activity: 2026-03-12 -- Completed 06-02 (Observability: KaptantoMetrics + HealthHandler — OBS-01, OBS-02)
+Last activity: 2026-03-13 -- Completed 07-01 (Config package: Load, Defaults, Merge — CFG-02)
 
 Progress: [██████░░░░] 30%
 
@@ -56,6 +56,7 @@ Progress: [██████░░░░] 30%
 | Phase 05-router-and-stdout-output P01 | 4 | 2 tasks (TDD) | 2 files |
 | Phase 05-router-and-stdout-output P02 | 2 | 2 tasks (TDD) | 4 files |
 | Phase 05-router-and-stdout-output P03 | 4 | 2 tasks (TDD) | 3 files |
+| Phase 07-configuration-and-multi-source P01 | 2 | 1 task (TDD) | 3 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,9 @@ Recent decisions affecting current work:
 - [Phase 06-02]: KaptantoMetrics uses prometheus.NewRegistry() per instance — prevents double-registration panics in tests; no global DefaultRegisterer usage
 - [Phase 06-02]: HealthHandler accepts []HealthProbe at construction time — stateless after creation, safe for concurrent requests
 - [Phase 06-02]: promhttp.HandlerFor(reg, HandlerOpts{Registry: reg}) — passes custom registry for both metric exposition and internal error counting
+- [Phase 07-01]: Retention stored as string not time.Duration — empty string is distinguishable from explicit 0 at runtime; Event Log initializer applies 1h when empty
+- [Phase 07-01]: Merge --tables replaces entire cfg.Tables map with empty TableConfig entries — per-table file config discarded when flag explicitly set
+- [Phase 07-01]: No global config variable — callers create *Config and pass explicitly; package is safe for concurrent test use
 
 ### Pending Todos
 
@@ -115,6 +119,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12
-Stopped at: Completed 06-02-PLAN.md (Observability — KaptantoMetrics + HealthHandler — OBS-01, OBS-02)
+Last session: 2026-03-13
+Stopped at: Completed 07-01-PLAN.md (Config package — Load, Defaults, Merge — CFG-02)
 Resume file: None
