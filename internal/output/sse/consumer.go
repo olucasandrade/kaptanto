@@ -22,39 +22,40 @@ import (
 // -> Deliver returns a write error -> RetryScheduler dead-letters the consumer
 // (isPermanentError path). No explicit Deregister needed.
 type SSEConsumer struct {
-	id             string // stable: "sse:<consumerID>"
-	w              http.ResponseWriter
-	rc             *http.ResponseController
-	filter         *output.EventFilter
-	cs             router.ConsumerCursorStore
-	m              *observability.KaptantoMetrics
-	rowFilter      *output.RowFilter  // CFG-06: WHERE-expression filter; nil = pass-through
-	allowedColumns []string           // CFG-05: column allow-list; nil/empty = pass-through
+	id         string // stable: "sse:<consumerID>"
+	w          http.ResponseWriter
+	rc         *http.ResponseController
+	filter     *output.EventFilter
+	cs         router.ConsumerCursorStore
+	m          *observability.KaptantoMetrics
+	rowFilters map[string]*output.RowFilter // CFG-06: per-table WHERE-expression filter; nil map = pass-through
+	colFilters map[string][]string          // CFG-05: per-table column allow-list; nil map = pass-through
 }
 
 // Compile-time assertion: SSEConsumer implements router.Consumer.
 var _ router.Consumer = (*SSEConsumer)(nil)
 
 // NewSSEConsumer constructs an SSEConsumer for the given HTTP connection.
-// rowFilter and allowedColumns may be nil/empty for pass-through behavior.
+// rowFilters and colFilters are per-table maps; nil maps are treated as
+// pass-through (equivalent to no filter configured).
 func NewSSEConsumer(
 	consumerID string,
 	w http.ResponseWriter,
 	filter *output.EventFilter,
 	cs router.ConsumerCursorStore,
 	m *observability.KaptantoMetrics,
-	rowFilter *output.RowFilter,
-	allowedColumns []string,
+	rowFilters map[string]*output.RowFilter,
+	colFilters map[string][]string,
 ) *SSEConsumer {
 	return &SSEConsumer{
-		id:             "sse:" + consumerID,
-		w:              w,
-		rc:             http.NewResponseController(w),
-		filter:         filter,
-		cs:             cs,
-		m:              m,
-		rowFilter:      rowFilter,
-		allowedColumns: allowedColumns,
+		id:         "sse:" + consumerID,
+		w:          w,
+		rc:         http.NewResponseController(w),
+		filter:     filter,
+		cs:         cs,
+		m:          m,
+		rowFilters: rowFilters,
+		colFilters: colFilters,
 	}
 }
 
@@ -76,21 +77,25 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 		return c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq)
 	}
 
-	// Row filter (CFG-06): if a WHERE expression is configured and the event
-	// does not match, advance cursor silently without writing to the wire.
-	if c.rowFilter != nil && !c.rowFilter.Match(entry.Event) {
-		return c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq)
+	// Row filter (CFG-06): look up per-table filter by event table name.
+	// If a filter is configured for this table and the event does not match,
+	// advance cursor silently without writing to the wire.
+	if rf, ok := c.rowFilters[entry.Event.Table]; ok && rf != nil {
+		if !rf.Match(entry.Event) {
+			return c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq)
+		}
 	}
 
-	// Column filter (CFG-05): strip disallowed columns from Before/After.
-	// ApplyColumnFilter is a no-op when c.allowedColumns is nil/empty.
+	// Column filter (CFG-05): look up per-table allowed columns by event table name.
+	// ApplyColumnFilter is a no-op when cols is nil/empty.
 	// IMPORTANT: entry.Event is a shared pointer — copy into a new struct, never mutate.
 	ev := entry.Event
-	filteredBefore, err := output.ApplyColumnFilter(ev.Before, c.allowedColumns)
+	cols := c.colFilters[entry.Event.Table] // nil if table not configured
+	filteredBefore, err := output.ApplyColumnFilter(ev.Before, cols)
 	if err != nil {
 		return fmt.Errorf("sse: column filter before: %w", err)
 	}
-	filteredAfter, err := output.ApplyColumnFilter(ev.After, c.allowedColumns)
+	filteredAfter, err := output.ApplyColumnFilter(ev.After, cols)
 	if err != nil {
 		return fmt.Errorf("sse: column filter after: %w", err)
 	}

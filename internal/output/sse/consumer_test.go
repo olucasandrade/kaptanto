@@ -61,7 +61,7 @@ func TestSSEConsumer_RowFilterMatchFalse_AdvancesCursorSilently(t *testing.T) {
 	rf, err := output.ParseRowFilter("amount > 9999")
 	require.NoError(t, err)
 
-	consumer := NewSSEConsumer("row-filter-miss", rr, filter, cs, nil, rf, nil)
+	consumer := NewSSEConsumer("row-filter-miss", rr, filter, cs, nil, map[string]*output.RowFilter{"orders": rf}, nil)
 
 	ev := makeInsertEvent(map[string]any{"id": 1, "amount": 5})
 	entry := eventlog.LogEntry{Seq: 7, Event: ev}
@@ -90,7 +90,7 @@ func TestSSEConsumer_RowFilterMatchTrue_WritesToWire(t *testing.T) {
 	rf, err := output.ParseRowFilter("amount > 1")
 	require.NoError(t, err)
 
-	consumer := NewSSEConsumer("row-filter-hit", rr, filter, cs, nil, rf, nil)
+	consumer := NewSSEConsumer("row-filter-hit", rr, filter, cs, nil, map[string]*output.RowFilter{"orders": rf}, nil)
 
 	ev := makeInsertEvent(map[string]any{"id": 2, "amount": 100})
 	entry := eventlog.LogEntry{Seq: 3, Event: ev}
@@ -113,7 +113,7 @@ func TestSSEConsumer_ColumnFilter_StripsForbiddenColumns(t *testing.T) {
 
 	// Only allow "id" — "secret" must be stripped.
 	allowedColumns := []string{"id"}
-	consumer := NewSSEConsumer("col-filter", rr, filter, cs, nil, nil, allowedColumns)
+	consumer := NewSSEConsumer("col-filter", rr, filter, cs, nil, nil, map[string][]string{"orders": allowedColumns})
 
 	ev := makeInsertEvent(map[string]any{"id": 42, "secret": "s3cr3t"})
 	entry := eventlog.LogEntry{Seq: 1, Event: ev}
@@ -189,7 +189,7 @@ func TestSSEConsumer_Deliver_PartitionID(t *testing.T) {
 		cs := router.NewNoopCursorStore()
 		rf, err := output.ParseRowFilter("amount > 9999")
 		require.NoError(t, err)
-		consumer := NewSSEConsumer("chk02-rowfilter", rr, filter, cs, nil, rf, nil)
+		consumer := NewSSEConsumer("chk02-rowfilter", rr, filter, cs, nil, map[string]*output.RowFilter{"orders": rf}, nil)
 
 		ev := makeInsertEvent(map[string]any{"id": 3, "amount": 1})
 		entry := eventlog.LogEntry{Seq: 10, PartitionID: wantPartition, Event: ev}
@@ -224,7 +224,7 @@ func TestSSEConsumer_ColumnFilter_DoesNotMutateSharedEvent(t *testing.T) {
 
 	// Consumer with column restriction.
 	rr := httptest.NewRecorder()
-	consumer := NewSSEConsumer("no-mutate", rr, filter, cs, nil, nil, []string{"id"})
+	consumer := NewSSEConsumer("no-mutate", rr, filter, cs, nil, nil, map[string][]string{"orders": {"id"}})
 
 	err := consumer.Deliver(context.Background(), entry)
 	require.NoError(t, err)

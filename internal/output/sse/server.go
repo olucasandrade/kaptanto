@@ -21,16 +21,22 @@ type SSEServer struct {
 	metrics      *observability.KaptantoMetrics
 	corsOrigin   string        // e.g. "*" or "https://example.com"
 	pingInterval time.Duration // keepalive comment period; default 15s
+	rowFilters   map[string]*output.RowFilter // CFG-06: per-table row filter; nil = pass-through for all tables
+	colFilters   map[string][]string          // CFG-05: per-table column allow-list; nil = pass-through for all tables
 }
 
 // NewSSEServer constructs an SSEServer.
 // corsOrigin defaults to "*" if empty. pingInterval defaults to 15s if zero.
+// rowFilters and colFilters are per-table maps; nil maps are treated as
+// pass-through (equivalent to no filter configured for any table).
 func NewSSEServer(
 	r *router.Router,
 	cs router.ConsumerCursorStore,
 	m *observability.KaptantoMetrics,
 	corsOrigin string,
 	pingInterval time.Duration,
+	rowFilters map[string]*output.RowFilter,
+	colFilters map[string][]string,
 ) *SSEServer {
 	if pingInterval == 0 {
 		pingInterval = 15 * time.Second
@@ -44,6 +50,8 @@ func NewSSEServer(
 		metrics:      m,
 		corsOrigin:   corsOrigin,
 		pingInterval: pingInterval,
+		rowFilters:   rowFilters,
+		colFilters:   colFilters,
 	}
 }
 
@@ -75,7 +83,7 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ops := filterNonEmpty(strings.Split(r.URL.Query().Get("operations"), ","))
 	filter := output.NewEventFilter(tables, ops)
 
-	consumer := NewSSEConsumer(consumerID, w, filter, s.cursorStore, s.metrics, nil, nil)
+	consumer := NewSSEConsumer(consumerID, w, filter, s.cursorStore, s.metrics, s.rowFilters, s.colFilters)
 
 	// Last-Event-ID: consumerID is the resume key. The cursor store holds the
 	// persisted (partitionID, seq) from the prior connection's SaveCursor calls.
