@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-08T21:53:42.331Z"
+last_updated: "2026-03-15T11:35:29.843Z"
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 12
-  completed_plans: 12
+  total_phases: 7
+  completed_phases: 7
+  total_plans: 20
+  completed_plans: 20
 ---
 
 # Project State
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 Phase: 7 of 10 (Configuration and Multi-Source)
 Plan: 4 of 4 in current phase
-Status: In progress
-Last activity: 2026-03-15 -- Completed 07-03 (RunE startup wiring: guard, config load, Merge, graceful shutdown — CFG-05, CFG-06)
+Status: Complete
+Last activity: 2026-03-15 -- Completed 07-04 (wire ApplyColumnFilter and RowFilter.Match into SSE and gRPC consumers — CFG-05, CFG-06)
 
-Progress: [███████░░░] 35%
+Progress: [████████░░] 40%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [███████░░░] 35%
 | Phase 05-router-and-stdout-output P03 | 4 | 2 tasks (TDD) | 3 files |
 | Phase 07-configuration-and-multi-source P01 | 2 | 1 task (TDD) | 3 files |
 | Phase 07-configuration-and-multi-source P03 | 3 | 1 task (TDD) | 2 files |
+| Phase 07-configuration-and-multi-source P04 | 7 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,9 @@ Recent decisions affecting current work:
 - [Phase 07-03]: runPipeline is a stub for Phase 7 integration; real Phase 1-6 component wiring deferred to Phase 8+
 - [Phase 07-03]: Guard checks configPath == "" and sourceDSN == "" before Merge; post-merge adds second cfg.Source == "" check to catch --source explicitly set to "" or config file with no source field
 - [Phase 07-03]: signal.NotifyContext wraps cmd.Context() so test harnesses can inject contexts without real OS signals
+- [Phase 07-04]: Shallow event copy (filtered := *ev) prevents mutation of shared event pointer in Router fan-out
+- [Phase 07-04]: nil rowFilter / nil allowedColumns treated as pass-through — backward-compatible with all existing call sites
+- [Phase 07-04]: Row filter placed before column filter in Deliver — filtered rows skip encoding work entirely
 
 ### Pending Todos
 
@@ -124,5 +128,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Completed 07-03-PLAN.md (RunE startup wiring — CFG-05, CFG-06)
+Stopped at: Completed 07-04-PLAN.md (wire ApplyColumnFilter and RowFilter.Match into SSE and gRPC consumers — CFG-05, CFG-06)
 Resume file: None
