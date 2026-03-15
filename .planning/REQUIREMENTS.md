@@ -24,7 +24,7 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Parser
 
-- [ ] **PAR-01**: Kaptanto decodes pgoutput wire format (Relation, Insert, Update, Delete, Begin, Commit messages)
+- [x] **PAR-01**: Kaptanto decodes pgoutput wire format (Relation, Insert, Update, Delete, Begin, Commit messages)
 - [x] **PAR-02**: Kaptanto maintains a TOAST cache and merges unchanged markers with cached values for complete rows
 - [x] **PAR-03**: Kaptanto detects schema evolution (new Relation messages) and updates the RelationCache
 - [ ] **PAR-04**: Kaptanto normalizes MongoDB BSON documents into the unified ChangeEvent format
@@ -95,7 +95,7 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Event Schema
 
-- [ ] **EVT-01**: All events follow unified JSON format with id, idempotency_key, timestamp, source, operation, table, key, before, after, metadata
+- [x] **EVT-01**: All events follow unified JSON format with id, idempotency_key, timestamp, source, operation, table, key, before, after, metadata
 - [x] **EVT-02**: Events use ULID for sortable, time-ordered, unique IDs
 - [x] **EVT-03**: Snapshot reads have operation "read" with snapshot metadata (progress, snapshot_id)
 - [x] **EVT-04**: Control events signal pipeline state changes (snapshot_complete, table_added, schema_change)
@@ -144,7 +144,7 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EVT-01 | Phase 7.3 (gap closure) | Pending |
+| EVT-01 | Phase 7.3 (gap closure) | Complete |
 | EVT-02 | Phase 1 | Complete (01-01) |
 | CFG-01 | Phase 1 | Complete |
 | OBS-03 | Phase 1 | Complete (01-01) |
@@ -157,7 +157,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SRC-06 | Phase 2 | Complete |
 | SRC-07 | Phase 2 | Complete |
 | SRC-08 | Phase 2 | Complete |
-| PAR-01 | Phase 7.3 (gap closure) | Pending |
+| PAR-01 | Phase 7.3 (gap closure) | Complete |
 | PAR-02 | Phase 2 | Complete (02-02) |
 | PAR-03 | Phase 2 | Complete (02-02) |
 | PAR-05 | Phase 2 | Complete (02-02) |

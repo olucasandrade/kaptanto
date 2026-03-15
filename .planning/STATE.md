@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-15T18:24:51.505Z"
+last_updated: "2026-03-15T12:53:00Z"
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 26
-  completed_plans: 25
+  completed_plans: 26
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 Phase: 7 of 10 (Configuration and Multi-Source)
 Plan: 4 of 4 in current phase
 Status: Complete
-Last activity: 2026-03-15 -- Completed 07.2-01 (SSEServer/GRPCServer per-table filter maps — CFG-05 and CFG-06 server-layer gap closed)
+Last activity: 2026-03-15 -- Completed 07.3-02 (OldTuple before-image decode in handleUpdate/handleDelete — EVT-01 and PAR-01 closed)
 
 Progress: [████████░░] 40%
 
@@ -64,6 +64,7 @@ Progress: [████████░░] 40%
 | Phase 07.2-pipeline-assembly P01 | 3 | 2 tasks | 6 files |
 | Phase 07.2-pipeline-assembly P02 | 4 | 1 tasks | 2 files |
 | Phase 07.3-milestone-gap-closure P01 | 1 | 1 tasks | 2 files |
+| Phase 07.3-milestone-gap-closure P02 | 3 | 1 task (TDD) | 2 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,8 @@ Recent decisions affecting current work:
 - [Phase 07.2-02]: gRPC mode uses cfg.Port+1 for observability HTTP — gRPC H2 framing owns cfg.Port exclusively
 - [Phase 07.3-milestone-gap-closure]: Drain-or-drop select replaces blocking AppendAndQueue channel send — event is durable in Badger before send, so drop from channel is safe; Router reads from eventLog.ReadPartition not connector.Events()
 - [Phase 07.3-milestone-gap-closure]: ctx param kept in AppendAndQueue signature; only the select body changed — zero caller breakage
+- [Phase 07.3-02]: nil prevRow to decodeColumns for OldTuple — OldTuple is already the prior row from Postgres; TOAST merge would corrupt it
+- [Phase 07.3-02]: OldTuple nil guard mandatory — REPLICA IDENTITY DEFAULT updates/deletes have no OldTuple; guard keeps Before=nil and avoids nil dereference
 
 ### Pending Todos
 
@@ -142,5 +145,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Completed 07.2-02-PLAN.md (runPipeline full implementation — kaptanto binary now wires all Phase 1-6 components)
+Stopped at: Completed 07.3-02-PLAN.md (OldTuple before-image decode — EVT-01 and PAR-01 closed)
 Resume file: None
