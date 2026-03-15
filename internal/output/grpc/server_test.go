@@ -28,7 +28,7 @@ func testConsumer(t *testing.T) *GRPCConsumer {
 	t.Helper()
 	filter := output.NewEventFilter(nil, nil) // allow all
 	cs := router.NewNoopCursorStore()
-	return NewGRPCConsumer("test-consumer", 8, filter, cs, nil)
+	return NewGRPCConsumer("test-consumer", 8, filter, cs, nil, nil, nil)
 }
 
 // Test 1: Deliver encodes event to proto ChangeEvent and sends to buffered channel
@@ -59,7 +59,7 @@ func TestGRPCConsumer_DeliverChannelFull(t *testing.T) {
 	filter := output.NewEventFilter(nil, nil)
 	cs := router.NewNoopCursorStore()
 	// bufSize=1 so one delivery fills it.
-	c := NewGRPCConsumer("backpressure-test", 1, filter, cs, nil)
+	c := NewGRPCConsumer("backpressure-test", 1, filter, cs, nil, nil, nil)
 	ctx := context.Background()
 
 	entry := eventlog.LogEntry{Seq: 1, Event: testEvent()}
@@ -88,7 +88,7 @@ func TestGRPCServer_SubscribeDeliversEvents(t *testing.T) {
 	}
 
 	filter := output.NewEventFilter(nil, nil)
-	consumer := NewGRPCConsumer("test-sub", 64, filter, cs, nil)
+	consumer := NewGRPCConsumer("test-sub", 64, filter, cs, nil, nil, nil)
 	defer consumer.Close()
 
 	// Deliver one event to the consumer channel.
@@ -143,7 +143,7 @@ func TestGRPCServer_SubscribeExitsOnContextCancel(t *testing.T) {
 	stream.cancelFn = cancel
 
 	filter := output.NewEventFilter(nil, nil)
-	consumer := NewGRPCConsumer("cancel-test", 64, filter, cs, nil)
+	consumer := NewGRPCConsumer("cancel-test", 64, filter, cs, nil, nil, nil)
 	defer consumer.Close()
 
 	errCh := make(chan error, 1)
