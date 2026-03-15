@@ -67,7 +67,7 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 ### Checkpointing
 
 - [x] **CHK-01**: Source checkpoint (Postgres LSN / MongoDB resume token) is NEVER advanced until event is durably written
-- [ ] **CHK-02**: Consumer cursors are flushed to checkpoint store every configurable interval (default 5s)
+- [x] **CHK-02**: Consumer cursors are flushed to checkpoint store every configurable interval (default 5s)
 - [x] **CHK-03**: All state is flushed on graceful shutdown (SIGTERM/SIGINT)
 - [x] **CHK-04**: SQLite checkpoint store for single-instance mode (pure Go, no CGO)
 - [ ] **CHK-05**: Postgres checkpoint store for HA mode (shared state between instances)
@@ -78,8 +78,8 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 - [x] **CFG-02**: Kaptanto parses YAML config file with multi-source, per-table settings, and output modes
 - [ ] **CFG-03**: Kaptanto supports table filtering (include specific tables)
 - [ ] **CFG-04**: Kaptanto supports operation filtering per table (insert, update, delete)
-- [x] **CFG-05**: Kaptanto supports column filtering per table (include specific columns)
-- [x] **CFG-06**: Kaptanto supports SQL WHERE condition filtering per table
+- [ ] **CFG-05**: Kaptanto supports column filtering per table (include specific columns)
+- [ ] **CFG-06**: Kaptanto supports SQL WHERE condition filtering per table
 
 ### High Availability
 
@@ -89,8 +89,8 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Observability
 
-- [x] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
-- [x] **OBS-02**: Kaptanto exposes /healthz endpoint returning 200 when healthy, 503 with diagnostic JSON when not
+- [ ] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
+- [ ] **OBS-02**: Kaptanto exposes /healthz endpoint returning 200 when healthy, 503 with diagnostic JSON when not
 - [x] **OBS-03**: Kaptanto emits structured JSON logs with configurable level (debug, info, warn, error)
 
 ### Event Schema
@@ -181,21 +181,21 @@ Deferred to future release. Tracked but not in current roadmap.
 | RTR-04 | Phase 5 | Complete |
 | RTR-05 | Phase 5 | Complete |
 | OUT-01 | Phase 5 | Complete |
-| OUT-02 | Phase 6 | Pending |
-| OUT-03 | Phase 6 | Pending |
-| OUT-04 | Phase 6 | Pending |
-| OUT-05 | Phase 6 | Pending |
-| OUT-06 | Phase 6 | Pending |
-| OUT-07 | Phase 6 | Pending |
-| OUT-08 | Phase 6 | Pending |
-| CHK-02 | Phase 6 | Pending |
-| CFG-03 | Phase 6 | Pending |
-| CFG-04 | Phase 6 | Pending |
-| OBS-01 | Phase 6 | Complete |
-| OBS-02 | Phase 6 | Complete |
+| OUT-02 | Phase 6 (verified Phase 7.1) | Pending |
+| OUT-03 | Phase 6 (verified Phase 7.1) | Pending |
+| OUT-04 | Phase 6 (verified Phase 7.1) | Pending |
+| OUT-05 | Phase 6 (verified Phase 7.1) | Pending |
+| OUT-06 | Phase 6 (verified Phase 7.1) | Pending |
+| OUT-07 | Phase 6 (verified Phase 7.1) | Pending |
+| OUT-08 | Phase 6 (verified Phase 7.1) | Pending |
+| CHK-02 | Phase 7.1 | Complete |
+| CFG-03 | Phase 6 (verified Phase 7.1) | Pending |
+| CFG-04 | Phase 6 (verified Phase 7.1) | Pending |
+| OBS-01 | Phase 7.2 | Pending |
+| OBS-02 | Phase 7.2 | Pending |
 | CFG-02 | Phase 7 | Complete |
-| CFG-05 | Phase 7 | Complete |
-| CFG-06 | Phase 7 | Complete |
+| CFG-05 | Phase 7.2 | Pending |
+| CFG-06 | Phase 7.2 | Pending |
 | HA-01 | Phase 8 | Pending |
 | HA-02 | Phase 8 | Pending |
 | HA-03 | Phase 8 | Pending |

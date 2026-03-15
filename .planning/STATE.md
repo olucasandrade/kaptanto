@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-15T11:35:29.843Z"
+last_updated: "2026-03-15T12:07:24.066Z"
 progress:
-  total_phases: 7
+  total_phases: 9
   completed_phases: 7
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 22
+  completed_plans: 21
 ---
 
 # Project State
@@ -59,6 +59,7 @@ Progress: [████████░░] 40%
 | Phase 07-configuration-and-multi-source P01 | 2 | 1 task (TDD) | 3 files |
 | Phase 07-configuration-and-multi-source P03 | 3 | 1 task (TDD) | 2 files |
 | Phase 07-configuration-and-multi-source P04 | 7 | 2 tasks | 6 files |
+| Phase 07.1-infrastructure-fixes P01 | 2 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,7 @@ Recent decisions affecting current work:
 - [Phase 07-04]: Shallow event copy (filtered := *ev) prevents mutation of shared event pointer in Router fan-out
 - [Phase 07-04]: nil rowFilter / nil allowedColumns treated as pass-through — backward-compatible with all existing call sites
 - [Phase 07-04]: Row filter placed before column filter in Deliver — filtered rows skip encoding work entirely
+- [Phase 07.1-infrastructure-fixes]: PartitionID set by ReadPartition (not Append) — only the read path knows which partition was queried; Append derives partition internally
 
 ### Pending Todos
 
@@ -128,5 +130,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Completed 07-04-PLAN.md (wire ApplyColumnFilter and RowFilter.Match into SSE and gRPC consumers — CFG-05, CFG-06)
+Stopped at: Completed 07.1-01-PLAN.md (CHK-02 LogEntry.PartitionID propagation fix — multi-partition SSE cursor correctness)
 Resume file: None
