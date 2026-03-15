@@ -56,13 +56,13 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 ### Output Servers
 
 - [x] **OUT-01**: stdout output writes one NDJSON line per event
-- [ ] **OUT-02**: SSE server supports multiple independent consumer connections
-- [ ] **OUT-03**: SSE server supports Last-Event-ID header for automatic resume on reconnect
-- [ ] **OUT-04**: SSE server sends periodic ping comments to keep connections alive through proxies
-- [ ] **OUT-05**: SSE server supports configurable CORS origins
-- [ ] **OUT-06**: gRPC server implements Subscribe (server-streaming) and Acknowledge (unary) RPCs
-- [ ] **OUT-07**: gRPC server supports protobuf serialization with JSON fallback
-- [ ] **OUT-08**: gRPC server uses HTTP/2 native backpressure for flow control
+- [x] **OUT-02**: SSE server supports multiple independent consumer connections
+- [x] **OUT-03**: SSE server supports Last-Event-ID header for automatic resume on reconnect
+- [x] **OUT-04**: SSE server sends periodic ping comments to keep connections alive through proxies
+- [x] **OUT-05**: SSE server supports configurable CORS origins
+- [x] **OUT-06**: gRPC server implements Subscribe (server-streaming) and Acknowledge (unary) RPCs
+- [x] **OUT-07**: gRPC server supports protobuf serialization with JSON fallback
+- [x] **OUT-08**: gRPC server uses HTTP/2 native backpressure for flow control
 
 ### Checkpointing
 
@@ -76,8 +76,8 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 - [x] **CFG-01**: Kaptanto accepts CLI flags: --source, --tables, --output, --port, --config, --data-dir, --retention, --ha, --node-id
 - [x] **CFG-02**: Kaptanto parses YAML config file with multi-source, per-table settings, and output modes
-- [ ] **CFG-03**: Kaptanto supports table filtering (include specific tables)
-- [ ] **CFG-04**: Kaptanto supports operation filtering per table (insert, update, delete)
+- [x] **CFG-03**: Kaptanto supports table filtering (include specific tables)
+- [x] **CFG-04**: Kaptanto supports operation filtering per table (insert, update, delete)
 - [ ] **CFG-05**: Kaptanto supports column filtering per table (include specific columns)
 - [ ] **CFG-06**: Kaptanto supports SQL WHERE condition filtering per table
 
@@ -89,8 +89,8 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Observability
 
-- [ ] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
-- [ ] **OBS-02**: Kaptanto exposes /healthz endpoint returning 200 when healthy, 503 with diagnostic JSON when not
+- [x] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
+- [x] **OBS-02**: Kaptanto exposes /healthz endpoint returning 200 when healthy, 503 with diagnostic JSON when not
 - [x] **OBS-03**: Kaptanto emits structured JSON logs with configurable level (debug, info, warn, error)
 
 ### Event Schema
@@ -181,18 +181,18 @@ Deferred to future release. Tracked but not in current roadmap.
 | RTR-04 | Phase 5 | Complete |
 | RTR-05 | Phase 5 | Complete |
 | OUT-01 | Phase 5 | Complete |
-| OUT-02 | Phase 6 (verified Phase 7.1) | Pending |
-| OUT-03 | Phase 6 (verified Phase 7.1) | Pending |
-| OUT-04 | Phase 6 (verified Phase 7.1) | Pending |
-| OUT-05 | Phase 6 (verified Phase 7.1) | Pending |
-| OUT-06 | Phase 6 (verified Phase 7.1) | Pending |
-| OUT-07 | Phase 6 (verified Phase 7.1) | Pending |
-| OUT-08 | Phase 6 (verified Phase 7.1) | Pending |
+| OUT-02 | Phase 6 (verified Phase 7.1) | Complete |
+| OUT-03 | Phase 6 (verified Phase 7.1) | Complete |
+| OUT-04 | Phase 6 (verified Phase 7.1) | Complete |
+| OUT-05 | Phase 6 (verified Phase 7.1) | Complete |
+| OUT-06 | Phase 6 (verified Phase 7.1) | Complete |
+| OUT-07 | Phase 6 (verified Phase 7.1) | Complete |
+| OUT-08 | Phase 6 (verified Phase 7.1) | Complete |
 | CHK-02 | Phase 7.1 | Complete |
-| CFG-03 | Phase 6 (verified Phase 7.1) | Pending |
-| CFG-04 | Phase 6 (verified Phase 7.1) | Pending |
-| OBS-01 | Phase 7.2 | Pending |
-| OBS-02 | Phase 7.2 | Pending |
+| CFG-03 | Phase 6 (verified Phase 7.1) | Complete |
+| CFG-04 | Phase 6 (verified Phase 7.1) | Complete |
+| OBS-01 | Phase 6 (verified Phase 7.1) | Complete |
+| OBS-02 | Phase 6 (verified Phase 7.1) | Complete |
 | CFG-02 | Phase 7 | Complete |
 | CFG-05 | Phase 7.2 | Pending |
 | CFG-06 | Phase 7.2 | Pending |
@@ -215,4 +215,4 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-07 after 01-01 completion (EVT-01, EVT-02, OBS-03 complete)*
+*Last updated: 2026-03-15 after Phase 7.1 completion (PAR-01..PAR-05, OUT-02..OUT-08, CHK-02, CFG-03, CFG-04, OBS-01, OBS-02 complete)*
