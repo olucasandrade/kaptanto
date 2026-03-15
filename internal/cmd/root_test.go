@@ -133,3 +133,30 @@ func TestRetentionFlagType(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, time.Hour, v)
 }
+
+// TestRunE_MissingSourceAndConfig verifies the guard condition: when neither
+// --source nor --config is provided, RunE returns an error containing
+// "--source or --config is required".
+func TestRunE_MissingSourceAndConfig(t *testing.T) {
+	buf := &bytes.Buffer{}
+	err := cmd.ExecuteWithArgs(nil, buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--source or --config is required")
+}
+
+// TestRunE_EmptySource verifies that explicitly passing an empty --source is
+// treated as not set (the guard catches it).
+func TestRunE_EmptySource(t *testing.T) {
+	buf := &bytes.Buffer{}
+	err := cmd.ExecuteWithArgs([]string{"--source", ""}, buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--source or --config is required")
+}
+
+// TestRunE_ConfigFileNotFound verifies that --config pointing to a non-existent
+// file returns an error (load config failure).
+func TestRunE_ConfigFileNotFound(t *testing.T) {
+	buf := &bytes.Buffer{}
+	err := cmd.ExecuteWithArgs([]string{"--config", "/tmp/nonexistent_kaptanto_test.yaml"}, buf)
+	require.Error(t, err)
+}
