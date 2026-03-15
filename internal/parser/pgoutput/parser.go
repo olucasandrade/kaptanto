@@ -132,7 +132,16 @@ func (p *Parser) handleUpdate(m *pglogrepl.UpdateMessageV2) (*event.ChangeEvent,
 		return nil, fmt.Errorf("pgoutput: marshal key: %w", err)
 	}
 
-	ev := p.newEvent(rel, event.OpUpdate, pkStr, keyJSON, nil, afterJSON)
+	var beforeJSON json.RawMessage
+	if m.OldTuple != nil {
+		oldRow := decodeColumns(rel, m.OldTuple.Columns, nil)
+		var merr error
+		beforeJSON, merr = json.Marshal(oldRow)
+		if merr != nil {
+			return nil, fmt.Errorf("pgoutput: marshal before-row (update): %w", merr)
+		}
+	}
+	ev := p.newEvent(rel, event.OpUpdate, pkStr, keyJSON, beforeJSON, afterJSON)
 	return ev, nil
 }
 
@@ -153,7 +162,16 @@ func (p *Parser) handleDelete(m *pglogrepl.DeleteMessageV2) (*event.ChangeEvent,
 		return nil, fmt.Errorf("pgoutput: marshal key: %w", err)
 	}
 
-	ev := p.newEvent(rel, event.OpDelete, pkStr, keyJSON, nil, nil)
+	var beforeJSON json.RawMessage
+	if m.OldTuple != nil {
+		oldRow := decodeColumns(rel, m.OldTuple.Columns, nil)
+		var merr error
+		beforeJSON, merr = json.Marshal(oldRow)
+		if merr != nil {
+			return nil, fmt.Errorf("pgoutput: marshal before-row (delete): %w", merr)
+		}
+	}
+	ev := p.newEvent(rel, event.OpDelete, pkStr, keyJSON, beforeJSON, nil)
 	return ev, nil
 }
 

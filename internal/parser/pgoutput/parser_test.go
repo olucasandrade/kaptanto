@@ -381,6 +381,83 @@ func TestIdempotencyKeyFormat(t *testing.T) {
 	assert.Equal(t, "42", pkMap["id"])
 }
 
+// encodeUpdateWithOldTuple builds an Update message with both old and new tuples.
+// Wire format: 'U' | uint32(RelationID) | 'O' | TupleData(oldCols) | 'N' | TupleData(newCols)
+// Uses 'O' marker (REPLICA IDENTITY FULL) so pglogrepl populates m.OldTuple.
+func encodeUpdateWithOldTuple(relID uint32, oldCols, newCols []tupleCol) []byte {
+	var buf []byte
+	buf = append(buf, 'U')
+	buf = appendUint32(buf, relID)
+	buf = append(buf, 'O')         // old tuple marker: REPLICA IDENTITY FULL
+	buf = encodeTuple(buf, oldCols)
+	buf = append(buf, 'N')         // new tuple marker
+	buf = encodeTuple(buf, newCols)
+	return buf
+}
+
+// encodeDeleteWithOldTuple builds a Delete message with a full old tuple.
+// Wire format: 'D' | uint32(RelationID) | 'O' | TupleData(oldCols)
+func encodeDeleteWithOldTuple(relID uint32, oldCols []tupleCol) []byte {
+	var buf []byte
+	buf = append(buf, 'D')
+	buf = appendUint32(buf, relID)
+	buf = append(buf, 'O')         // old tuple marker: REPLICA IDENTITY FULL
+	buf = encodeTuple(buf, oldCols)
+	return buf
+}
+
+// TestUpdateOldTuple_PopulatesBefore verifies that handleUpdate populates
+// ChangeEvent.Before when m.OldTuple is present (EVT-01, PAR-01).
+func TestUpdateOldTuple_PopulatesBefore(t *testing.T) {
+	p := newParser()
+	sendRelation(t, p, testRelID, testNamespace, testRelName, testCols)
+	sendBegin(t, p, pglogrepl.LSN(0x100))
+
+	oldCols := []tupleCol{textCol("42"), textCol("OldName"), textCol("old content")}
+	newCols := []tupleCol{textCol("42"), textCol("NewName"), textCol("new content")}
+	raw := encodeUpdateWithOldTuple(testRelID, oldCols, newCols)
+
+	ev, err := p.Parse(raw, false)
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+
+	// Before must be non-nil and contain the old row data.
+	require.NotNil(t, ev.Before, "Before must be populated for UPDATE with OldTuple (EVT-01)")
+	var before map[string]any
+	require.NoError(t, json.Unmarshal(ev.Before, &before))
+	assert.Equal(t, "OldName", before["name"], "Before.name must be the old value")
+
+	// After must still be the new row data.
+	require.NotNil(t, ev.After)
+	var after map[string]any
+	require.NoError(t, json.Unmarshal(ev.After, &after))
+	assert.Equal(t, "NewName", after["name"], "After.name must be the new value")
+}
+
+// TestDeleteOldTuple_PopulatesBefore verifies that handleDelete populates
+// ChangeEvent.Before when m.OldTuple is present (EVT-01, PAR-01).
+func TestDeleteOldTuple_PopulatesBefore(t *testing.T) {
+	p := newParser()
+	sendRelation(t, p, testRelID, testNamespace, testRelName, testCols)
+	sendBegin(t, p, pglogrepl.LSN(0x100))
+
+	oldCols := []tupleCol{textCol("99"), textCol("DeletedRow"), textCol("some content")}
+	raw := encodeDeleteWithOldTuple(testRelID, oldCols)
+
+	ev, err := p.Parse(raw, false)
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+
+	// Before must be non-nil and contain the deleted row data.
+	require.NotNil(t, ev.Before, "Before must be populated for DELETE with OldTuple (EVT-01)")
+	var before map[string]any
+	require.NoError(t, json.Unmarshal(ev.Before, &before))
+	assert.Equal(t, "DeletedRow", before["name"], "Before.name must be the deleted row value")
+
+	// After must be nil for a DELETE.
+	assert.Nil(t, ev.After, "After must be nil for DELETE")
+}
+
 // TestNullColumnInInsert verifies that null columns ('n') produce nil values in the after-row.
 func TestNullColumnInInsert(t *testing.T) {
 	p := newParser()
