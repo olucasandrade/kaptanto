@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-15T12:47:23.302Z"
+last_updated: "2026-03-15T18:24:51.505Z"
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 9
-  total_plans: 24
-  completed_plans: 24
+  total_plans: 26
+  completed_plans: 25
 ---
 
 # Project State
@@ -63,6 +63,7 @@ Progress: [████████░░] 40%
 | Phase 07.1-infrastructure-fixes P02 | 4 | 2 tasks | 2 files |
 | Phase 07.2-pipeline-assembly P01 | 3 | 2 tasks | 6 files |
 | Phase 07.2-pipeline-assembly P02 | 4 | 1 tasks | 2 files |
+| Phase 07.3-milestone-gap-closure P01 | 1 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,8 @@ Recent decisions affecting current work:
 - [Phase 07.2-02]: runPipeline uses errgroup for coordinated goroutine lifecycle; defer el.Close() after g.Wait() satisfies Badger-outlives-router invariant
 - [Phase 07.2-02]: buildTableFilters returns nil maps for empty table config; nil map reads safe in Go and signal pass-through to consumers
 - [Phase 07.2-02]: gRPC mode uses cfg.Port+1 for observability HTTP — gRPC H2 framing owns cfg.Port exclusively
+- [Phase 07.3-milestone-gap-closure]: Drain-or-drop select replaces blocking AppendAndQueue channel send — event is durable in Badger before send, so drop from channel is safe; Router reads from eventLog.ReadPartition not connector.Events()
+- [Phase 07.3-milestone-gap-closure]: ctx param kept in AppendAndQueue signature; only the select body changed — zero caller breakage
 
 ### Pending Todos
 

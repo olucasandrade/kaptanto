@@ -20,7 +20,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: SSE and gRPC Servers** - Full output server suite with consumer cursors, filtering, metrics, and health endpoint (completed 2026-03-12)
 - [x] **Phase 7: Configuration and Multi-Source** - YAML config parsing, column filtering, SQL WHERE conditions (completed 2026-03-15)
 - [x] **Phase 7.1: Infrastructure Fixes** [INSERTED] - LogEntry.PartitionID fix (CHK-02), Phase 6 formal verification, REQUIREMENTS.md documentation cleanup (completed 2026-03-15)
-- [ ] **Phase 7.2: Pipeline Assembly** [INSERTED] - Wire all Phase 1-6 components into runPipeline; thread config column/row filters to consumers (CFG-05, CFG-06)
+- [x] **Phase 7.2: Pipeline Assembly** [INSERTED] - Wire all Phase 1-6 components into runPipeline; thread config column/row filters to consumers (CFG-05, CFG-06) (completed 2026-03-15)
+- [ ] **Phase 7.3: Milestone Gap Closure** [INSERTED] - Fix AppendAndQueue blocking channel (INT-01) and OldTuple decode for before field (INT-02)
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
 - [ ] **Phase 9: MongoDB Connector** - Change Streams consumption, BSON normalization, resume token persistence
 - [ ] **Phase 10: Rust FFI Acceleration** - Optional Rust-accelerated pgoutput decoding behind build tag
@@ -171,6 +172,19 @@ Plans:
 Plans:
 - [ ] 07.2-01-PLAN.md — Update SSEServer/GRPCServer with per-table filter maps; update consumer constructors (CFG-05, CFG-06, OUT-02..OUT-08)
 - [ ] 07.2-02-PLAN.md — Implement runPipeline: wire BadgerEventLog, PostgresConnector, Router, output servers, observability (OUT-01..OUT-08, OBS-01, OBS-02, CFG-05, CFG-06)
+
+### Phase 7.3: Milestone Gap Closure [INSERTED]
+**Goal**: Close the two integration gaps identified by the v1.0 milestone audit: (1) `AppendAndQueue` blocks the WAL receive loop when `connector.Events()` is never drained, stalling all E2E flows after 1024 events; (2) `handleUpdate` and `handleDelete` discard Postgres `OldTuple` data, leaving `before` null for every UPDATE/DELETE event even with REPLICA IDENTITY FULL
+**Depends on**: Phase 7.2
+**Requirements**: SRC-01, SRC-03, CHK-01, LOG-01, EVT-01, PAR-01
+**Gap Closure**: Closes INT-01 and INT-02 from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `AppendAndQueue` never blocks the WAL receive loop regardless of how many events accumulate — the channel send is non-blocking (drain-or-drop) since the Router reads from `eventLog.ReadPartition`, not from `connector.Events()`
+  2. `go test ./internal/source/postgres/...` passes with a new test verifying `AppendAndQueue` does not block when the channel is full
+  3. For an UPDATE event where `m.OldTuple != nil`, the resulting `ChangeEvent.Before` is non-nil and contains the prior row data
+  4. For a DELETE event where `m.OldTuple != nil`, the resulting `ChangeEvent.Before` is non-nil and contains the deleted row data
+  5. `go test ./internal/parser/pgoutput/...` passes with new tests asserting `Before` is populated when `OldTuple` is present in the test fixture
+**Plans**: 0 plans
 
 ### Phase 8: High Availability
 **Goal**: Two Kaptanto instances can run against the same database with automatic failover via leader election
