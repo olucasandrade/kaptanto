@@ -75,7 +75,7 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ops := filterNonEmpty(strings.Split(r.URL.Query().Get("operations"), ","))
 	filter := output.NewEventFilter(tables, ops)
 
-	consumer := NewSSEConsumer(consumerID, w, filter, s.cursorStore, s.metrics)
+	consumer := NewSSEConsumer(consumerID, w, filter, s.cursorStore, s.metrics, nil, nil)
 
 	// Last-Event-ID: consumerID is the resume key. The cursor store holds the
 	// persisted (partitionID, seq) from the prior connection's SaveCursor calls.
