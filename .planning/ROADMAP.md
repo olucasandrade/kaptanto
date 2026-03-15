@@ -169,8 +169,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07.1-01-PLAN.md — CHK-02 code fix: LogEntry.PartitionID + SSEConsumer.Deliver wiring (TDD)
-- [ ] 07.1-02-PLAN.md — Phase 6 VERIFICATION.md + REQUIREMENTS.md checkbox sync
+- [ ] 07.2-01-PLAN.md — Update SSEServer/GRPCServer with per-table filter maps; update consumer constructors (CFG-05, CFG-06, OUT-02..OUT-08)
+- [ ] 07.2-02-PLAN.md — Implement runPipeline: wire BadgerEventLog, PostgresConnector, Router, output servers, observability (OUT-01..OUT-08, OBS-01, OBS-02, CFG-05, CFG-06)
 
 ### Phase 8: High Availability
 **Goal**: Two Kaptanto instances can run against the same database with automatic failover via leader election
