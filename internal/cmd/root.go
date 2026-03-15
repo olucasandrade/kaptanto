@@ -2,10 +2,15 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
 	"io"
+	"log/slog"
 	"os"
-	"time"
+	"os/signal"
+	"syscall"
 
+	"github.com/kaptanto/kaptanto/internal/config"
 	"github.com/kaptanto/kaptanto/internal/logging"
 	"github.com/spf13/cobra"
 )
@@ -23,10 +28,42 @@ the database itself and is distributed as a single static binary.
 The name means "who captures" in Esperanto.`,
 		// SilenceUsage prevents cobra from printing usage on non-flag errors.
 		SilenceUsage: true,
-		// RunE is a no-op placeholder so cobra prints full usage (including flags) when
-		// no subcommand is provided. Future phases will replace this with real behavior.
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
+			configPath, _ := cmd.Flags().GetString("config")
+			sourceDSN, _ := cmd.Flags().GetString("source")
+
+			// Guard: at least one of --source or --config is required.
+			if configPath == "" && sourceDSN == "" {
+				return fmt.Errorf("--source or --config is required")
+			}
+
+			// Load config file if provided, otherwise start with defaults.
+			var cfg *config.Config
+			if configPath != "" {
+				var err error
+				cfg, err = config.Load(configPath)
+				if err != nil {
+					return fmt.Errorf("load config: %w", err)
+				}
+			} else {
+				cfg = config.Defaults()
+			}
+
+			// Merge CLI flags on top (flags always win — 12-factor behavior).
+			if err := config.Merge(cfg, cmd); err != nil {
+				return err
+			}
+
+			// Post-merge validation: source must be set.
+			if cfg.Source == "" {
+				return fmt.Errorf("source is required: set via --source flag or 'source:' in config file")
+			}
+
+			// Graceful shutdown: cancel context on SIGTERM/SIGINT.
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			return runPipeline(ctx, cfg)
 		},
 	}
 
@@ -83,5 +120,20 @@ func ExecuteWithArgs(args []string, out io.Writer) error {
 	return root.Execute()
 }
 
-// Ensure time package is used (duration flag uses time.Duration).
-var _ time.Duration
+// runPipeline starts the full kaptanto pipeline with the merged configuration.
+// It blocks until ctx is cancelled, then gracefully drains in-flight events and
+// flushes all checkpoint and cursor stores before returning.
+//
+// TODO: Wire Phase 1-6 components (connector, eventlog, router, output servers).
+// For now this stub logs the config and returns when ctx is Done.
+func runPipeline(ctx context.Context, cfg *config.Config) error {
+	slog.Info("kaptanto starting",
+		"source", cfg.Source,
+		"output", cfg.Output,
+		"port", cfg.Port,
+		"data_dir", cfg.DataDir,
+	)
+	<-ctx.Done()
+	slog.Info("kaptanto shutting down")
+	return nil
+}
