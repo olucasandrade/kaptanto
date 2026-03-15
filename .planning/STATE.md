@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 7 of 10 (Configuration and Multi-Source)
-Plan: 1 of 4 in current phase
+Plan: 4 of 4 in current phase
 Status: In progress
-Last activity: 2026-03-13 -- Completed 07-01 (Config package: Load, Defaults, Merge — CFG-02)
+Last activity: 2026-03-15 -- Completed 07-03 (RunE startup wiring: guard, config load, Merge, graceful shutdown — CFG-05, CFG-06)
 
-Progress: [██████░░░░] 30%
+Progress: [███████░░░] 35%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [██████░░░░] 30%
 | Phase 05-router-and-stdout-output P02 | 2 | 2 tasks (TDD) | 4 files |
 | Phase 05-router-and-stdout-output P03 | 4 | 2 tasks (TDD) | 3 files |
 | Phase 07-configuration-and-multi-source P01 | 2 | 1 task (TDD) | 3 files |
+| Phase 07-configuration-and-multi-source P03 | 3 | 1 task (TDD) | 2 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,9 @@ Recent decisions affecting current work:
 - [Phase 07-01]: Retention stored as string not time.Duration — empty string is distinguishable from explicit 0 at runtime; Event Log initializer applies 1h when empty
 - [Phase 07-01]: Merge --tables replaces entire cfg.Tables map with empty TableConfig entries — per-table file config discarded when flag explicitly set
 - [Phase 07-01]: No global config variable — callers create *Config and pass explicitly; package is safe for concurrent test use
+- [Phase 07-03]: runPipeline is a stub for Phase 7 integration; real Phase 1-6 component wiring deferred to Phase 8+
+- [Phase 07-03]: Guard checks configPath == "" and sourceDSN == "" before Merge; post-merge adds second cfg.Source == "" check to catch --source explicitly set to "" or config file with no source field
+- [Phase 07-03]: signal.NotifyContext wraps cmd.Context() so test harnesses can inject contexts without real OS signals
 
 ### Pending Todos
 
@@ -119,6 +123,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13
-Stopped at: Completed 07-01-PLAN.md (Config package — Load, Defaults, Merge — CFG-02)
+Last session: 2026-03-15
+Stopped at: Completed 07-03-PLAN.md (RunE startup wiring — CFG-05, CFG-06)
 Resume file: None

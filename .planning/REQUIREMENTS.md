@@ -78,8 +78,8 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 - [x] **CFG-02**: Kaptanto parses YAML config file with multi-source, per-table settings, and output modes
 - [ ] **CFG-03**: Kaptanto supports table filtering (include specific tables)
 - [ ] **CFG-04**: Kaptanto supports operation filtering per table (insert, update, delete)
-- [ ] **CFG-05**: Kaptanto supports column filtering per table (include specific columns)
-- [ ] **CFG-06**: Kaptanto supports SQL WHERE condition filtering per table
+- [x] **CFG-05**: Kaptanto supports column filtering per table (include specific columns)
+- [x] **CFG-06**: Kaptanto supports SQL WHERE condition filtering per table
 
 ### High Availability
 
@@ -194,8 +194,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | OBS-01 | Phase 6 | Complete |
 | OBS-02 | Phase 6 | Complete |
 | CFG-02 | Phase 7 | Complete |
-| CFG-05 | Phase 7 | Pending |
-| CFG-06 | Phase 7 | Pending |
+| CFG-05 | Phase 7 | Complete |
+| CFG-06 | Phase 7 | Complete |
 | HA-01 | Phase 8 | Pending |
 | HA-02 | Phase 8 | Pending |
 | HA-03 | Phase 8 | Pending |
