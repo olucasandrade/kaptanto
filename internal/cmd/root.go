@@ -3,16 +3,35 @@ package cmd
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
+	"golang.org/x/sync/errgroup"
+
+	"github.com/kaptanto/kaptanto/internal/checkpoint"
 	"github.com/kaptanto/kaptanto/internal/config"
+	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/kaptanto/kaptanto/internal/eventlog"
 	"github.com/kaptanto/kaptanto/internal/logging"
+	"github.com/kaptanto/kaptanto/internal/observability"
+	"github.com/kaptanto/kaptanto/internal/output"
+	grpcoutput "github.com/kaptanto/kaptanto/internal/output/grpc"
+	"github.com/kaptanto/kaptanto/internal/output/sse"
+	"github.com/kaptanto/kaptanto/internal/output/stdout"
+	"github.com/kaptanto/kaptanto/internal/router"
+	postgres "github.com/kaptanto/kaptanto/internal/source/postgres"
 	"github.com/spf13/cobra"
+
+	_ "modernc.org/sqlite" // register "sqlite" driver
 )
 
 // NewRootCmd constructs and returns the root cobra command with all persistent flags.
@@ -120,12 +139,35 @@ func ExecuteWithArgs(args []string, out io.Writer) error {
 	return root.Execute()
 }
 
+// buildTableFilters pre-parses all per-table row and column filters from config.
+// Returns an error immediately if any WHERE expression is syntactically invalid (CFG-06).
+// Returns nil maps (not empty maps) when cfg.Tables is nil/empty — nil map lookups are safe in Go.
+func buildTableFilters(tables map[string]config.TableConfig) (
+	map[string]*output.RowFilter,
+	map[string][]string,
+	error,
+) {
+	if len(tables) == 0 {
+		return nil, nil, nil
+	}
+	rowFilters := make(map[string]*output.RowFilter, len(tables))
+	colFilters := make(map[string][]string, len(tables))
+	for table, tc := range tables {
+		rf, err := output.ParseRowFilter(tc.Where)
+		if err != nil {
+			return nil, nil, fmt.Errorf("table %q where filter: %w", table, err)
+		}
+		rowFilters[table] = rf
+		if len(tc.Columns) > 0 {
+			colFilters[table] = tc.Columns
+		}
+	}
+	return rowFilters, colFilters, nil
+}
+
 // runPipeline starts the full kaptanto pipeline with the merged configuration.
 // It blocks until ctx is cancelled, then gracefully drains in-flight events and
 // flushes all checkpoint and cursor stores before returning.
-//
-// TODO: Wire Phase 1-6 components (connector, eventlog, router, output servers).
-// For now this stub logs the config and returns when ctx is Done.
 func runPipeline(ctx context.Context, cfg *config.Config) error {
 	slog.Info("kaptanto starting",
 		"source", cfg.Source,
@@ -133,7 +175,147 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		"port", cfg.Port,
 		"data_dir", cfg.DataDir,
 	)
-	<-ctx.Done()
-	slog.Info("kaptanto shutting down")
+
+	// 1. Create data directory (Badger does not create parent dirs).
+	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
+		return fmt.Errorf("create data dir: %w", err)
+	}
+
+	// 2. Parse retention — "" means use 1h default.
+	retention := time.Hour
+	if cfg.Retention != "" {
+		d, err := time.ParseDuration(cfg.Retention)
+		if err != nil {
+			return fmt.Errorf("parse retention %q: %w", cfg.Retention, err)
+		}
+		retention = d
+	}
+
+	// 3. Open Badger event log.
+	el, err := eventlog.Open(filepath.Join(cfg.DataDir, "events"), 64, retention)
+	if err != nil {
+		return fmt.Errorf("open event log: %w", err)
+	}
+	defer el.Close() // closed AFTER g.Wait() returns (deferred after all components stop)
+
+	// 4. Open SQLite checkpoint store (source LSN persistence).
+	ckStore, err := checkpoint.Open(filepath.Join(cfg.DataDir, "checkpoint.db"))
+	if err != nil {
+		return fmt.Errorf("open checkpoint store: %w", err)
+	}
+	defer ckStore.Close()
+
+	// 5. Open SQLite cursor store (consumer resume cursors).
+	// Separate file from checkpoint.db to avoid coupling the two store implementations.
+	cursorDSN := "file://" + filepath.Join(cfg.DataDir, "cursors.db") +
+		"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	cursorDB, err := sql.Open("sqlite", cursorDSN)
+	if err != nil {
+		return fmt.Errorf("open cursor db: %w", err)
+	}
+	defer cursorDB.Close()
+	cursorStore, err := checkpoint.NewSQLiteCursorStore(cursorDB, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("create cursor store: %w", err)
+	}
+
+	// 6. Pre-parse per-table filters (CFG-05, CFG-06). Fail fast on invalid WHERE.
+	rowFilters, colFilters, err := buildTableFilters(cfg.Tables)
+	if err != nil {
+		return err
+	}
+
+	// 7. Create router.
+	rtr := router.NewRouter(el, 64, cursorStore)
+
+	// 8. Create observability (metrics + health).
+	metrics := observability.NewKaptantoMetrics()
+	healthHandler := observability.NewHealthHandler([]observability.HealthProbe{})
+
+	// 9. Wire output — register consumer(s) BEFORE starting the router.
+	var outputServer func(ctx context.Context) error
+	switch cfg.Output {
+	case "stdout":
+		writer := stdout.NewStdoutWriter(os.Stdout)
+		rtr.Register(writer)
+		outputServer = func(ctx context.Context) error {
+			<-ctx.Done()
+			return nil
+		}
+	case "sse":
+		sseServer := sse.NewSSEServer(rtr, cursorStore, metrics, "*", 15*time.Second, rowFilters, colFilters)
+		mux := http.NewServeMux()
+		mux.Handle("/events", sseServer)
+		mux.Handle("/metrics", metrics.Handler())
+		mux.Handle("/healthz", healthHandler)
+		srv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: mux}
+		outputServer = func(ctx context.Context) error {
+			go func() {
+				<-ctx.Done()
+				_ = srv.Shutdown(context.Background())
+			}()
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("sse server: %w", err)
+			}
+			return nil
+		}
+	case "grpc":
+		grpcSvc := grpcoutput.NewGRPCServer(rtr, cursorStore, metrics, rowFilters, colFilters)
+		grpcSrv := grpcoutput.NewGRPCNetServer(grpcSvc)
+		var lis net.Listener
+		lis, err = net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+		if err != nil {
+			return fmt.Errorf("grpc listen: %w", err)
+		}
+		// Observability HTTP on cfg.Port+1 (gRPC occupies cfg.Port with H2 framing).
+		obsMux := http.NewServeMux()
+		obsMux.Handle("/metrics", metrics.Handler())
+		obsMux.Handle("/healthz", healthHandler)
+		obsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port+1), Handler: obsMux}
+		outputServer = func(ctx context.Context) error {
+			go func() {
+				<-ctx.Done()
+				grpcSrv.GracefulStop()
+				_ = obsSrv.Shutdown(context.Background())
+			}()
+			go func() {
+				if err := obsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					slog.Warn("obs server error", "err", err)
+				}
+			}()
+			if err := grpcSrv.Serve(lis); err != nil {
+				return fmt.Errorf("grpc server: %w", err)
+			}
+			return nil
+		}
+	default:
+		return fmt.Errorf("unknown output mode %q: use stdout, sse, or grpc", cfg.Output)
+	}
+
+	// 10. Build Postgres connector (backfill engine nil for Phase 7.2).
+	tables := make([]string, 0, len(cfg.Tables))
+	for t := range cfg.Tables {
+		tables = append(tables, t)
+	}
+	connCfg := postgres.Config{
+		DSN:      cfg.Source,
+		Tables:   tables,
+		SourceID: "default",
+	}
+	connCfg.ApplyDefaults()
+	idGen := event.NewIDGenerator()
+	connector := postgres.NewWithBackfill(connCfg, ckStore, idGen, el, nil)
+
+	// 11. Run all components under errgroup — first error cancels the group context.
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { cursorStore.Run(gctx); return nil })
+	g.Go(func() error { return connector.Run(gctx) })
+	g.Go(func() error { return rtr.Run(gctx) })
+	g.Go(func() error { return outputServer(gctx) })
+
+	if err := g.Wait(); err != nil && err != context.Canceled {
+		return err
+	}
+	slog.Info("kaptanto shut down cleanly")
 	return nil
 }
