@@ -172,7 +172,7 @@ func (b *BadgerEventLog) ReadPartition(ctx context.Context, partition uint32, fr
 			}
 
 			_, seq := decodePartKey(item.KeyCopy(nil))
-			entries = append(entries, LogEntry{Seq: seq, Event: &ev})
+			entries = append(entries, LogEntry{Seq: seq, PartitionID: partition, Event: &ev})
 		}
 		return nil
 	})
