@@ -73,15 +73,13 @@ func (c *SSEConsumer) ID() string { return c.id }
 func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
 	// Filtered events: advance cursor silently, no write to wire.
 	if !c.filter.Allow(entry.Event) {
-		// TODO: LogEntry.PartitionID not yet on struct; use 0 until added. Really check if it remains
-		return c.cs.SaveCursor(ctx, c.id, 0, entry.Seq)
+		return c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq)
 	}
 
 	// Row filter (CFG-06): if a WHERE expression is configured and the event
 	// does not match, advance cursor silently without writing to the wire.
 	if c.rowFilter != nil && !c.rowFilter.Match(entry.Event) {
-		// TODO: LogEntry.PartitionID not yet on struct; use 0 until added.
-		return c.cs.SaveCursor(ctx, c.id, 0, entry.Seq)
+		return c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq)
 	}
 
 	// Column filter (CFG-05): strip disallowed columns from Before/After.
@@ -116,8 +114,7 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 	}
 
 	// Persist cursor after successful delivery (seq+1 = resume from next event).
-	// TODO: LogEntry.PartitionID not yet on struct; use 0 until added.
-	if err := c.cs.SaveCursor(ctx, c.id, 0, entry.Seq+1); err != nil {
+	if err := c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq+1); err != nil {
 		return err
 	}
 

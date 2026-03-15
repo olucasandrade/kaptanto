@@ -53,6 +53,9 @@ type LogEntry struct {
 	// pre-lease integers; leased-but-unused integers are lost on crash, expected).
 	Seq uint64
 
+	// PartitionID is the partition this entry was read from; set by ReadPartition.
+	PartitionID uint32
+
 	// Event is the deserialized ChangeEvent stored at this sequence position.
 	Event *event.ChangeEvent
 }
