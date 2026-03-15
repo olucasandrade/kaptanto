@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/kaptanto/kaptanto/internal/checkpoint"
@@ -260,6 +261,36 @@ func TestAppendAndQueue_AppendErrorBlocksCheckpoint(t *testing.T) {
 		t.Error("event was forwarded to channel despite Append failure")
 	default:
 		// correct — channel should be empty
+	}
+}
+
+// TestAppendAndQueue_NonBlockingWhenChannelFull verifies that AppendAndQueue
+// never blocks the WAL receive loop even when c.Events() is never drained
+// (SRC-01, SRC-03: heartbeat ticker must not be starved).
+// LOG-01 invariant: all 2000 events must reach eventLog.Append even though
+// 976 of them are silently dropped from the channel (buffer=1024 → 1024 accepted,
+// 976 dropped — both paths are non-blocking).
+func TestAppendAndQueue_NonBlockingWhenChannelFull(t *testing.T) {
+	cfg := postgres.Config{DSN: "postgres://localhost/testdb", SourceID: "pg1"}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{}
+	c := postgres.NewWithEventLog(cfg, store, idGen, el)
+
+	ctx := context.Background()
+	// Send 2000 events. Never drain c.Events().
+	// With blocking select this deadlocks after 1024. With drain-or-drop it must not.
+	for i := 0; i < 2000; i++ {
+		ev := &event.ChangeEvent{
+			IdempotencyKey: fmt.Sprintf("pg1:public.orders:%d:insert:0/1", i),
+		}
+		if err := c.AppendAndQueue(ctx, ev); err != nil {
+			t.Fatalf("AppendAndQueue blocked or errored at event %d: %v", i, err)
+		}
+	}
+	// LOG-01: every event must have been appended to the event log.
+	if len(el.appendCalls) != 2000 {
+		t.Errorf("expected 2000 Append calls, got %d", len(el.appendCalls))
 	}
 }
 
