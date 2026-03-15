@@ -22,15 +22,21 @@ type GRPCServer struct {
 	router      *router.Router
 	cursorStore router.ConsumerCursorStore
 	metrics     *observability.KaptantoMetrics
+	rowFilters  map[string]*output.RowFilter // CFG-06: per-table row filter; nil = pass-through for all tables
+	colFilters  map[string][]string          // CFG-05: per-table column allow-list; nil = pass-through for all tables
 }
 
 // NewGRPCServer constructs a GRPCServer.
+// rowFilters and colFilters are per-table maps; nil maps are treated as
+// pass-through (equivalent to no filter configured for any table).
 func NewGRPCServer(
 	r *router.Router,
 	cs router.ConsumerCursorStore,
 	m *observability.KaptantoMetrics,
+	rowFilters map[string]*output.RowFilter,
+	colFilters map[string][]string,
 ) *GRPCServer {
-	return &GRPCServer{router: r, cursorStore: cs, metrics: m}
+	return &GRPCServer{router: r, cursorStore: cs, metrics: m, rowFilters: rowFilters, colFilters: colFilters}
 }
 
 // NewGRPCNetServer creates and configures the grpc.Server.
@@ -53,7 +59,7 @@ func NewGRPCNetServer(svc *GRPCServer) *grpclib.Server {
 // HTTP/2 backpressure cannot deadlock the dispatch loop (OUT-08).
 func (s *GRPCServer) Subscribe(req *proto.SubscribeRequest, stream proto.CdcStream_SubscribeServer) error {
 	filter := output.NewEventFilter(req.Tables, req.Operations)
-	consumer := NewGRPCConsumer(req.ConsumerId, 64, filter, s.cursorStore, s.metrics, nil, nil)
+	consumer := NewGRPCConsumer(req.ConsumerId, 64, filter, s.cursorStore, s.metrics, s.rowFilters, s.colFilters)
 	defer consumer.Close() // signals Deliver that handler exited
 
 	s.router.Register(consumer)

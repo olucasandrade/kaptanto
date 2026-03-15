@@ -63,7 +63,7 @@ func TestGRPCConsumer_RowFilterMatchFalse_ReturnsNil(t *testing.T) {
 	rf, err := output.ParseRowFilter("amount > 9999")
 	require.NoError(t, err)
 
-	c := NewGRPCConsumer("row-filter-miss", 8, filter, cs, nil, rf, nil)
+	c := NewGRPCConsumer("row-filter-miss", 8, filter, cs, nil, map[string]*output.RowFilter{"orders": rf}, nil)
 
 	ev := makeGRPCInsertEvent(map[string]any{"id": 1, "amount": 5})
 	entry := eventlog.LogEntry{Seq: 7, Event: ev}
@@ -90,7 +90,7 @@ func TestGRPCConsumer_RowFilterMatchTrue_SendsToChannel(t *testing.T) {
 	rf, err := output.ParseRowFilter("amount > 1")
 	require.NoError(t, err)
 
-	c := NewGRPCConsumer("row-filter-hit", 8, filter, cs, nil, rf, nil)
+	c := NewGRPCConsumer("row-filter-hit", 8, filter, cs, nil, map[string]*output.RowFilter{"orders": rf}, nil)
 
 	ev := makeGRPCInsertEvent(map[string]any{"id": 2, "amount": 100})
 	entry := eventlog.LogEntry{Seq: 3, Event: ev}
@@ -116,7 +116,7 @@ func TestGRPCConsumer_ColumnFilter_StripsForbiddenColumns(t *testing.T) {
 
 	// Only allow "id" — "secret" must be stripped from Payload.
 	allowedColumns := []string{"id"}
-	c := NewGRPCConsumer("col-filter", 8, filter, cs, nil, nil, allowedColumns)
+	c := NewGRPCConsumer("col-filter", 8, filter, cs, nil, nil, map[string][]string{"orders": allowedColumns})
 
 	ev := makeGRPCInsertEvent(map[string]any{"id": 42, "secret": "s3cr3t"})
 	entry := eventlog.LogEntry{Seq: 1, Event: ev}
@@ -154,7 +154,7 @@ func TestGRPCConsumer_ColumnFilter_DoesNotMutateSharedEvent(t *testing.T) {
 	}
 	entry := eventlog.LogEntry{Seq: 1, Event: ev}
 
-	c := NewGRPCConsumer("no-mutate", 8, filter, cs, nil, nil, []string{"id"})
+	c := NewGRPCConsumer("no-mutate", 8, filter, cs, nil, nil, map[string][]string{"orders": {"id"}})
 
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
