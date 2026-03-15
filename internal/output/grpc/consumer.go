@@ -20,12 +20,14 @@ import (
 // reads from the channel and calls stream.Send() OUTSIDE any Router or
 // RetryScheduler lock — preventing deadlock from HTTP/2 backpressure (OUT-08).
 type GRPCConsumer struct {
-	id     string // stable: "grpc:<consumerID>"
-	ch     chan *proto.ChangeEvent
-	filter *output.EventFilter
-	cs     router.ConsumerCursorStore
-	m      *observability.KaptantoMetrics
-	done   chan struct{} // closed when Subscribe handler exits
+	id             string // stable: "grpc:<consumerID>"
+	ch             chan *proto.ChangeEvent
+	filter         *output.EventFilter
+	cs             router.ConsumerCursorStore
+	m              *observability.KaptantoMetrics
+	done           chan struct{}      // closed when Subscribe handler exits
+	rowFilter      *output.RowFilter // CFG-06: WHERE-expression filter; nil = pass-through
+	allowedColumns []string          // CFG-05: column allow-list; nil/empty = pass-through
 }
 
 // Compile-time assertion: GRPCConsumer implements router.Consumer.
@@ -33,20 +35,25 @@ var _ router.Consumer = (*GRPCConsumer)(nil)
 
 // NewGRPCConsumer constructs a GRPCConsumer.
 // bufSize controls the channel depth; 64 is the recommended default.
+// rowFilter and allowedColumns may be nil/empty for pass-through behavior.
 func NewGRPCConsumer(
 	consumerID string,
 	bufSize int,
 	filter *output.EventFilter,
 	cs router.ConsumerCursorStore,
 	m *observability.KaptantoMetrics,
+	rowFilter *output.RowFilter,
+	allowedColumns []string,
 ) *GRPCConsumer {
 	return &GRPCConsumer{
-		id:     "grpc:" + consumerID,
-		ch:     make(chan *proto.ChangeEvent, bufSize),
-		filter: filter,
-		cs:     cs,
-		m:      m,
-		done:   make(chan struct{}),
+		id:             "grpc:" + consumerID,
+		ch:             make(chan *proto.ChangeEvent, bufSize),
+		filter:         filter,
+		cs:             cs,
+		m:              m,
+		done:           make(chan struct{}),
+		rowFilter:      rowFilter,
+		allowedColumns: allowedColumns,
 	}
 }
 
@@ -64,8 +71,30 @@ func (c *GRPCConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) err
 		return nil // filtered: cursor advances via Router
 	}
 
+	// Row filter (CFG-06): events not matching the WHERE expression are silently
+	// dropped. The Router advances the cursor on nil return.
+	if c.rowFilter != nil && !c.rowFilter.Match(entry.Event) {
+		return nil
+	}
+
+	// Column filter (CFG-05): strip disallowed columns before marshaling payload.
+	// ApplyColumnFilter is a no-op when c.allowedColumns is nil/empty.
+	// IMPORTANT: entry.Event is a shared pointer — copy into a new struct, never mutate.
+	ev := entry.Event
+	filteredBefore, err := output.ApplyColumnFilter(ev.Before, c.allowedColumns)
+	if err != nil {
+		return fmt.Errorf("grpc consumer: column filter before: %w", err)
+	}
+	filteredAfter, err := output.ApplyColumnFilter(ev.After, c.allowedColumns)
+	if err != nil {
+		return fmt.Errorf("grpc consumer: column filter after: %w", err)
+	}
+	filtered := *ev
+	filtered.Before = filteredBefore
+	filtered.After = filteredAfter
+
 	// Encode payload as full JSON for OUT-07 (JSON fallback).
-	payload, err := json.Marshal(entry.Event)
+	payload, err := json.Marshal(&filtered)
 	if err != nil {
 		return fmt.Errorf("grpc consumer: marshal event: %w", err)
 	}

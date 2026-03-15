@@ -53,7 +53,7 @@ func NewGRPCNetServer(svc *GRPCServer) *grpclib.Server {
 // HTTP/2 backpressure cannot deadlock the dispatch loop (OUT-08).
 func (s *GRPCServer) Subscribe(req *proto.SubscribeRequest, stream proto.CdcStream_SubscribeServer) error {
 	filter := output.NewEventFilter(req.Tables, req.Operations)
-	consumer := NewGRPCConsumer(req.ConsumerId, 64, filter, s.cursorStore, s.metrics)
+	consumer := NewGRPCConsumer(req.ConsumerId, 64, filter, s.cursorStore, s.metrics, nil, nil)
 	defer consumer.Close() // signals Deliver that handler exited
 
 	s.router.Register(consumer)
