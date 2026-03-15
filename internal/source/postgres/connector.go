@@ -197,8 +197,9 @@ func (c *PostgresConnector) AppendAndQueue(ctx context.Context, ev *event.Change
 	}
 	select {
 	case c.events <- ev:
-	case <-ctx.Done():
-		return ctx.Err()
+	default:
+		// Router reads from eventLog.ReadPartition, not this channel.
+		// Drop is safe; the event is already durably written to the event log.
 	}
 	return nil
 }
