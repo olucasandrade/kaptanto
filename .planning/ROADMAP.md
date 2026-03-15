@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Router and stdout Output** - Partitioned routing with per-key ordering, consumer isolation, poison pill handling, NDJSON output (gap closure in progress) (completed 2026-03-08)
 - [x] **Phase 6: SSE and gRPC Servers** - Full output server suite with consumer cursors, filtering, metrics, and health endpoint (completed 2026-03-12)
 - [x] **Phase 7: Configuration and Multi-Source** - YAML config parsing, column filtering, SQL WHERE conditions (completed 2026-03-15)
-- [ ] **Phase 7.1: Infrastructure Fixes** [INSERTED] - LogEntry.PartitionID fix (CHK-02), Phase 6 formal verification, REQUIREMENTS.md documentation cleanup
+- [x] **Phase 7.1: Infrastructure Fixes** [INSERTED] - LogEntry.PartitionID fix (CHK-02), Phase 6 formal verification, REQUIREMENTS.md documentation cleanup (completed 2026-03-15)
 - [ ] **Phase 7.2: Pipeline Assembly** [INSERTED] - Wire all Phase 1-6 components into runPipeline; thread config column/row filters to consumers (CFG-05, CFG-06)
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
 - [ ] **Phase 9: MongoDB Connector** - Change Streams consumption, BSON normalization, resume token persistence
@@ -225,7 +225,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Router and stdout Output | 3/3 | Complete   | 2026-03-08 |
 | 6. SSE and gRPC Servers | 4/4 | Complete   | 2026-03-12 |
 | 7. Configuration and Multi-Source | 4/4 | Complete   | 2026-03-15 |
-| 7.1. Infrastructure Fixes [INSERTED] | 0/2 | Not started | - |
+| 7.1. Infrastructure Fixes [INSERTED] | 2/2 | Complete   | 2026-03-15 |
 | 7.2. Pipeline Assembly [INSERTED] | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |

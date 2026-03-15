@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-15T12:07:24.066Z"
+last_updated: "2026-03-15T12:11:13.890Z"
 progress:
   total_phases: 9
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 22
-  completed_plans: 21
+  completed_plans: 22
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 Phase: 7 of 10 (Configuration and Multi-Source)
 Plan: 4 of 4 in current phase
 Status: Complete
-Last activity: 2026-03-15 -- Completed 07-04 (wire ApplyColumnFilter and RowFilter.Match into SSE and gRPC consumers — CFG-05, CFG-06)
+Last activity: 2026-03-15 -- Completed 07.1-02 (Phase 6 VERIFICATION.md + REQUIREMENTS.md checkbox sync — OUT-02..08, CFG-03, CFG-04, OBS-01, OBS-02)
 
 Progress: [████████░░] 40%
 
@@ -60,6 +60,7 @@ Progress: [████████░░] 40%
 | Phase 07-configuration-and-multi-source P03 | 3 | 1 task (TDD) | 2 files |
 | Phase 07-configuration-and-multi-source P04 | 7 | 2 tasks | 6 files |
 | Phase 07.1-infrastructure-fixes P01 | 2 | 2 tasks | 4 files |
+| Phase 07.1-infrastructure-fixes P02 | 4 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,7 @@ Recent decisions affecting current work:
 - [Phase 07-04]: nil rowFilter / nil allowedColumns treated as pass-through — backward-compatible with all existing call sites
 - [Phase 07-04]: Row filter placed before column filter in Deliver — filtered rows skip encoding work entirely
 - [Phase 07.1-infrastructure-fixes]: PartitionID set by ReadPartition (not Append) — only the read path knows which partition was queried; Append derives partition internally
+- [Phase 07.1-02]: CHK-02 listed under fixed_in_later_phase in 06-VERIFICATION.md — accurate attribution; Phase 6 had the defect, Phase 7.1 fixed it
 
 ### Pending Todos
 
@@ -130,5 +132,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Completed 07.1-01-PLAN.md (CHK-02 LogEntry.PartitionID propagation fix — multi-partition SSE cursor correctness)
+Stopped at: Completed 07.1-02-PLAN.md (Phase 6 VERIFICATION.md + REQUIREMENTS.md checkbox sync — documentation gaps closed)
 Resume file: None
