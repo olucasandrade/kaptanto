@@ -19,6 +19,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Router and stdout Output** - Partitioned routing with per-key ordering, consumer isolation, poison pill handling, NDJSON output (gap closure in progress) (completed 2026-03-08)
 - [x] **Phase 6: SSE and gRPC Servers** - Full output server suite with consumer cursors, filtering, metrics, and health endpoint (completed 2026-03-12)
 - [x] **Phase 7: Configuration and Multi-Source** - YAML config parsing, column filtering, SQL WHERE conditions (completed 2026-03-15)
+- [ ] **Phase 7.1: Infrastructure Fixes** [INSERTED] - LogEntry.PartitionID fix (CHK-02), Phase 6 formal verification, REQUIREMENTS.md documentation cleanup
+- [ ] **Phase 7.2: Pipeline Assembly** [INSERTED] - Wire all Phase 1-6 components into runPipeline; thread config column/row filters to consumers (CFG-05, CFG-06)
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
 - [ ] **Phase 9: MongoDB Connector** - Change Streams consumption, BSON normalization, resume token persistence
 - [ ] **Phase 10: Rust FFI Acceleration** - Optional Rust-accelerated pgoutput decoding behind build tag
@@ -137,6 +139,39 @@ Plans:
 - [ ] 07-02-PLAN.md — Column filter (ApplyColumnFilter) and WHERE row filter (RowFilter with mini expression evaluator) (CFG-05, CFG-06)
 - [ ] 07-03-PLAN.md — Root command wiring: replace RunE no-op with real pipeline startup using config + filters (CFG-02, CFG-05, CFG-06)
 
+### Phase 7.1: Infrastructure Fixes [INSERTED]
+**Goal**: Fix the CHK-02 cursor-correctness defect, produce a formal Phase 6 VERIFICATION.md, and synchronize REQUIREMENTS.md checkboxes with actual implementation status
+**Depends on**: Phase 7
+**Requirements**: CHK-02
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `eventlog.LogEntry` has a `PartitionID uint32` field populated by `BadgerEventLog.ReadPartition`
+  2. `SSEConsumer.Deliver` uses `entry.PartitionID` (not hardcoded 0) when calling `SaveCursor` — consumers resume from the correct per-partition position on reconnect
+  3. A `06-VERIFICATION.md` exists in `.planning/phases/06-sse-and-grpc-servers/` with `status: passed`
+  4. REQUIREMENTS.md checkboxes for PAR-01..PAR-05, OUT-02..OUT-08, CHK-02, CFG-03, CFG-04, OBS-01, OBS-02 are updated to reflect actual implementation status
+**Plans**: 2 plans
+
+Plans:
+- [ ] 07.1-01-PLAN.md — CHK-02 code fix: LogEntry.PartitionID + SSEConsumer.Deliver wiring (TDD)
+- [ ] 07.1-02-PLAN.md — Phase 6 VERIFICATION.md + REQUIREMENTS.md checkbox sync
+
+### Phase 7.2: Pipeline Assembly [INSERTED]
+**Goal**: The `kaptanto` binary is a working CDC pipeline — running `kaptanto --source postgres://...` connects to Postgres, streams WAL changes, and delivers events via stdout, SSE, or gRPC, with config-driven column and row filtering applied per table
+**Depends on**: Phase 7.1
+**Requirements**: CFG-05, CFG-06, OUT-01, OUT-02, OUT-03, OUT-04, OUT-05, OUT-06, OUT-07, OUT-08, OBS-01, OBS-02
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `runPipeline` opens a `BadgerEventLog`, creates a `PostgresConnector` (with backfill), starts a `Router`, and wires at least one output (stdout when `--output stdout`)
+  2. Running `kaptanto --source postgres://... --output stdout` produces NDJSON CDC events on stdout for INSERT/UPDATE/DELETE operations
+  3. `config.TableConfig.Columns` is passed as `allowedColumns` to SSE and gRPC consumer constructors — column filtering is config-driven, not hardcoded nil
+  4. `config.TableConfig.Where` is parsed via `output.ParseRowFilter` and passed as `rowFilter` to SSE and gRPC consumer constructors — row filtering is config-driven, not hardcoded nil
+  5. Prometheus metrics and `/healthz` endpoints are registered and reachable when `--output sse` or `--output grpc` is used
+**Plans**: 2 plans
+
+Plans:
+- [ ] 07.1-01-PLAN.md — CHK-02 code fix: LogEntry.PartitionID + SSEConsumer.Deliver wiring (TDD)
+- [ ] 07.1-02-PLAN.md — Phase 6 VERIFICATION.md + REQUIREMENTS.md checkbox sync
+
 ### Phase 8: High Availability
 **Goal**: Two Kaptanto instances can run against the same database with automatic failover via leader election
 **Depends on**: Phase 7
@@ -190,6 +225,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Router and stdout Output | 3/3 | Complete   | 2026-03-08 |
 | 6. SSE and gRPC Servers | 4/4 | Complete   | 2026-03-12 |
 | 7. Configuration and Multi-Source | 4/4 | Complete   | 2026-03-15 |
+| 7.1. Infrastructure Fixes [INSERTED] | 0/2 | Not started | - |
+| 7.2. Pipeline Assembly [INSERTED] | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |
 | 10. Rust FFI Acceleration | 0/? | Not started | - |
