@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-15T12:37:22.535Z"
+last_updated: "2026-03-15T12:43:03.510Z"
 progress:
   total_phases: 9
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 24
-  completed_plans: 23
+  completed_plans: 24
 ---
 
 # Project State
@@ -62,6 +62,7 @@ Progress: [████████░░] 40%
 | Phase 07.1-infrastructure-fixes P01 | 2 | 2 tasks | 4 files |
 | Phase 07.1-infrastructure-fixes P02 | 4 | 2 tasks | 2 files |
 | Phase 07.2-pipeline-assembly P01 | 3 | 2 tasks | 6 files |
+| Phase 07.2-pipeline-assembly P02 | 4 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,9 @@ Recent decisions affecting current work:
 - [Phase 07.1-02]: CHK-02 listed under fixed_in_later_phase in 06-VERIFICATION.md — accurate attribution; Phase 6 had the defect, Phase 7.1 fixed it
 - [Phase 07.2-01]: Per-table maps on SSEConsumer/GRPCConsumer: Deliver looks up rowFilters/colFilters by entry.Event.Table; nil map = pass-through
 - [Phase 07.2-01]: NewSSEServer/NewGRPCServer accept rowFilters/colFilters as last two params; no external callers yet — Plan 02 wires buildTableFilters
+- [Phase 07.2-02]: runPipeline uses errgroup for coordinated goroutine lifecycle; defer el.Close() after g.Wait() satisfies Badger-outlives-router invariant
+- [Phase 07.2-02]: buildTableFilters returns nil maps for empty table config; nil map reads safe in Go and signal pass-through to consumers
+- [Phase 07.2-02]: gRPC mode uses cfg.Port+1 for observability HTTP — gRPC H2 framing owns cfg.Port exclusively
 
 ### Pending Todos
 
@@ -135,5 +139,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-15
-Stopped at: Completed 07.2-01-PLAN.md (SSEServer/GRPCServer per-table filter maps — CFG-05 and CFG-06 server-layer gap closed)
+Stopped at: Completed 07.2-02-PLAN.md (runPipeline full implementation — kaptanto binary now wires all Phase 1-6 components)
 Resume file: None
