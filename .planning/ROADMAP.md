@@ -25,7 +25,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7.4: Backfill Pipeline Wiring** [INSERTED] - Wire BackfillEngine into runPipeline so snapshot/backfill flows are live (BKF-01 through BKF-05, EVT-03, EVT-04, SRC-06) (completed 2026-03-16)
 - [x] **Phase 7.5: Observability Hardening** [INSERTED] - Wire unwritten Prometheus metrics, add healthz probes, bound SSE shutdown, remove dead CLI flags (completed 2026-03-16)
 - [x] **Phase 7.6: Backfill Correctness** [INSERTED] - Fix watermark SnapshotLSN initialization (BKF-02), guard against concurrent BackfillEngine.Run (SRC-06), fix SQLiteBackfillStore pragma (BKF-03) (completed 2026-03-16)
-- [ ] **Phase 7.7: Stdout Metrics** [INSERTED] - Wire EventsDelivered metric into StdoutWriter so default output mode reports delivery metrics (OBS-01)
+- [x] **Phase 7.7: Stdout Metrics** [INSERTED] - Wire EventsDelivered metric into StdoutWriter so default output mode reports delivery metrics (OBS-01) (completed 2026-03-16)
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
 - [ ] **Phase 9: MongoDB Connector** - Change Streams consumption, BSON normalization, resume token persistence
 - [ ] **Phase 10: Rust FFI Acceleration** - Optional Rust-accelerated pgoutput decoding behind build tag
@@ -310,7 +310,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7.4. Backfill Pipeline Wiring [INSERTED] | 2/2 | Complete    | 2026-03-16 |
 | 7.5. Observability Hardening [INSERTED] | 2/2 | Complete | 2026-03-16 |
 | 7.6. Backfill Correctness [INSERTED] | 1/1 | Complete   | 2026-03-16 |
-| 7.7. Stdout Metrics [INSERTED] | 0/1 | In progress | - |
+| 7.7. Stdout Metrics [INSERTED] | 1/1 | Complete   | 2026-03-16 |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |
 | 10. Rust FFI Acceleration | 0/? | Not started | - |
