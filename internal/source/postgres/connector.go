@@ -337,6 +337,18 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		}()
 	}
 
+	// 12b. SRC-06: if the slot was absent after reconnect, the WAL gap means
+	// existing data may be missed — trigger a full re-snapshot via the backfill engine.
+	// Guard: placed after StartReplication (line 308) so the slot and publication
+	// are confirmed present before snapshot queries begin.
+	if needsSnapshot && c.backfillEng != nil {
+		go func() {
+			if err := c.backfillEng.Run(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("backfill engine: re-snapshot after slot loss failed", "error", err)
+			}
+		}()
+	}
+
 	// 13. WAL lag monitoring goroutine (SRC-07).
 	lagCtx, cancelLag := context.WithCancel(ctx)
 	defer cancelLag()
