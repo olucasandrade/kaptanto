@@ -39,11 +39,11 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Backfill Engine
 
-- [x] **BKF-01**: Kaptanto snapshots existing table rows using keyset cursor pagination (never OFFSET)
-- [x] **BKF-02**: Kaptanto coordinates snapshots with live WAL stream using watermark deduplication
-- [x] **BKF-03**: Kaptanto persists backfill cursor position on every batch for crash recovery
-- [x] **BKF-04**: Kaptanto dynamically adjusts batch size based on query duration (adaptive batch sizing)
-- [x] **BKF-05**: Kaptanto supports all snapshot strategies: snapshot_and_stream, stream_only, snapshot_only, snapshot_deferred, snapshot_partial
+- [ ] **BKF-01**: Kaptanto snapshots existing table rows using keyset cursor pagination (never OFFSET)
+- [ ] **BKF-02**: Kaptanto coordinates snapshots with live WAL stream using watermark deduplication
+- [ ] **BKF-03**: Kaptanto persists backfill cursor position on every batch for crash recovery
+- [ ] **BKF-04**: Kaptanto dynamically adjusts batch size based on query duration (adaptive batch sizing)
+- [ ] **BKF-05**: Kaptanto supports all snapshot strategies: snapshot_and_stream, stream_only, snapshot_only, snapshot_deferred, snapshot_partial
 
 ### Router
 
@@ -97,8 +97,8 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 - [x] **EVT-01**: All events follow unified JSON format with id, idempotency_key, timestamp, source, operation, table, key, before, after, metadata
 - [x] **EVT-02**: Events use ULID for sortable, time-ordered, unique IDs
-- [x] **EVT-03**: Snapshot reads have operation "read" with snapshot metadata (progress, snapshot_id)
-- [x] **EVT-04**: Control events signal pipeline state changes (snapshot_complete, table_added, schema_change)
+- [ ] **EVT-03**: Snapshot reads have operation "read" with snapshot metadata (progress, snapshot_id)
+- [ ] **EVT-04**: Control events signal pipeline state changes (snapshot_complete, table_added, schema_change)
 
 ### Performance
 
@@ -146,7 +146,7 @@ Deferred to future release. Tracked but not in current roadmap.
 |-------------|-------|--------|
 | EVT-01 | Phase 7.3 (gap closure) | Complete |
 | EVT-02 | Phase 1 | Complete (01-01) |
-| CFG-01 | Phase 1 | Complete |
+| CFG-01 | Phase 7.5 (gap closure) | Pending |
 | OBS-03 | Phase 1 | Complete (01-01) |
 | PRF-02 | Phase 1 | Complete |
 | SRC-01 | Phase 7.3 (gap closure) | Complete |
@@ -154,7 +154,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SRC-03 | Phase 7.3 (gap closure) | Complete |
 | SRC-04 | Phase 2 | Complete |
 | SRC-05 | Phase 2 | Complete |
-| SRC-06 | Phase 2 | Complete |
+| SRC-06 | Phase 7.4 (gap closure) | Complete |
 | SRC-07 | Phase 2 | Complete |
 | SRC-08 | Phase 2 | Complete |
 | PAR-01 | Phase 7.3 (gap closure) | Complete |
@@ -168,13 +168,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | LOG-02 | Phase 3 | Complete |
 | LOG-03 | Phase 3 | Complete |
 | LOG-04 | Phase 3 | Complete |
-| BKF-01 | Phase 4 | Complete |
-| BKF-02 | Phase 4 | Complete |
-| BKF-03 | Phase 4 | Complete |
-| BKF-04 | Phase 4 | Complete |
-| BKF-05 | Phase 4 | Complete |
-| EVT-03 | Phase 4 | Complete |
-| EVT-04 | Phase 4 | Complete |
+| BKF-01 | Phase 7.4 (gap closure) | Pending |
+| BKF-02 | Phase 7.4 (gap closure) | Pending |
+| BKF-03 | Phase 7.4 (gap closure) | Pending |
+| BKF-04 | Phase 7.4 (gap closure) | Pending |
+| BKF-05 | Phase 7.4 (gap closure) | Pending |
+| EVT-03 | Phase 7.4 (gap closure) | Pending |
+| EVT-04 | Phase 7.4 (gap closure) | Pending |
 | RTR-01 | Phase 5 | Complete |
 | RTR-02 | Phase 5 | Complete |
 | RTR-03 | Phase 5 | Complete |
@@ -191,8 +191,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | CHK-02 | Phase 7.1 | Complete |
 | CFG-03 | Phase 6 (verified Phase 7.1) | Complete |
 | CFG-04 | Phase 6 (verified Phase 7.1) | Complete |
-| OBS-01 | Phase 6 (verified Phase 7.1) | Complete |
-| OBS-02 | Phase 6 (verified Phase 7.1) | Complete |
+| OBS-01 | Phase 7.5 (gap closure) | Pending |
+| OBS-02 | Phase 7.5 (gap closure) | Pending |
 | CFG-02 | Phase 7 | Complete |
 | CFG-05 | Phase 7.2 | Complete |
 | CFG-06 | Phase 7.2 | Complete |
@@ -215,4 +215,4 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-15 after v1.0 milestone audit — EVT-01, SRC-01, SRC-03, PAR-01, CHK-01, LOG-01 reset to Pending (gap closure Phase 7.3 assigned)*
+*Last updated: 2026-03-15 after v1.0 milestone audit — BKF-01..BKF-05, EVT-03, EVT-04, SRC-06 reset to Pending (gap closure Phase 7.4 assigned); OBS-01, OBS-02, CFG-01 reset to Pending (gap closure Phase 7.5 assigned)*

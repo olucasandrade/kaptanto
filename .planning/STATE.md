@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-15T12:53:00Z"
+last_updated: "2026-03-16T12:12:25.703Z"
 progress:
-  total_phases: 10
-  completed_phases: 9
-  total_plans: 26
-  completed_plans: 26
+  total_phases: 12
+  completed_phases: 10
+  total_plans: 28
+  completed_plans: 27
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 ## Current Position
 
-Phase: 7 of 10 (Configuration and Multi-Source)
-Plan: 4 of 4 in current phase
-Status: Complete
-Last activity: 2026-03-15 -- Completed 07.3-02 (OldTuple before-image decode in handleUpdate/handleDelete — EVT-01 and PAR-01 closed)
+Phase: 7.4 of 10 (Backfill Pipeline Wiring)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-03-16 -- Completed 07.4-01 (SetBackfillEngine + SRC-06 re-snapshot dispatch — SRC-06 closed)
 
 Progress: [████████░░] 40%
 
@@ -65,6 +65,7 @@ Progress: [████████░░] 40%
 | Phase 07.2-pipeline-assembly P02 | 4 | 1 tasks | 2 files |
 | Phase 07.3-milestone-gap-closure P01 | 1 | 1 tasks | 2 files |
 | Phase 07.3-milestone-gap-closure P02 | 3 | 1 task (TDD) | 2 files |
+| Phase 07.4-backfill-pipeline-wiring P01 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -133,6 +134,9 @@ Recent decisions affecting current work:
 - [Phase 07.3-milestone-gap-closure]: ctx param kept in AppendAndQueue signature; only the select body changed — zero caller breakage
 - [Phase 07.3-02]: nil prevRow to decodeColumns for OldTuple — OldTuple is already the prior row from Postgres; TOAST merge would corrupt it
 - [Phase 07.3-02]: OldTuple nil guard mandatory — REPLICA IDENTITY DEFAULT updates/deletes have no OldTuple; guard keeps Before=nil and avoids nil dereference
+- [Phase 07.4-backfill-pipeline-wiring]: SetBackfillEngine uses post-construction injection to break circular dependency: engine needs AppendAndQueue as appendFn, connector needs engine — SetBackfillEngine decouples them
+- [Phase 07.4-backfill-pipeline-wiring]: 12b SRC-06 block is unconditional (no HasPendingBackfills guard) — slot loss implies entire table set needs re-snapshot regardless of stored backfill state
+- [Phase 07.4-backfill-pipeline-wiring]: 12b placed after StartReplication so slot and publication are confirmed present before snapshot queries begin
 
 ### Pending Todos
 
@@ -144,6 +148,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15
-Stopped at: Completed 07.3-02-PLAN.md (OldTuple before-image decode — EVT-01 and PAR-01 closed)
+Last session: 2026-03-16
+Stopped at: Completed 07.4-01-PLAN.md (SetBackfillEngine + SRC-06 re-snapshot dispatch)
 Resume file: None
