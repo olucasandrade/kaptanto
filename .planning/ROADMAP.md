@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7.1: Infrastructure Fixes** [INSERTED] - LogEntry.PartitionID fix (CHK-02), Phase 6 formal verification, REQUIREMENTS.md documentation cleanup (completed 2026-03-15)
 - [x] **Phase 7.2: Pipeline Assembly** [INSERTED] - Wire all Phase 1-6 components into runPipeline; thread config column/row filters to consumers (CFG-05, CFG-06) (completed 2026-03-15)
 - [x] **Phase 7.3: Milestone Gap Closure** [INSERTED] - Fix AppendAndQueue blocking channel (INT-01) and OldTuple decode for before field (INT-02) (completed 2026-03-15)
-- [ ] **Phase 7.4: Backfill Pipeline Wiring** [INSERTED] - Wire BackfillEngine into runPipeline so snapshot/backfill flows are live (BKF-01 through BKF-05, EVT-03, EVT-04, SRC-06)
+- [x] **Phase 7.4: Backfill Pipeline Wiring** [INSERTED] - Wire BackfillEngine into runPipeline so snapshot/backfill flows are live (BKF-01 through BKF-05, EVT-03, EVT-04, SRC-06) (completed 2026-03-16)
 - [ ] **Phase 7.5: Observability Hardening** [INSERTED] - Wire unwritten Prometheus metrics, add healthz probes, bound SSE shutdown, remove dead CLI flags
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
 - [ ] **Phase 9: MongoDB Connector** - Change Streams consumption, BSON normalization, resume token persistence
@@ -273,7 +273,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7.1. Infrastructure Fixes [INSERTED] | 2/2 | Complete   | 2026-03-15 |
 | 7.2. Pipeline Assembly [INSERTED] | 2/2 | Complete | 2026-03-15 |
 | 7.3. Milestone Gap Closure [INSERTED] | 2/2 | Complete | 2026-03-15 |
-| 7.4. Backfill Pipeline Wiring [INSERTED] | 0/2 | Not started | - |
+| 7.4. Backfill Pipeline Wiring [INSERTED] | 2/2 | Complete   | 2026-03-16 |
 | 7.5. Observability Hardening [INSERTED] | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |

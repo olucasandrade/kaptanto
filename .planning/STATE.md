@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-16T12:12:25.703Z"
+last_updated: "2026-03-16T12:18:04.959Z"
 progress:
   total_phases: 12
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 28
-  completed_plans: 27
+  completed_plans: 28
 ---
 
 # Project State
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 7.4 of 10 (Backfill Pipeline Wiring)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-03-16 -- Completed 07.4-01 (SetBackfillEngine + SRC-06 re-snapshot dispatch — SRC-06 closed)
+Plan: 2 of 2 in current phase
+Status: Complete
+Last activity: 2026-03-16 -- Completed 07.4-02 (BackfillEngineImpl wiring in runPipeline — BKF-01 through BKF-05 closed)
 
 Progress: [████████░░] 40%
 
@@ -66,6 +66,7 @@ Progress: [████████░░] 40%
 | Phase 07.3-milestone-gap-closure P01 | 1 | 1 tasks | 2 files |
 | Phase 07.3-milestone-gap-closure P02 | 3 | 1 task (TDD) | 2 files |
 | Phase 07.4-backfill-pipeline-wiring P01 | 2 | 2 tasks | 2 files |
+| Phase 07.4-backfill-pipeline-wiring P02 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -137,6 +138,9 @@ Recent decisions affecting current work:
 - [Phase 07.4-backfill-pipeline-wiring]: SetBackfillEngine uses post-construction injection to break circular dependency: engine needs AppendAndQueue as appendFn, connector needs engine — SetBackfillEngine decouples them
 - [Phase 07.4-backfill-pipeline-wiring]: 12b SRC-06 block is unconditional (no HasPendingBackfills guard) — slot loss implies entire table set needs re-snapshot regardless of stored backfill state
 - [Phase 07.4-backfill-pipeline-wiring]: 12b placed after StartReplication so slot and publication are confirmed present before snapshot queries begin
+- [Phase 07.4-backfill-pipeline-wiring]: numEventLogPartitions=64 constant replaces inline literals — single source of truth enforces BKF-02 WatermarkChecker/EventLog partition count invariant
+- [Phase 07.4-backfill-pipeline-wiring]: Two-step construction (connector nil → engine → SetBackfillEngine) breaks circular dependency without restructuring constructors
+- [Phase 07.4-backfill-pipeline-wiring]: buildBackfillConfigs applies strategy=snapshot_and_stream and PKCols=[id] as Phase 7.4 defaults; composite PKs deferred to future config extension
 
 ### Pending Todos
 

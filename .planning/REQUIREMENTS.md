@@ -39,11 +39,11 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Backfill Engine
 
-- [ ] **BKF-01**: Kaptanto snapshots existing table rows using keyset cursor pagination (never OFFSET)
-- [ ] **BKF-02**: Kaptanto coordinates snapshots with live WAL stream using watermark deduplication
-- [ ] **BKF-03**: Kaptanto persists backfill cursor position on every batch for crash recovery
-- [ ] **BKF-04**: Kaptanto dynamically adjusts batch size based on query duration (adaptive batch sizing)
-- [ ] **BKF-05**: Kaptanto supports all snapshot strategies: snapshot_and_stream, stream_only, snapshot_only, snapshot_deferred, snapshot_partial
+- [x] **BKF-01**: Kaptanto snapshots existing table rows using keyset cursor pagination (never OFFSET)
+- [x] **BKF-02**: Kaptanto coordinates snapshots with live WAL stream using watermark deduplication
+- [x] **BKF-03**: Kaptanto persists backfill cursor position on every batch for crash recovery
+- [x] **BKF-04**: Kaptanto dynamically adjusts batch size based on query duration (adaptive batch sizing)
+- [x] **BKF-05**: Kaptanto supports all snapshot strategies: snapshot_and_stream, stream_only, snapshot_only, snapshot_deferred, snapshot_partial
 
 ### Router
 
@@ -97,8 +97,8 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 - [x] **EVT-01**: All events follow unified JSON format with id, idempotency_key, timestamp, source, operation, table, key, before, after, metadata
 - [x] **EVT-02**: Events use ULID for sortable, time-ordered, unique IDs
-- [ ] **EVT-03**: Snapshot reads have operation "read" with snapshot metadata (progress, snapshot_id)
-- [ ] **EVT-04**: Control events signal pipeline state changes (snapshot_complete, table_added, schema_change)
+- [x] **EVT-03**: Snapshot reads have operation "read" with snapshot metadata (progress, snapshot_id)
+- [x] **EVT-04**: Control events signal pipeline state changes (snapshot_complete, table_added, schema_change)
 
 ### Performance
 
@@ -168,13 +168,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | LOG-02 | Phase 3 | Complete |
 | LOG-03 | Phase 3 | Complete |
 | LOG-04 | Phase 3 | Complete |
-| BKF-01 | Phase 7.4 (gap closure) | Pending |
-| BKF-02 | Phase 7.4 (gap closure) | Pending |
-| BKF-03 | Phase 7.4 (gap closure) | Pending |
-| BKF-04 | Phase 7.4 (gap closure) | Pending |
-| BKF-05 | Phase 7.4 (gap closure) | Pending |
-| EVT-03 | Phase 7.4 (gap closure) | Pending |
-| EVT-04 | Phase 7.4 (gap closure) | Pending |
+| BKF-01 | Phase 7.4 (gap closure) | Complete |
+| BKF-02 | Phase 7.4 (gap closure) | Complete |
+| BKF-03 | Phase 7.4 (gap closure) | Complete |
+| BKF-04 | Phase 7.4 (gap closure) | Complete |
+| BKF-05 | Phase 7.4 (gap closure) | Complete |
+| EVT-03 | Phase 7.4 (gap closure) | Complete |
+| EVT-04 | Phase 7.4 (gap closure) | Complete |
 | RTR-01 | Phase 5 | Complete |
 | RTR-02 | Phase 5 | Complete |
 | RTR-03 | Phase 5 | Complete |
