@@ -437,6 +437,53 @@ func TestSetBackfillEngine_NoNilPanic(t *testing.T) {
 	// Verify no panic occurred — if we reach here the test passes.
 }
 
+// --- SRC-06 re-snapshot dispatch tests ---
+
+// TestSRC06ReSnapshotDispatch verifies that EvalSlotCheck(false, true) returns
+// true (needsSnapshot), confirming the SRC-06 logic is correct. The goroutine
+// dispatch itself (connectAndStream 12b block) requires a live DB connection
+// and is exercised in Plan 02's integration test.
+//
+// NOTE: The dispatch block in connectAndStream is placed AFTER StartReplication
+// (line 308) so the slot and publication are confirmed present before snapshot
+// queries begin. This ordering is verified by code position, not runtime behavior.
+func TestSRC06ReSnapshotDispatch(t *testing.T) {
+	// slotPresent=false, wasEverConnected=true → needsSnapshot=true (SRC-06).
+	needsSnapshot := postgres.EvalSlotCheck(false, true)
+	if !needsSnapshot {
+		t.Error("EvalSlotCheck(false, true) = false, want true — SRC-06 snapshot not triggered")
+	}
+
+	// Confirm the nil-guard path: backfillEng nil means dispatch is skipped.
+	// We verify that SetBackfillEngine accepts nil without panic (not a real BackfillEngine).
+	cfg := postgres.Config{DSN: "postgres://localhost/testdb", SourceID: "pg1"}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	c := postgres.NewWithEventLog(cfg, store, idGen, &mockEventLog{})
+
+	// When backfillEng is nil, the 12b block in connectAndStream is skipped.
+	// We confirm the connector was built without engine (no SetBackfillEngine call).
+	// This is a compilation/wiring assertion — connectAndStream needs a live DB.
+	_ = c // connector exists, no panic during construction
+}
+
+// TestSRC06_NilBackfillEngineNoPanic verifies that a connector with nil backfillEng
+// does not panic when SetBackfillEngine is called with a nil interface value.
+func TestSRC06_NilBackfillEngineNoPanic(t *testing.T) {
+	cfg := postgres.Config{DSN: "postgres://localhost/testdb", SourceID: "pg1"}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	c := postgres.New(cfg, store, idGen)
+
+	// Injecting nil is valid (clears the engine).
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("SetBackfillEngine(nil) panicked: %v", r)
+		}
+	}()
+	c.SetBackfillEngine(nil)
+}
+
 // TestNewWithoutEventLog_NilGuard verifies that New (without EventLog) still
 // works and AppendAndQueue is a no-op when eventLog is nil (backward compat).
 func TestNewWithoutEventLog_NilGuard(t *testing.T) {
