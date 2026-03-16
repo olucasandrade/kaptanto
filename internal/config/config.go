@@ -34,6 +34,8 @@ type Config struct {
 	Port      int                    `yaml:"port"`
 	DataDir   string                 `yaml:"data-dir"`
 	Retention string                 `yaml:"retention"` // stored as string; "" means use runtime default (1h)
+	HA        bool                   `yaml:"ha"`        // CFG-01: --ha flag; Phase 8 leader election
+	NodeID    string                 `yaml:"node-id"`   // CFG-01: --node-id flag; Phase 8 node identity
 }
 
 // Load reads the YAML file at path and unmarshals it into a new Config.
@@ -127,6 +129,22 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 			newTables[name] = TableConfig{}
 		}
 		cfg.Tables = newTables
+	}
+
+	if flags.Changed("ha") {
+		v, err := flags.GetBool("ha")
+		if err != nil {
+			return fmt.Errorf("config: merge ha: %w", err)
+		}
+		cfg.HA = v
+	}
+
+	if flags.Changed("node-id") {
+		v, err := flags.GetString("node-id")
+		if err != nil {
+			return fmt.Errorf("config: merge node-id: %w", err)
+		}
+		cfg.NodeID = v
 	}
 
 	return nil

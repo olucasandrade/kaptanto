@@ -212,6 +212,10 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		"data_dir", cfg.DataDir,
 	)
 
+	if cfg.HA {
+		slog.Warn("kaptanto: HA mode requested but not yet implemented; --ha flag is reserved for Phase 8")
+	}
+
 	// 1. Create data directory (Badger does not create parent dirs).
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
@@ -274,7 +278,33 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 
 	// 8. Create observability (metrics + health).
 	metrics := observability.NewKaptantoMetrics()
-	healthHandler := observability.NewHealthHandler([]observability.HealthProbe{})
+	healthHandler := observability.NewHealthHandler([]observability.HealthProbe{
+		{
+			Name:  "badger",
+			Check: el.Ping,
+		},
+		{
+			Name:  "checkpoint",
+			Check: ckStore.Ping,
+		},
+		{
+			Name:  "cursors",
+			Check: cursorStore.Ping,
+		},
+		{
+			Name: "postgres",
+			Check: func() error {
+				pCtx, pCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer pCancel()
+				conn, err := pgx.Connect(pCtx, cfg.Source)
+				if err != nil {
+					return err
+				}
+				_ = conn.Close(context.Background())
+				return nil
+			},
+		},
+	})
 
 	// Thread metrics into components that write Prometheus gauges/counters.
 	rtr.SetMetrics(metrics)
@@ -300,7 +330,9 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		outputServer = func(ctx context.Context) error {
 			go func() {
 				<-ctx.Done()
-				_ = srv.Shutdown(context.Background())
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = srv.Shutdown(shutdownCtx)
 			}()
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				return fmt.Errorf("sse server: %w", err)
@@ -324,7 +356,9 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 			go func() {
 				<-ctx.Done()
 				grpcSrv.GracefulStop()
-				_ = obsSrv.Shutdown(context.Background())
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = obsSrv.Shutdown(shutdownCtx)
 			}()
 			go func() {
 				if err := obsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
