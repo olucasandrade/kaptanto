@@ -76,14 +76,21 @@ type SQLiteBackfillStore struct {
 // initialises the backfill_states schema. Uses WAL journal mode and NORMAL
 // synchronous mode. Pure Go — CGO_ENABLED=0 compatible.
 func OpenSQLiteBackfillStore(path string) (*SQLiteBackfillStore, error) {
-	dsn := fmt.Sprintf(
-		"file://%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
-		path,
-	)
-
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("backfill: open sqlite db: %w", err)
+	}
+
+	// Apply pragmas explicitly — encoding them in the DSN URI is unreliable
+	// with modernc.org/sqlite and can trigger "out of memory" errors.
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL;",
+		"PRAGMA synchronous=NORMAL;",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("backfill: apply pragma %q: %w", pragma, err)
+		}
 	}
 
 	if _, err := db.Exec(createBackfillTableSQL); err != nil {

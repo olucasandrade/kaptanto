@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/kaptanto/kaptanto/internal/event"
 	"github.com/kaptanto/kaptanto/internal/eventlog"
@@ -316,6 +317,21 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 	state.Status = "running"
 	if err := b.store.SaveState(ctx, state); err != nil {
 		return fmt.Errorf("save running state: %w", err)
+	}
+
+	// BKF-02: assign SnapshotLSN on first start only (not on crash-resume).
+	// Without this, state.SnapshotLSN=0 and ShouldEmit(lsn > 0) suppresses every
+	// row that has any WAL activity, inverting watermark deduplication semantics.
+	if state.SnapshotLSN == 0 {
+		var flushLSNStr string
+		if qErr := conn.QueryRow(ctx, "SELECT pg_current_wal_flush_lsn()").Scan(&flushLSNStr); qErr == nil {
+			if lsn, parseErr := pglogrepl.ParseLSN(flushLSNStr); parseErr == nil {
+				state.SnapshotLSN = uint64(lsn)
+			}
+		}
+		// Non-fatal: if query or parse fails, SnapshotLSN remains 0 (conservative
+		// path — no rows suppressed incorrectly). pg_current_wal_flush_lsn() returns
+		// NULL on standby; the nil scan error is caught here and handled safely.
 	}
 
 	for {

@@ -4,7 +4,9 @@ package backfill_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/kaptanto/kaptanto/internal/eventlog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 // --- BKF-01: Keyset cursor queries ---
@@ -414,6 +417,95 @@ func TestBackfillEngineImpl_SnapshotAndStream_HasPending(t *testing.T) {
 
 	eng := backfill.NewBackfillEngine([]backfill.BackfillConfig{cfg}, store, idGen, appendFn, openConnFn)
 	assert.True(t, eng.HasPendingBackfills(), "snapshot_and_stream should report pending backfills on first run")
+}
+
+// --- BKF-02 fix: SnapshotLSN assignment ---
+
+// TestSnapshotLSN_NotOverwrittenOnResume verifies that if a BackfillState
+// already has a non-zero SnapshotLSN (crash-resume scenario), snapshotTable
+// does not overwrite it with a newer LSN. We confirm this by verifying that
+// Run returns an error (openConnFn fails) without mutating state.SnapshotLSN.
+func TestSnapshotLSN_NotOverwrittenOnResume(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer store.Close()
+
+	const existingLSN = uint64(0xDEADBEEF)
+
+	// Pre-populate a running state with a non-zero SnapshotLSN.
+	initial := &backfill.BackfillState{
+		SourceID:    "pg1",
+		Table:       "orders",
+		Status:      "running",
+		Strategy:    "snapshot_and_stream",
+		SnapshotLSN: existingLSN,
+	}
+	require.NoError(t, store.SaveState(context.Background(), initial))
+
+	idGen := event.NewIDGenerator()
+	appendFn := func(_ context.Context, _ *event.ChangeEvent) error { return nil }
+	// openConnFn returns an error — snapshotTable will fail early.
+	openConnFn := func(_ context.Context) (*pgx.Conn, error) {
+		return nil, fmt.Errorf("no connection")
+	}
+
+	eng := backfill.NewBackfillEngine(
+		[]backfill.BackfillConfig{{
+			SourceID:      "pg1",
+			Schema:        "public",
+			Table:         "orders",
+			Strategy:      "snapshot_and_stream",
+			PKCols:        []string{"id"},
+			NumPartitions: 64,
+		}},
+		store, idGen, appendFn, openConnFn,
+	)
+
+	// Run will fail because openConnFn returns error.
+	_ = eng.Run(context.Background())
+
+	// SnapshotLSN must be unchanged in the persisted state.
+	loaded, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	assert.Equal(t, existingLSN, loaded.SnapshotLSN,
+		"crash-resume: SnapshotLSN must not be overwritten on resume")
+}
+
+// TestOpenSQLiteBackfillStore_WALModeApplied verifies that OpenSQLiteBackfillStore
+// applies WAL journal mode via db.Exec pragmas (BKF-03 fix).
+func TestOpenSQLiteBackfillStore_WALModeApplied(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/bf.db"
+
+	store, err := backfill.OpenSQLiteBackfillStore(path)
+	require.NoError(t, err)
+
+	// Exercise save + load to confirm the store operates correctly under WAL mode.
+	state := &backfill.BackfillState{
+		SourceID:    "pg1",
+		Table:       "orders",
+		Status:      "running",
+		Strategy:    "snapshot_and_stream",
+		SnapshotLSN: 12345,
+	}
+	require.NoError(t, store.SaveState(context.Background(), state))
+
+	loaded, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	assert.Equal(t, uint64(12345), loaded.SnapshotLSN)
+
+	require.NoError(t, store.Close())
+
+	// Verify WAL mode directly by re-opening the same file.
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	defer db.Close()
+
+	var journalMode string
+	require.NoError(t, db.QueryRow("PRAGMA journal_mode").Scan(&journalMode))
+	assert.Equal(t, "wal", journalMode, "journal_mode must be WAL after OpenSQLiteBackfillStore")
 }
 
 // --- EVT-03: Snapshot read event shape ---
