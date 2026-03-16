@@ -12,11 +12,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/kaptanto/kaptanto/internal/backfill"
 	"github.com/kaptanto/kaptanto/internal/checkpoint"
 	"github.com/kaptanto/kaptanto/internal/config"
 	"github.com/kaptanto/kaptanto/internal/event"
@@ -33,6 +35,10 @@ import (
 
 	_ "modernc.org/sqlite" // register "sqlite" driver
 )
+
+// numEventLogPartitions is the partition count used for both the EventLog and
+// WatermarkChecker — they must match for correct watermark deduplication (BKF-02).
+const numEventLogPartitions = 64
 
 // NewRootCmd constructs and returns the root cobra command with all persistent flags.
 // It is exported so tests can create isolated instances without global state.
@@ -165,6 +171,35 @@ func buildTableFilters(tables map[string]config.TableConfig) (
 	return rowFilters, colFilters, nil
 }
 
+// buildBackfillConfigs converts the config.Tables map into BackfillConfig entries
+// for BackfillEngineImpl construction.
+//
+// Defaults applied when config.TableConfig has no backfill-specific fields:
+//   - Strategy: "snapshot_and_stream"
+//   - PKCols: ["id"] — assumes a single "id" primary key column
+//   - NumPartitions: numEventLogPartitions (must match eventlog.Open call)
+//
+// PKCols default is documented: tables using composite or non-"id" primary keys
+// must configure pk_cols in a future config extension (Phase 7.4 scope limit).
+func buildBackfillConfigs(tables map[string]config.TableConfig, sourceID string) []backfill.BackfillConfig {
+	configs := make([]backfill.BackfillConfig, 0, len(tables))
+	for tableKey := range tables {
+		schema, table := "", tableKey
+		if parts := strings.SplitN(tableKey, ".", 2); len(parts) == 2 {
+			schema, table = parts[0], parts[1]
+		}
+		configs = append(configs, backfill.BackfillConfig{
+			SourceID:      sourceID,
+			Schema:        schema,
+			Table:         table,
+			Strategy:      "snapshot_and_stream",
+			PKCols:        []string{"id"},
+			NumPartitions: numEventLogPartitions,
+		})
+	}
+	return configs
+}
+
 // runPipeline starts the full kaptanto pipeline with the merged configuration.
 // It blocks until ctx is cancelled, then gracefully drains in-flight events and
 // flushes all checkpoint and cursor stores before returning.
@@ -192,7 +227,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// 3. Open Badger event log.
-	el, err := eventlog.Open(filepath.Join(cfg.DataDir, "events"), 64, retention)
+	el, err := eventlog.Open(filepath.Join(cfg.DataDir, "events"), numEventLogPartitions, retention)
 	if err != nil {
 		return fmt.Errorf("open event log: %w", err)
 	}
@@ -207,13 +242,21 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 
 	// 5. Open SQLite cursor store (consumer resume cursors).
 	// Separate file from checkpoint.db to avoid coupling the two store implementations.
-	cursorDSN := "file://" + filepath.Join(cfg.DataDir, "cursors.db") +
-		"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
-	cursorDB, err := sql.Open("sqlite", cursorDSN)
+	// Pragmas are applied explicitly after open — URI pragma encoding is unreliable
+	// with modernc.org/sqlite and triggers "out of memory" errors.
+	cursorDB, err := sql.Open("sqlite", filepath.Join(cfg.DataDir, "cursors.db"))
 	if err != nil {
 		return fmt.Errorf("open cursor db: %w", err)
 	}
 	defer cursorDB.Close()
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL;",
+		"PRAGMA synchronous=NORMAL;",
+	} {
+		if _, err := cursorDB.Exec(pragma); err != nil {
+			return fmt.Errorf("cursor db pragma %q: %w", pragma, err)
+		}
+	}
 	cursorStore, err := checkpoint.NewSQLiteCursorStore(cursorDB, 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("create cursor store: %w", err)
@@ -226,7 +269,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// 7. Create router.
-	rtr := router.NewRouter(el, 64, cursorStore)
+	rtr := router.NewRouter(el, numEventLogPartitions, cursorStore)
 
 	// 8. Create observability (metrics + health).
 	metrics := observability.NewKaptantoMetrics()
