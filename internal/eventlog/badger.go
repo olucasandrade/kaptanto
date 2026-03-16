@@ -190,6 +190,12 @@ func (b *BadgerEventLog) Close() error {
 	return b.db.Close()
 }
 
+// Ping checks that the Badger database is open and responsive.
+// It runs a no-op read transaction — the standard Badger liveness check.
+func (b *BadgerEventLog) Ping() error {
+	return b.db.View(func(txn *badger.Txn) error { return nil })
+}
+
 // PartitionOf returns the partition index for the given groupingKey using FNV-1a.
 // The grouping key is the raw JSON bytes of the event's primary key (ev.Key).
 // This is deterministic across restarts because Key is deterministic.

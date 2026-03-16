@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/kaptanto/kaptanto/internal/observability"
 )
 
 const createCursorTableSQL = `
@@ -42,6 +44,7 @@ type SQLiteCursorStore struct {
 	mu            sync.Mutex
 	dirty         map[cursorKey]uint64
 	flushInterval time.Duration
+	metrics       *observability.KaptantoMetrics
 }
 
 // NewSQLiteCursorStore creates a SQLiteCursorStore using the provided
@@ -59,6 +62,17 @@ func NewSQLiteCursorStore(db *sql.DB, flushInterval time.Duration) (*SQLiteCurso
 		dirty:         make(map[cursorKey]uint64),
 		flushInterval: flushInterval,
 	}, nil
+}
+
+// SetMetrics injects a KaptantoMetrics reference. Safe to call after construction,
+// before Run. Follows the SetBackfillEngine / SetWatermark setter pattern.
+func (s *SQLiteCursorStore) SetMetrics(m *observability.KaptantoMetrics) {
+	s.metrics = m
+}
+
+// Ping checks SQLite cursor store connectivity.
+func (s *SQLiteCursorStore) Ping() error {
+	return s.db.PingContext(context.Background())
 }
 
 // SaveCursor writes the seq to the in-memory dirty map. It does not write to
@@ -156,5 +170,9 @@ func (s *SQLiteCursorStore) flush(ctx context.Context) {
 	if err := tx.Commit(); err != nil {
 		slog.Warn("checkpoint: flush commit", "err", err)
 		_ = tx.Rollback()
+		return
+	}
+	if s.metrics != nil {
+		s.metrics.CheckpointFlushes.Add(1)
 	}
 }

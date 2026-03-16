@@ -36,14 +36,21 @@ type SQLiteStore struct {
 //
 // path must be a file-system path. Use t.TempDir() in tests.
 func Open(path string) (*SQLiteStore, error) {
-	dsn := fmt.Sprintf(
-		"file://%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
-		path,
-	)
-
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("checkpoint: open sqlite db: %w", err)
+	}
+
+	// Apply pragmas explicitly — encoding them in the DSN URI is unreliable
+	// with modernc.org/sqlite and can trigger "out of memory" errors.
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL;",
+		"PRAGMA synchronous=NORMAL;",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("checkpoint: apply pragma %q: %w", pragma, err)
+		}
 	}
 
 	// Verify the connection and initialise schema.
@@ -93,4 +100,9 @@ func (s *SQLiteStore) Close() error {
 		return fmt.Errorf("checkpoint: close: %w", err)
 	}
 	return nil
+}
+
+// Ping checks SQLite connectivity using the standard database/sql health check.
+func (s *SQLiteStore) Ping() error {
+	return s.db.PingContext(context.Background())
 }
