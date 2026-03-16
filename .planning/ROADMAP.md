@@ -23,7 +23,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7.2: Pipeline Assembly** [INSERTED] - Wire all Phase 1-6 components into runPipeline; thread config column/row filters to consumers (CFG-05, CFG-06) (completed 2026-03-15)
 - [x] **Phase 7.3: Milestone Gap Closure** [INSERTED] - Fix AppendAndQueue blocking channel (INT-01) and OldTuple decode for before field (INT-02) (completed 2026-03-15)
 - [x] **Phase 7.4: Backfill Pipeline Wiring** [INSERTED] - Wire BackfillEngine into runPipeline so snapshot/backfill flows are live (BKF-01 through BKF-05, EVT-03, EVT-04, SRC-06) (completed 2026-03-16)
-- [ ] **Phase 7.5: Observability Hardening** [INSERTED] - Wire unwritten Prometheus metrics, add healthz probes, bound SSE shutdown, remove dead CLI flags
+- [x] **Phase 7.5: Observability Hardening** [INSERTED] - Wire unwritten Prometheus metrics, add healthz probes, bound SSE shutdown, remove dead CLI flags (completed 2026-03-16)
+- [ ] **Phase 7.6: Backfill Correctness** [INSERTED] - Fix watermark SnapshotLSN initialization (BKF-02), guard against concurrent BackfillEngine.Run (SRC-06), fix SQLiteBackfillStore pragma (BKF-03)
+- [ ] **Phase 7.7: Stdout Metrics** [INSERTED] - Wire EventsDelivered metric into StdoutWriter so default output mode reports delivery metrics (OBS-01)
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
 - [ ] **Phase 9: MongoDB Connector** - Change Streams consumption, BSON normalization, resume token persistence
 - [ ] **Phase 10: Rust FFI Acceleration** - Optional Rust-accelerated pgoutput decoding behind build tag
@@ -221,6 +223,31 @@ Plans:
 - [ ] 07.5-01-PLAN.md — Wire SourceLagBytes, ConsumerLag, CheckpointFlushes, ErrorsTotal metrics + add Ping methods to storage components
 - [ ] 07.5-02-PLAN.md — Wire real health probes to /healthz, bound SSE/gRPC shutdown to 5s, add HA/NodeID to Config
 
+### Phase 7.6: Backfill Correctness [INSERTED]
+**Goal**: Fix three audit-identified bugs in the backfill subsystem: watermark deduplication uses `snapshotLSN=0` (BKF-02), concurrent `Run` launches create a data race (SRC-06), and `OpenSQLiteBackfillStore` uses an unreliable URI pragma format (BKF-03)
+**Depends on**: Phase 7.5
+**Requirements**: BKF-02, SRC-06, BKF-03
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `snapshotTable` assigns `state.SnapshotLSN` to the current WAL flush LSN before entering the snapshot row loop — watermark dedup correctly suppresses only rows superseded by *newer* WAL events
+  2. `BackfillEngineImpl.Run` is protected against concurrent execution (or `connectAndStream` prevents double-launch) — `go test -race ./...` passes with no data race on backfill state
+  3. `OpenSQLiteBackfillStore` applies WAL and synchronous pragmas via `db.Exec` after open, consistent with `SQLiteStore` and `SQLiteCursorStore` — no URI pragma parameters in the DSN
+**Plans**: 1 plan
+
+Plans:
+- [ ] 07.6-01-PLAN.md — Fix BKF-02 (SnapshotLSN), SRC-06 (concurrent Run), BKF-03 (SQLite pragma)
+
+### Phase 7.7: Stdout Metrics [INSERTED]
+**Goal**: The default output mode (stdout) emits `EventsDelivered` Prometheus metrics so observability works for all deployments, not just SSE/gRPC
+**Depends on**: Phase 7.6
+**Requirements**: OBS-01
+**Gap Closure**: Closes OBS-01 gap from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `StdoutWriter` has a `SetMetrics` method (or constructor parameter) wired to `KaptantoMetrics`
+  2. `StdoutWriter.Deliver` increments `kaptanto_events_delivered_total` with correct label values on each successful delivery
+  3. `runPipeline` passes the shared metrics instance to `StdoutWriter` — the counter is non-zero after events flow through stdout mode
+**Plans**: 0 plans
+
 ### Phase 8: High Availability
 **Goal**: Two Kaptanto instances can run against the same database with automatic failover via leader election
 **Depends on**: Phase 7
@@ -278,7 +305,9 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7.2. Pipeline Assembly [INSERTED] | 2/2 | Complete | 2026-03-15 |
 | 7.3. Milestone Gap Closure [INSERTED] | 2/2 | Complete | 2026-03-15 |
 | 7.4. Backfill Pipeline Wiring [INSERTED] | 2/2 | Complete    | 2026-03-16 |
-| 7.5. Observability Hardening [INSERTED] | 0/2 | Not started | - |
+| 7.5. Observability Hardening [INSERTED] | 2/2 | Complete | 2026-03-16 |
+| 7.6. Backfill Correctness [INSERTED] | 0/1 | In progress | - |
+| 7.7. Stdout Metrics [INSERTED] | 0/0 | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |
 | 10. Rust FFI Acceleration | 0/? | Not started | - |
