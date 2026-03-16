@@ -334,25 +334,21 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		return fmt.Errorf("postgres: start replication: %w", err)
 	}
 
-	// 12a. Launch backfill goroutine if backfill engine has pending work.
-	// The backfill engine delivers events via AppendAndQueue (same path as WAL events),
-	// which serializes Append calls via appendMu — no concurrent BadgerDB writes (Pitfall 2).
-	if c.backfillEng != nil && c.backfillEng.HasPendingBackfills() {
+	// 12. Launch backfill goroutine: pending work exists (12a), or slot loss
+	// requires re-snapshot (12b, SRC-06). Merged into a single launch to prevent
+	// two concurrent bkEng.Run goroutines when both conditions are simultaneously
+	// true (post-failover reconnect with existing pending backfills).
+	// BackfillEngineImpl has no Run-level mutex; concurrent runs would race on
+	// LoadState/SaveState and snapshotTable.
+	// TODO(SRC-06): on slot loss (needsSnapshot=true), consider resetting cursor
+	// state to force a full re-snapshot; currently resumes from the stored cursor
+	// position which may miss rows changed during the WAL gap.
+	if c.backfillEng != nil && (c.backfillEng.HasPendingBackfills() || needsSnapshot) {
 		go func() {
 			if err := c.backfillEng.Run(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("backfill engine: run failed", "error", err)
-			}
-		}()
-	}
-
-	// 12b. SRC-06: if the slot was absent after reconnect, the WAL gap means
-	// existing data may be missed — trigger a full re-snapshot via the backfill engine.
-	// Guard: placed after StartReplication (line 308) so the slot and publication
-	// are confirmed present before snapshot queries begin.
-	if needsSnapshot && c.backfillEng != nil {
-		go func() {
-			if err := c.backfillEng.Run(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("backfill engine: re-snapshot after slot loss failed", "error", err)
+				slog.Error("backfill engine: run failed",
+					"needs_snapshot", needsSnapshot,
+					"error", err)
 			}
 		}()
 	}
