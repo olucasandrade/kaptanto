@@ -235,7 +235,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 07.6-01-PLAN.md — Fix BKF-02 (SnapshotLSN), SRC-06 (concurrent Run), BKF-03 (SQLite pragma)
+- [x] 07.6-01-PLAN.md — Fix BKF-02 (SnapshotLSN), SRC-06 (concurrent Run), BKF-03 (SQLite pragma)
 
 ### Phase 7.7: Stdout Metrics [INSERTED]
 **Goal**: The default output mode (stdout) emits `EventsDelivered` Prometheus metrics so observability works for all deployments, not just SSE/gRPC
@@ -246,7 +246,10 @@ Plans:
   1. `StdoutWriter` has a `SetMetrics` method (or constructor parameter) wired to `KaptantoMetrics`
   2. `StdoutWriter.Deliver` increments `kaptanto_events_delivered_total` with correct label values on each successful delivery
   3. `runPipeline` passes the shared metrics instance to `StdoutWriter` — the counter is non-zero after events flow through stdout mode
-**Plans**: 0 plans
+**Plans**: 1 plan
+
+Plans:
+- [ ] 07.7-01-PLAN.md — Add SetMetrics to StdoutWriter and wire into runPipeline stdout case
 
 ### Phase 8: High Availability
 **Goal**: Two Kaptanto instances can run against the same database with automatic failover via leader election
@@ -307,7 +310,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7.4. Backfill Pipeline Wiring [INSERTED] | 2/2 | Complete    | 2026-03-16 |
 | 7.5. Observability Hardening [INSERTED] | 2/2 | Complete | 2026-03-16 |
 | 7.6. Backfill Correctness [INSERTED] | 1/1 | Complete   | 2026-03-16 |
-| 7.7. Stdout Metrics [INSERTED] | 0/0 | Not started | - |
+| 7.7. Stdout Metrics [INSERTED] | 0/1 | In progress | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |
 | 10. Rust FFI Acceleration | 0/? | Not started | - |
