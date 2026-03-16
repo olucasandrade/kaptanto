@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/kaptanto/kaptanto/internal/backfill"
 	"github.com/kaptanto/kaptanto/internal/checkpoint"
 	"github.com/kaptanto/kaptanto/internal/config"
@@ -335,7 +336,11 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("unknown output mode %q: use stdout, sse, or grpc", cfg.Output)
 	}
 
-	// 10. Build Postgres connector (backfill engine nil for Phase 7.2).
+	// 10. Build Postgres connector and BackfillEngine.
+	// Two-step construction avoids circular dependency:
+	//   Step a: create connector (nil engine placeholder)
+	//   Step b: create engine with connector.AppendAndQueue as appendFn
+	//   Step c: inject engine into connector via SetBackfillEngine
 	tables := make([]string, 0, len(cfg.Tables))
 	for t := range cfg.Tables {
 		tables = append(tables, t)
@@ -347,7 +352,34 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 	connCfg.ApplyDefaults()
 	idGen := event.NewIDGenerator()
+
+	// 10a. Connector — nil engine placeholder resolved in step 10d.
 	connector := postgres.NewWithBackfill(connCfg, ckStore, idGen, el, nil)
+
+	// 10b. BackfillStore — cursor persistence on every batch (BKF-03).
+	bkStore, err := backfill.OpenSQLiteBackfillStore(filepath.Join(cfg.DataDir, "backfill.db"))
+	if err != nil {
+		return fmt.Errorf("open backfill store: %w", err)
+	}
+	defer bkStore.Close()
+
+	// 10c. BackfillConfigs — one per configured table.
+	bkConfigs := buildBackfillConfigs(cfg.Tables, connCfg.SourceID)
+
+	// 10d. Build BackfillEngineImpl with connector.AppendAndQueue as appendFn.
+	// openConnFn opens a dedicated pgx.Conn for snapshot SELECT queries
+	// (must NOT reuse the replication connection — SRC-01 constraint).
+	openConnFn := func(ctx context.Context) (*pgx.Conn, error) {
+		return pgx.Connect(ctx, cfg.Source)
+	}
+	bkEng := backfill.NewBackfillEngine(bkConfigs, bkStore, idGen, connector.AppendAndQueue, openConnFn)
+
+	// 10e. Wire WatermarkChecker — must use same numPartitions as EventLog (BKF-02).
+	wc := backfill.NewWatermarkChecker(el, numEventLogPartitions)
+	bkEng.SetWatermark(wc)
+
+	// 10f. Inject engine into connector (breaks construction-time circular dependency).
+	connector.SetBackfillEngine(bkEng)
 
 	// 11. Run all components under errgroup — first error cancels the group context.
 	g, gctx := errgroup.WithContext(ctx)
