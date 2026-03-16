@@ -215,7 +215,11 @@ Plans:
   2. `/healthz` returns 503 with diagnostic JSON when Badger, SQLite, or Postgres connectivity is degraded — health probes are wired via `NewHealthHandler`
   3. `SSEServer` shutdown uses a timeout-bounded context (e.g., 5s) so graceful shutdown completes even under active client connections
   4. `--ha` and `--node-id` CLI flags are either removed or backed by `config.Config` fields with documented behavior
-**Plans**: 0 plans
+**Plans**: 2 plans
+
+Plans:
+- [ ] 07.5-01-PLAN.md — Wire SourceLagBytes, ConsumerLag, CheckpointFlushes, ErrorsTotal metrics + add Ping methods to storage components
+- [ ] 07.5-02-PLAN.md — Wire real health probes to /healthz, bound SSE/gRPC shutdown to 5s, add HA/NodeID to Config
 
 ### Phase 8: High Availability
 **Goal**: Two Kaptanto instances can run against the same database with automatic failover via leader election
@@ -273,8 +277,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7.1. Infrastructure Fixes [INSERTED] | 2/2 | Complete   | 2026-03-15 |
 | 7.2. Pipeline Assembly [INSERTED] | 2/2 | Complete | 2026-03-15 |
 | 7.3. Milestone Gap Closure [INSERTED] | 2/2 | Complete | 2026-03-15 |
-| 7.4. Backfill Pipeline Wiring [INSERTED] | 2/2 | Complete   | 2026-03-16 |
-| 7.5. Observability Hardening [INSERTED] | 0/? | Not started | - |
+| 7.4. Backfill Pipeline Wiring [INSERTED] | 2/2 | Complete    | 2026-03-16 |
+| 7.5. Observability Hardening [INSERTED] | 0/2 | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |
 | 10. Rust FFI Acceleration | 0/? | Not started | - |
