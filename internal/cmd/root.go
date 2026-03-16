@@ -315,6 +315,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	switch cfg.Output {
 	case "stdout":
 		writer := stdout.NewStdoutWriter(os.Stdout)
+		writer.SetMetrics(metrics)
 		rtr.Register(writer)
 		outputServer = func(ctx context.Context) error {
 			<-ctx.Done()
