@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-16T12:18:04.959Z"
+last_updated: "2026-03-16T18:38:56.077Z"
 progress:
   total_phases: 12
   completed_phases: 11
-  total_plans: 28
-  completed_plans: 28
+  total_plans: 30
+  completed_plans: 29
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 ## Current Position
 
-Phase: 7.4 of 10 (Backfill Pipeline Wiring)
-Plan: 2 of 2 in current phase
-Status: Complete
-Last activity: 2026-03-16 -- Completed 07.4-02 (BackfillEngineImpl wiring in runPipeline — BKF-01 through BKF-05 closed)
+Phase: 7.5 of 10 (Observability Hardening)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-03-16 -- Completed 07.5-01 (metric wiring — OBS-01 closed; all five Prometheus metrics wired to production call sites)
 
-Progress: [████████░░] 40%
+Progress: [████████░░] 42%
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Progress: [████████░░] 40%
 | Phase 07.3-milestone-gap-closure P02 | 3 | 1 task (TDD) | 2 files |
 | Phase 07.4-backfill-pipeline-wiring P01 | 2 | 2 tasks | 2 files |
 | Phase 07.4-backfill-pipeline-wiring P02 | 3 | 2 tasks | 2 files |
+| Phase 07.5-observability-hardening P01 | 5 | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,9 @@ Recent decisions affecting current work:
 - [Phase 07.4-backfill-pipeline-wiring]: numEventLogPartitions=64 constant replaces inline literals — single source of truth enforces BKF-02 WatermarkChecker/EventLog partition count invariant
 - [Phase 07.4-backfill-pipeline-wiring]: Two-step construction (connector nil → engine → SetBackfillEngine) breaks circular dependency without restructuring constructors
 - [Phase 07.4-backfill-pipeline-wiring]: buildBackfillConfigs applies strategy=snapshot_and_stream and PKCols=[id] as Phase 7.4 defaults; composite PKs deferred to future config extension
+- [Phase 07.5-observability-hardening]: SetMetrics uses post-construction injection matching SetBackfillEngine pattern — avoids circular dependencies; all callers in runPipeline satisfy ordering before Run
+- [Phase 07.5-observability-hardening]: checkWALLag signature extended with sourceID + m *KaptantoMetrics — nil-safe; function remains testable as a pure function
+- [Phase 07.5-observability-hardening]: ConsumerLag Add(1) on blocked path, Set(0) on success — growing backlog signal plus caught-up reset for operators
 
 ### Pending Todos
 
@@ -153,5 +157,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-16
-Stopped at: Completed 07.4-01-PLAN.md (SetBackfillEngine + SRC-06 re-snapshot dispatch)
+Stopped at: Completed 07.5-01-PLAN.md (metric wiring — OBS-01 closed)
 Resume file: None
