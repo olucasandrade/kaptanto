@@ -16,6 +16,7 @@ import (
 	"github.com/kaptanto/kaptanto/internal/checkpoint"
 	"github.com/kaptanto/kaptanto/internal/event"
 	"github.com/kaptanto/kaptanto/internal/eventlog"
+	"github.com/kaptanto/kaptanto/internal/observability"
 	"github.com/kaptanto/kaptanto/internal/parser/pgoutput"
 )
 
@@ -126,6 +127,7 @@ type PostgresConnector struct {
 	// the backfill goroutine call AppendAndQueue concurrently; without this
 	// mutex, concurrent Append calls to BadgerDB would race (Pitfall 2).
 	appendMu sync.Mutex
+	metrics  *observability.KaptantoMetrics
 }
 
 // New creates a PostgresConnector without an EventLog. Call Run(ctx) to start
@@ -183,6 +185,12 @@ func (c *PostgresConnector) EventLog() eventlog.EventLog {
 // BackfillEngineImpl.SetWatermark.
 func (c *PostgresConnector) SetBackfillEngine(eng backfill.BackfillEngine) {
 	c.backfillEng = eng
+}
+
+// SetMetrics injects a KaptantoMetrics reference for SourceLagBytes reporting.
+// Call after construction, before Run.
+func (c *PostgresConnector) SetMetrics(m *observability.KaptantoMetrics) {
+	c.metrics = m
 }
 
 // AppendAndQueue durably appends ev to the event log (if configured) and then
@@ -360,7 +368,7 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 			case <-lagCtx.Done():
 				return
 			case <-ticker.C:
-				_ = checkWALLag(lagCtx, queryConn, c.cfg.WALLagThreshold)
+				_ = checkWALLag(lagCtx, queryConn, c.cfg.WALLagThreshold, c.cfg.SourceID, c.metrics)
 			}
 		}
 	}()
