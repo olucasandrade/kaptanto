@@ -21,7 +21,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: Configuration and Multi-Source** - YAML config parsing, column filtering, SQL WHERE conditions (completed 2026-03-15)
 - [x] **Phase 7.1: Infrastructure Fixes** [INSERTED] - LogEntry.PartitionID fix (CHK-02), Phase 6 formal verification, REQUIREMENTS.md documentation cleanup (completed 2026-03-15)
 - [x] **Phase 7.2: Pipeline Assembly** [INSERTED] - Wire all Phase 1-6 components into runPipeline; thread config column/row filters to consumers (CFG-05, CFG-06) (completed 2026-03-15)
-- [ ] **Phase 7.3: Milestone Gap Closure** [INSERTED] - Fix AppendAndQueue blocking channel (INT-01) and OldTuple decode for before field (INT-02)
+- [x] **Phase 7.3: Milestone Gap Closure** [INSERTED] - Fix AppendAndQueue blocking channel (INT-01) and OldTuple decode for before field (INT-02) (completed 2026-03-15)
+- [ ] **Phase 7.4: Backfill Pipeline Wiring** [INSERTED] - Wire BackfillEngine into runPipeline so snapshot/backfill flows are live (BKF-01 through BKF-05, EVT-03, EVT-04, SRC-06)
+- [ ] **Phase 7.5: Observability Hardening** [INSERTED] - Wire unwritten Prometheus metrics, add healthz probes, bound SSE shutdown, remove dead CLI flags
 - [ ] **Phase 8: High Availability** - Postgres advisory lock leader election with shared checkpoint store
 - [ ] **Phase 9: MongoDB Connector** - Change Streams consumption, BSON normalization, resume token persistence
 - [ ] **Phase 10: Rust FFI Acceleration** - Optional Rust-accelerated pgoutput decoding behind build tag
@@ -186,6 +188,35 @@ Plans:
   5. `go test ./internal/parser/pgoutput/...` passes with new tests asserting `Before` is populated when `OldTuple` is present in the test fixture
 **Plans**: 0 plans
 
+### Phase 7.4: Backfill Pipeline Wiring [INSERTED]
+**Goal**: Wire `BackfillEngineImpl` into `runPipeline` so the full snapshot/backfill flow is live — snapshot reads, watermark dedup, cursor persistence, adaptive batch sizing, all five snapshot strategies, and slot-loss re-snapshot trigger all function at runtime
+**Depends on**: Phase 7.3
+**Requirements**: BKF-01, BKF-02, BKF-03, BKF-04, BKF-05, EVT-03, EVT-04, SRC-06
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `NewBackfillEngine` is called in `runPipeline` and the result is passed as the fifth argument to `postgres.NewWithBackfill` (replacing the current `nil`)
+  2. The connector's backfill goroutine starts at runtime — snapshot rows flow through EventLog → Router → output consumers
+  3. Snapshot "read" events (`operation: "read"`) appear in the event stream when the table has existing rows
+  4. A slot-loss scenario (SRC-06) correctly enqueues a re-snapshot via the wired BackfillEngine
+  5. `go test ./...` passes with new integration-level tests confirming snapshot events reach the Router
+**Plans**: 2 plans
+
+Plans:
+- [ ] 07.4-01-PLAN.md — Add SetBackfillEngine setter to PostgresConnector; wire SRC-06 re-snapshot dispatch in connectAndStream
+- [ ] 07.4-02-PLAN.md — Wire BackfillEngineImpl into runPipeline with buildBackfillConfigs, SQLiteBackfillStore, and WatermarkChecker
+
+### Phase 7.5: Observability Hardening [INSERTED]
+**Goal**: All registered Prometheus metrics are written from production code paths, `/healthz` probes real component health, SSE shutdown is bounded, and dead CLI flags are cleaned up
+**Depends on**: Phase 7.4
+**Requirements**: OBS-01, OBS-02, CFG-01
+**Gap Closure**: Closes tech debt from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `SourceLagBytes`, `ConsumerLag`, `CheckpointFlushes`, and `ErrorsTotal` Prometheus metrics are incremented/set from the production code paths that generate those events
+  2. `/healthz` returns 503 with diagnostic JSON when Badger, SQLite, or Postgres connectivity is degraded — health probes are wired via `NewHealthHandler`
+  3. `SSEServer` shutdown uses a timeout-bounded context (e.g., 5s) so graceful shutdown completes even under active client connections
+  4. `--ha` and `--node-id` CLI flags are either removed or backed by `config.Config` fields with documented behavior
+**Plans**: 0 plans
+
 ### Phase 8: High Availability
 **Goal**: Two Kaptanto instances can run against the same database with automatic failover via leader election
 **Depends on**: Phase 7
@@ -240,7 +271,10 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. SSE and gRPC Servers | 4/4 | Complete   | 2026-03-12 |
 | 7. Configuration and Multi-Source | 4/4 | Complete   | 2026-03-15 |
 | 7.1. Infrastructure Fixes [INSERTED] | 2/2 | Complete   | 2026-03-15 |
-| 7.2. Pipeline Assembly [INSERTED] | 0/? | Not started | - |
+| 7.2. Pipeline Assembly [INSERTED] | 2/2 | Complete | 2026-03-15 |
+| 7.3. Milestone Gap Closure [INSERTED] | 2/2 | Complete | 2026-03-15 |
+| 7.4. Backfill Pipeline Wiring [INSERTED] | 0/2 | Not started | - |
+| 7.5. Observability Hardening [INSERTED] | 0/? | Not started | - |
 | 8. High Availability | 0/? | Not started | - |
 | 9. MongoDB Connector | 0/? | Not started | - |
 | 10. Rust FFI Acceleration | 0/? | Not started | - |

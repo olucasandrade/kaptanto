@@ -177,6 +177,14 @@ func (c *PostgresConnector) EventLog() eventlog.EventLog {
 	return c.eventLog
 }
 
+// SetBackfillEngine injects a BackfillEngine after construction. This breaks the
+// circular dependency where the engine needs connector.AppendAndQueue as its
+// appendFn, but the connector constructor needs the engine. Pattern mirrors
+// BackfillEngineImpl.SetWatermark.
+func (c *PostgresConnector) SetBackfillEngine(eng backfill.BackfillEngine) {
+	c.backfillEng = eng
+}
+
 // AppendAndQueue durably appends ev to the event log (if configured) and then
 // forwards ev to the events channel. If Append fails, the error is returned
 // immediately and ev is NOT sent to the channel — the connector must not

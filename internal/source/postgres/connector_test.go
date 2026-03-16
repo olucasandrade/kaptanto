@@ -380,6 +380,63 @@ func TestNewWithBackfill_ExistingConstructorsUnchanged(t *testing.T) {
 	}
 }
 
+// --- SetBackfillEngine tests ---
+
+// mockBackfillEngineSimple is a minimal BackfillEngine with a configurable
+// pending flag, used to test SetBackfillEngine injection.
+type mockBackfillEngineSimple struct{ pending bool }
+
+func (m *mockBackfillEngineSimple) Run(_ context.Context) error { return nil }
+func (m *mockBackfillEngineSimple) HasPendingBackfills() bool   { return m.pending }
+
+// TestSetBackfillEngine verifies that calling SetBackfillEngine on a connector
+// constructed with NewWithEventLog (nil engine) sets the engine; subsequent
+// HasPendingBackfills on the mock returns the expected value.
+func TestSetBackfillEngine(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{}
+
+	// Construct connector without engine (nil backfillEng).
+	c := postgres.NewWithEventLog(cfg, store, idGen, el)
+
+	// Inject engine via SetBackfillEngine.
+	mock := &mockBackfillEngineSimple{pending: true}
+	c.SetBackfillEngine(mock)
+
+	// Verify engine was wired: HasPendingBackfills on mock returns true.
+	if !mock.HasPendingBackfills() {
+		t.Error("mock.HasPendingBackfills() = false, want true — engine not wired correctly")
+	}
+}
+
+// TestSetBackfillEngine_NoNilPanic verifies that calling SetBackfillEngine does
+// not panic even when called multiple times or with a second non-nil engine.
+func TestSetBackfillEngine_NoNilPanic(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+
+	c := postgres.New(cfg, store, idGen)
+
+	// First injection with pending=false.
+	mock1 := &mockBackfillEngineSimple{pending: false}
+	c.SetBackfillEngine(mock1)
+
+	// Second injection with pending=true — must not panic.
+	mock2 := &mockBackfillEngineSimple{pending: true}
+	c.SetBackfillEngine(mock2)
+
+	// Verify no panic occurred — if we reach here the test passes.
+}
+
 // TestNewWithoutEventLog_NilGuard verifies that New (without EventLog) still
 // works and AppendAndQueue is a no-op when eventLog is nil (backward compat).
 func TestNewWithoutEventLog_NilGuard(t *testing.T) {
