@@ -89,7 +89,7 @@ Requirements for v0.1.0 release. Each maps to roadmap phases.
 
 ### Observability
 
-- [x] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
+- [ ] **OBS-01**: Kaptanto exposes Prometheus metrics endpoint (lag, throughput, backfill progress, errors, consumer lag)
 - [x] **OBS-02**: Kaptanto exposes /healthz endpoint returning 200 when healthy, 503 with diagnostic JSON when not
 - [x] **OBS-03**: Kaptanto emits structured JSON logs with configurable level (debug, info, warn, error)
 
@@ -154,7 +154,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SRC-03 | Phase 7.3 (gap closure) | Complete |
 | SRC-04 | Phase 2 | Complete |
 | SRC-05 | Phase 2 | Complete |
-| SRC-06 | Phase 7.4 (gap closure) | Complete |
+| SRC-06 | Phase 7.6 (gap closure) | Complete |
 | SRC-07 | Phase 2 | Complete |
 | SRC-08 | Phase 2 | Complete |
 | PAR-01 | Phase 7.3 (gap closure) | Complete |
@@ -169,8 +169,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | LOG-03 | Phase 3 | Complete |
 | LOG-04 | Phase 3 | Complete |
 | BKF-01 | Phase 7.4 (gap closure) | Complete |
-| BKF-02 | Phase 7.4 (gap closure) | Complete |
-| BKF-03 | Phase 7.4 (gap closure) | Complete |
+| BKF-02 | Phase 7.6 (gap closure) | Complete |
+| BKF-03 | Phase 7.6 (gap closure) | Complete |
 | BKF-04 | Phase 7.4 (gap closure) | Complete |
 | BKF-05 | Phase 7.4 (gap closure) | Complete |
 | EVT-03 | Phase 7.4 (gap closure) | Complete |
@@ -191,7 +191,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | CHK-02 | Phase 7.1 | Complete |
 | CFG-03 | Phase 6 (verified Phase 7.1) | Complete |
 | CFG-04 | Phase 6 (verified Phase 7.1) | Complete |
-| OBS-01 | Phase 7.5 (gap closure) | Complete |
+| OBS-01 | Phase 7.7 (gap closure) | Pending |
 | OBS-02 | Phase 7.5 (gap closure) | Complete |
 | CFG-02 | Phase 7 | Complete |
 | CFG-05 | Phase 7.2 | Complete |
@@ -215,4 +215,4 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-15 after v1.0 milestone audit — BKF-01..BKF-05, EVT-03, EVT-04, SRC-06 reset to Pending (gap closure Phase 7.4 assigned); OBS-01, OBS-02, CFG-01 reset to Pending (gap closure Phase 7.5 assigned)*
+*Last updated: 2026-03-16 after v1.0 milestone re-audit — BKF-02, BKF-03, SRC-06 reset to Pending (gap closure Phase 7.6 assigned); OBS-01 reset to Pending (gap closure Phase 7.7 assigned)*

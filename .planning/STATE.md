@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-16T18:47:24.809Z"
+last_updated: "2026-03-16T19:27:18.887Z"
 progress:
-  total_phases: 12
-  completed_phases: 12
-  total_plans: 30
-  completed_plans: 30
+  total_phases: 14
+  completed_phases: 13
+  total_plans: 31
+  completed_plans: 31
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 ## Current Position
 
-Phase: 7.5 of 10 (Observability Hardening)
-Plan: 2 of 2 in current phase
-Status: Complete
-Last activity: 2026-03-16 -- Completed 07.5-02 (health probes + bounded shutdown + HA/NodeID config — OBS-02 and CFG-01 closed)
+Phase: 7.6 of 10 (Backfill Correctness)
+Plan: 0 of 0 in current phase
+Status: Not started
+Last activity: 2026-03-16 -- Milestone audit complete; gap closure phases 7.6 and 7.7 created (BKF-02, SRC-06, BKF-03, OBS-01)
 
 Progress: [████████░░] 42%
 
@@ -69,6 +69,7 @@ Progress: [████████░░] 42%
 | Phase 07.4-backfill-pipeline-wiring P02 | 3 | 2 tasks | 2 files |
 | Phase 07.5-observability-hardening P01 | 5 | 2 tasks | 9 files |
 | Phase 07.5-observability-hardening P02 | 3 | 1 tasks | 2 files |
+| Phase 07.6-backfill-correctness P01 | 3 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -149,6 +150,9 @@ Recent decisions affecting current work:
 - [Phase 07.5-02]: Postgres health probe uses context.WithTimeout(2s) — prevents probe hanging on unreachable host
 - [Phase 07.5-02]: HA warning emitted via slog.Warn in runPipeline — operator-visible without failing startup
 - [Phase 07.5-02]: Shutdown context created inside goroutine body — lifetime scoped to shutdown action, not pipeline
+- [Phase 07.6-01]: BKF-02: SnapshotLSN assigned via pg_current_wal_flush_lsn() before batch loop with crash-resume guard — non-fatal if query fails
+- [Phase 07.6-01]: BKF-03: db.Exec pragma pattern in OpenSQLiteBackfillStore matches checkpoint/sqlite.go — eliminates OOM risk from URI pragma parsing
+- [Phase 07.6-01]: SRC-06: single merged goroutine launch if block with || eliminates structural double-launch without mutex
 
 ### Pending Todos
 
