@@ -276,6 +276,10 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	metrics := observability.NewKaptantoMetrics()
 	healthHandler := observability.NewHealthHandler([]observability.HealthProbe{})
 
+	// Thread metrics into components that write Prometheus gauges/counters.
+	rtr.SetMetrics(metrics)
+	cursorStore.SetMetrics(metrics)
+
 	// 9. Wire output — register consumer(s) BEFORE starting the router.
 	var outputServer func(ctx context.Context) error
 	switch cfg.Output {
@@ -355,6 +359,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 
 	// 10a. Connector — nil engine placeholder resolved in step 10d.
 	connector := postgres.NewWithBackfill(connCfg, ckStore, idGen, el, nil)
+	connector.SetMetrics(metrics)
 
 	// 10b. BackfillStore — cursor persistence on every batch (BKF-03).
 	bkStore, err := backfill.OpenSQLiteBackfillStore(filepath.Join(cfg.DataDir, "backfill.db"))

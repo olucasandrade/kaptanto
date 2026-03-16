@@ -120,8 +120,14 @@ func (c *GRPCConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) err
 		}
 		return nil
 	case <-c.done:
+		if c.m != nil {
+			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+		}
 		return fmt.Errorf("grpc consumer: subscribe handler exited")
 	default:
+		if c.m != nil {
+			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+		}
 		return fmt.Errorf("grpc consumer: channel full, slow client (backpressure)")
 	}
 }

@@ -106,15 +106,27 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 
 	// SSE wire format: id line + data line (JSON-encoded) + blank line terminator.
 	if _, err := fmt.Fprintf(c.w, "id: %s\ndata: ", entry.Event.ID.String()); err != nil {
+		if c.m != nil {
+			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+		}
 		return err // broken pipe -> isPermanentError -> dead-letter
 	}
 	if err := json.NewEncoder(c.w).Encode(&filtered); err != nil {
+		if c.m != nil {
+			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+		}
 		return err
 	}
 	if _, err := fmt.Fprint(c.w, "\n"); err != nil {
+		if c.m != nil {
+			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+		}
 		return err
 	}
 	if err := c.rc.Flush(); err != nil {
+		if c.m != nil {
+			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+		}
 		return err
 	}
 

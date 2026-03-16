@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/kaptanto/kaptanto/internal/observability"
 )
 
 // checkReplicaIdentity queries pg_class to find the REPLICA IDENTITY setting
@@ -39,12 +40,12 @@ func checkReplicaIdentity(ctx context.Context, conn *pgx.Conn, schema, table str
 
 // checkWALLag queries pg_stat_replication for the byte difference between
 // sent_lsn and write_lsn on the primary. If the lag exceeds thresholdBytes,
-// a slog.Warn is emitted.
+// a slog.Warn is emitted. When m is non-nil, sets the SourceLagBytes gauge.
 //
 // Returns nil when:
 //   - No standbys are attached (empty pg_stat_replication — not an error).
 //   - Lag is within the threshold.
-func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64) error {
+func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64, sourceID string, m *observability.KaptantoMetrics) error {
 	var lagBytes int64
 	err := conn.QueryRow(ctx,
 		`SELECT COALESCE(sent_lsn - write_lsn, 0) AS lag_bytes
@@ -53,6 +54,10 @@ func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64) erro
 	if err != nil {
 		// No rows — no standbys attached. This is normal for a single-node setup.
 		return nil
+	}
+
+	if m != nil {
+		m.SourceLagBytes.WithLabelValues(sourceID).Set(float64(lagBytes))
 	}
 
 	if lagBytes > thresholdBytes {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kaptanto/kaptanto/internal/eventlog"
+	"github.com/kaptanto/kaptanto/internal/observability"
 )
 
 const pollInterval = 10 * time.Millisecond
@@ -98,6 +99,7 @@ type Router struct {
 	mu            sync.RWMutex
 	cursorStore   ConsumerCursorStore
 	rs            *RetryScheduler
+	metrics       *observability.KaptantoMetrics
 }
 
 // NewRouter creates a new Router. If cs is nil, an in-memory noopCursorStore
@@ -112,6 +114,12 @@ func NewRouter(el eventlog.EventLog, numPartitions uint32, cs ConsumerCursorStor
 		cursorStore:   cs,
 		rs:            NewRetryScheduler(),
 	}
+}
+
+// SetMetrics injects a KaptantoMetrics reference for ConsumerLag reporting.
+// Call after construction, before Run.
+func (r *Router) SetMetrics(m *observability.KaptantoMetrics) {
+	r.metrics = m
 }
 
 // Register adds a Consumer to the Router. Register must be called before Run.
@@ -241,6 +249,9 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 		// Skip entry if this consumer has a blocked group for this key.
 		// Blocked state is owned by RetryScheduler (RTR-05).
 		if r.rs.IsBlocked(cs.consumer.ID(), groupKey) {
+			if r.metrics != nil {
+				r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
+			}
 			continue
 		}
 
@@ -276,6 +287,9 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 				"seq", entry.Seq,
 				"err", err,
 			)
+		}
+		if r.metrics != nil {
+			r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Set(0)
 		}
 	}
 }
