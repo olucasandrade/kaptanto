@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-16T18:38:56.077Z"
+last_updated: "2026-03-16T18:43:15.499Z"
 progress:
   total_phases: 12
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 30
-  completed_plans: 29
+  completed_plans: 30
 ---
 
 # Project State
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 7.5 of 10 (Observability Hardening)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-03-16 -- Completed 07.5-01 (metric wiring — OBS-01 closed; all five Prometheus metrics wired to production call sites)
+Plan: 2 of 2 in current phase
+Status: Complete
+Last activity: 2026-03-16 -- Completed 07.5-02 (health probes + bounded shutdown + HA/NodeID config — OBS-02 and CFG-01 closed)
 
 Progress: [████████░░] 42%
 
@@ -68,6 +68,7 @@ Progress: [████████░░] 42%
 | Phase 07.4-backfill-pipeline-wiring P01 | 2 | 2 tasks | 2 files |
 | Phase 07.4-backfill-pipeline-wiring P02 | 3 | 2 tasks | 2 files |
 | Phase 07.5-observability-hardening P01 | 5 | 2 tasks | 9 files |
+| Phase 07.5-observability-hardening P02 | 3 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -145,6 +146,9 @@ Recent decisions affecting current work:
 - [Phase 07.5-observability-hardening]: SetMetrics uses post-construction injection matching SetBackfillEngine pattern — avoids circular dependencies; all callers in runPipeline satisfy ordering before Run
 - [Phase 07.5-observability-hardening]: checkWALLag signature extended with sourceID + m *KaptantoMetrics — nil-safe; function remains testable as a pure function
 - [Phase 07.5-observability-hardening]: ConsumerLag Add(1) on blocked path, Set(0) on success — growing backlog signal plus caught-up reset for operators
+- [Phase 07.5-02]: Postgres health probe uses context.WithTimeout(2s) — prevents probe hanging on unreachable host
+- [Phase 07.5-02]: HA warning emitted via slog.Warn in runPipeline — operator-visible without failing startup
+- [Phase 07.5-02]: Shutdown context created inside goroutine body — lifetime scoped to shutdown action, not pipeline
 
 ### Pending Todos
 
@@ -157,5 +161,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-16
-Stopped at: Completed 07.5-01-PLAN.md (metric wiring — OBS-01 closed)
+Stopped at: Completed 07.5-02-PLAN.md (health probes + bounded shutdown + HA/NodeID config — OBS-02 and CFG-01 closed)
 Resume file: None

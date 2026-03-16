@@ -146,7 +146,7 @@ Deferred to future release. Tracked but not in current roadmap.
 |-------------|-------|--------|
 | EVT-01 | Phase 7.3 (gap closure) | Complete |
 | EVT-02 | Phase 1 | Complete (01-01) |
-| CFG-01 | Phase 7.5 (gap closure) | Pending |
+| CFG-01 | Phase 7.5 (gap closure) | Complete |
 | OBS-03 | Phase 1 | Complete (01-01) |
 | PRF-02 | Phase 1 | Complete |
 | SRC-01 | Phase 7.3 (gap closure) | Complete |
@@ -191,8 +191,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | CHK-02 | Phase 7.1 | Complete |
 | CFG-03 | Phase 6 (verified Phase 7.1) | Complete |
 | CFG-04 | Phase 6 (verified Phase 7.1) | Complete |
-| OBS-01 | Phase 7.5 (gap closure) | Pending |
-| OBS-02 | Phase 7.5 (gap closure) | Pending |
+| OBS-01 | Phase 7.5 (gap closure) | Complete |
+| OBS-02 | Phase 7.5 (gap closure) | Complete |
 | CFG-02 | Phase 7 | Complete |
 | CFG-05 | Phase 7.2 | Complete |
 | CFG-06 | Phase 7.2 | Complete |
