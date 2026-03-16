@@ -15,19 +15,18 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-07)
+See: .planning/PROJECT.md (updated 2026-03-17)
 
 **Core value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
-**Current focus:** Phase 5: Router and Stdout Output
+**Current focus:** Planning next milestone (v1.1)
 
 ## Current Position
 
-Phase: 7.7 of 10 (Stdout Metrics)
-Plan: 1 of 1 in current phase — COMPLETE
-Status: Phase 7.7 complete — OBS-01 closed 2026-03-16
-Last activity: 2026-03-16 -- Phase 7.7 complete: OBS-01 verified. StdoutWriter now increments kaptanto_events_delivered_total
+Milestone: v1.0 — COMPLETE (shipped 2026-03-16)
+Status: All 14 phases complete. All 52 v1.0 requirements satisfied. Tagged v1.0.
+Last activity: 2026-03-17 — milestone archived, RETROSPECTIVE.md written, v1.0 tag created
 
-Progress: [██████████] 100%
+Progress: [██████████] 100% — v1.0 shipped
 
 ## Performance Metrics
 
