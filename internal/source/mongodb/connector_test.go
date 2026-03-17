@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/kaptanto/kaptanto/internal/eventlog"
 	mongodb "github.com/kaptanto/kaptanto/internal/source/mongodb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func (f *fakeEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 	return 1, f.appendErr
 }
 
-func (f *fakeEventLog) ReadPartition(_ context.Context, _ uint32, _ uint64, _ int) ([]interface{}, error) {
+func (f *fakeEventLog) ReadPartition(_ context.Context, _ uint32, _ uint64, _ int) ([]eventlog.LogEntry, error) {
 	return nil, nil
 }
 
