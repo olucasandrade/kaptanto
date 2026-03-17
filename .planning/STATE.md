@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-17T01:36:38.313Z"
+last_updated: "2026-03-17T11:44:20.109Z"
 progress:
-  total_phases: 17
+  total_phases: 18
   completed_phases: 17
-  total_plans: 39
-  completed_plans: 39
+  total_plans: 42
+  completed_plans: 40
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: Phase 9.1 — MongoDB HA Guard (in progress)
-Plan: 09.1-01 complete — MongoDB + HA guard, INT-03 closed
+Phase: Phase 10 — Rust FFI Acceleration (in progress)
+Plan: 10-01 complete — Rust FFI crate scaffold and dual-target Makefile, PRF-03 closed
 Status: in-progress
-Last activity: 2026-03-17 — 09.1-01 complete: MongoDB + HA guard added to runPipeline, INT-03 gap closed
+Last activity: 2026-03-17 — 10-01 complete: Rust staticlib crate with stub FFI functions and cbindgen header generation; Makefile build-rust target
 
 Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 
@@ -78,6 +78,7 @@ Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 | Phase 09-mongodb-connector P01 | 3 | 1 tasks | 4 files |
 | Phase 09-mongodb-connector P03 | 530 | 2 tasks | 7 files |
 | Phase 09.1-mongodb-ha-guard P01 | 1 | 2 tasks | 2 files |
+| Phase 10-rust-ffi-acceleration P01 | 3 | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,9 @@ Recent decisions affecting current work:
 - [Phase 09-03]: SourceType() on Config struct, auto-detects mongodb:// and mongodb+srv:// prefixes — no new YAML flag required for basic usage
 - [Phase 09-03]: normalizeStub removed from connector.go — consumeStream now calls mongoparser.NormalizeChangeEvent directly (Plan 02 integration complete)
 - [Phase 09.1-mongodb-ha-guard]: Guard placed before HA block in runPipeline — rejects cfg.HA + cfg.SourceType() == mongodb early with message containing ha:, Postgres, and source URI
+- [Phase 10-rust-ffi-acceleration]: Rust RUST_DIR/RUST_LIB variables defined at top of Makefile before clean target for correct immediate-expansion
+- [Phase 10-rust-ffi-acceleration]: build-rust documented as host-platform only — CGO + Rust toolchain requires matching cross-linker, use make build for cross-compilation
+- [Phase 10-rust-ffi-acceleration]: panic=abort in release profile plus catch_unwind on all extern C entry points — double safety boundary for Rust FFI
 
 ### Pending Todos
 
@@ -194,5 +198,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-17
-Stopped at: Completed 09.1-mongodb-ha-guard/09.1-01-PLAN.md — MongoDB + HA guard, INT-03 closed
-Resume with: /gsd:execute-phase 09.1
+Stopped at: Completed 10-rust-ffi-acceleration/10-01-PLAN.md — Rust FFI crate scaffold and dual-target Makefile, PRF-03 closed
+Resume with: /gsd:execute-phase 10

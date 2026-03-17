@@ -30,7 +30,7 @@ Requirements for the v1.1 milestone. Each maps to roadmap phases.
 ### Performance
 
 - [ ] **PRF-01**: Rust FFI parser accelerates pgoutput decoding, TOAST cache, and JSON serialization behind build tag
-- [ ] **PRF-03**: Makefile supports both Go-only and Go+Rust build targets
+- [x] **PRF-03**: Makefile supports both Go-only and Go+Rust build targets
 
 ## Future Requirements
 
@@ -82,7 +82,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PAR-04 | Phase 9 | Complete |
 | INT-03 | Phase 9.1 | Complete |
 | PRF-01 | Phase 10 | Pending |
-| PRF-03 | Phase 10 | Pending |
+| PRF-03 | Phase 10 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 12 total
