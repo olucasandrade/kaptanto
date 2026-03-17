@@ -62,7 +62,11 @@ Plans:
   3. On restart, Kaptanto reads the persisted resume token from the checkpoint store and resumes the Change Stream from that point — no full re-snapshot is needed if the token is still valid
   4. When the resume token is expired or the Change Stream returns an error indicating the token is invalid, Kaptanto automatically triggers a collection snapshot and streams WAL changes from the point the snapshot began — the same watermark coordination used by the Postgres backfill engine applies
   5. MongoDB replica set elections (primary stepdown, election, new primary) are handled transparently by the MongoDB driver — Kaptanto does not crash and resumes consuming from the new primary without operator intervention
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 09-01-PLAN.md — MongoDBConnector with Change Stream loop and resume token persistence (SRC-09, SRC-11)
+- [ ] 09-02-PLAN.md — BSON normalizer: Change Stream event to ChangeEvent field mapping (SRC-10, PAR-04)
+- [ ] 09-03-PLAN.md — MongoDB snapshot with watermark coordination + runPipeline wiring (SRC-12)
 
 ### Phase 10: Rust FFI Acceleration
 **Goal**: High-throughput users can opt into a Rust-accelerated build that delivers 3x throughput improvement for pgoutput decoding, TOAST cache, and JSON serialization, while the pure Go binary remains the default with no behavior change
@@ -86,6 +90,6 @@ Plans:
 | 6. SSE and gRPC Servers | v1.0 | 4/4 | ✓ Complete | 2026-03-12 |
 | 7. Configuration and Multi-Source | v1.0 | 4/4 | ✓ Complete | 2026-03-15 |
 | 7.1–7.7. Gap Closure [INSERTED] | v1.0 | 8/8 | ✓ Complete | 2026-03-16 |
-| 8. High Availability | 3/3 | Complete   | 2026-03-17 | — |
-| 9. MongoDB Connector | v1.1 | 0/? | ○ Not started | — |
+| 8. High Availability | 3/3 | Complete    | 2026-03-17 | — |
+| 9. MongoDB Connector | v1.1 | 0/3 | ○ Not started | — |
 | 10. Rust FFI Acceleration | v1.1 | 0/? | ○ Not started | — |
