@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-17T00:34:44Z"
+last_updated: "2026-03-17T00:53:35.605Z"
 progress:
-  total_phases: 15
-  completed_phases: 14
-  total_plans: 35
-  completed_plans: 35
+  total_phases: 16
+  completed_phases: 15
+  total_plans: 38
+  completed_plans: 37
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: Phase 8 — High Availability (complete)
-Plan: 08-03 complete — HA pipeline wiring: LeaderElector + PostgresStore wired into runPipeline
+Phase: Phase 9 — MongoDB Connector (in progress)
+Plan: 09-02 complete — MongoDB BSON normalizer: NormalizeChangeEvent with extended JSON
 Status: in_progress
-Last activity: 2026-03-17 — 08-03 complete: HA election + shared checkpoint store wired, HA-03 closed
+Last activity: 2026-03-17 — 09-02 complete: BSON normalizer implemented, SRC-10 + PAR-04 closed
 
 Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 
@@ -74,6 +74,8 @@ Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 | Phase 08-high-availability P03 | 6 | 2 tasks | 2 files |
 | Phase 08-high-availability P02 | 1 | 2 tasks | 2 files |
 | Phase 08-high-availability P01 | 2 | 2 tasks | 2 files |
+| Phase 09-mongodb-connector P02 | 2 | 1 tasks | 4 files |
+| Phase 09-mongodb-connector P01 | 3 | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -168,6 +170,12 @@ Recent decisions affecting current work:
 - [Phase 08-03]: HA election placed before all pipeline components in runPipeline — guarantees only the leader opens the replication slot and writes checkpoints
 - [Phase 08-03]: pgStore.Ping wraps context.Background() into func() error closure — HealthProbe.Check signature has no context param; PostgresStore.Ping requires one
 - [Phase 08-03]: ckStore declared as CheckpointStore interface, ckProbe as func() error — allows both SQLiteStore and PostgresStore to be assigned without type assertions downstream
+- [Phase 09-02]: mongo-driver v2 collapses primitive package into bson package — bson.ObjectID/bson.Timestamp directly (no bson/primitive sub-package)
+- [Phase 09-02]: bson.MarshalExtJSON canonical=true preserves $oid/$date/$numberDecimal wrappers for BSON type fidelity in Key/Before/After fields
+- [Phase 09-02]: replace operationType treated as OpUpdate — full-document replacement is semantically equivalent to update in unified event schema
+- [Phase 09-01]: WatchFn injected via NewWithWatchFn — unit tests without real MongoDB; production lazily builds watchFn in Run
+- [Phase 09-01]: resumeToken loaded at construction (store.Load once in constructor); Run goroutines share initial token
+- [Phase 09-01]: CommandError code 260 = InvalidResumeToken; fallback strings.Contains handles wrapped errors
 
 ### Pending Todos
 
@@ -180,5 +188,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-17
-Stopped at: Completed 08-high-availability/08-03-PLAN.md — HA pipeline wiring: LeaderElector + PostgresStore into runPipeline
+Stopped at: Completed 09-mongodb-connector/09-02-PLAN.md — MongoDB BSON normalizer: NormalizeChangeEvent with extended JSON
 Resume with: /gsd:execute-phase 09

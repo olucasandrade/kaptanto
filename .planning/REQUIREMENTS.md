@@ -17,14 +17,14 @@ Requirements for the v1.1 milestone. Each maps to roadmap phases.
 
 ### Source Connectors (MongoDB)
 
-- [ ] **SRC-09**: Kaptanto connects to MongoDB via Change Streams on specific collections (MongoDB 4.2+)
-- [ ] **SRC-10**: Kaptanto persists MongoDB resume tokens and resumes from last token on restart
-- [ ] **SRC-11**: Kaptanto detects expired/invalid resume token and triggers automatic re-snapshot
+- [x] **SRC-09**: Kaptanto connects to MongoDB via Change Streams on specific collections (MongoDB 4.2+)
+- [x] **SRC-10**: Kaptanto persists MongoDB resume tokens and resumes from last token on restart
+- [x] **SRC-11**: Kaptanto detects expired/invalid resume token and triggers automatic re-snapshot
 - [ ] **SRC-12**: Kaptanto handles MongoDB replica set elections transparently via driver
 
 ### Parser
 
-- [ ] **PAR-04**: Kaptanto normalizes MongoDB BSON documents into the unified ChangeEvent format
+- [x] **PAR-04**: Kaptanto normalizes MongoDB BSON documents into the unified ChangeEvent format
 
 ### Performance
 
@@ -74,11 +74,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HA-02 | Phase 8 | Complete |
 | HA-03 | Phase 8 | Complete |
 | CHK-05 | Phase 8 | Complete |
-| SRC-09 | Phase 9 | Pending |
-| SRC-10 | Phase 9 | Pending |
-| SRC-11 | Phase 9 | Pending |
+| SRC-09 | Phase 9 | Complete |
+| SRC-10 | Phase 9 | Complete |
+| SRC-11 | Phase 9 | Complete |
 | SRC-12 | Phase 9 | Pending |
-| PAR-04 | Phase 9 | Pending |
+| PAR-04 | Phase 9 | Complete |
 | PRF-01 | Phase 10 | Pending |
 | PRF-03 | Phase 10 | Pending |
 
