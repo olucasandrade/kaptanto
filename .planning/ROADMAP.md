@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Postgres CDC Binary** — Phases 1–7.7 (shipped 2026-03-16)
-- 📋 **v1.1 Production Hardening** — Phases 8–10 (active)
+- 📋 **v1.1 Production Hardening** — Phases 8–10 (active, Phase 9.1 inserted)
 
 ## Phases
 
@@ -33,6 +33,7 @@ Full archive: `.planning/milestones/v1.0-ROADMAP.md`
 
 - [x] **Phase 8: High Availability** — Postgres advisory lock leader election with shared checkpoint store and automatic standby takeover (completed 2026-03-17)
 - [x] **Phase 9: MongoDB Connector** — Change Streams consumption, BSON normalization, resume token persistence, and re-snapshot on token expiry (completed 2026-03-17)
+- [ ] **Phase 9.1: MongoDB HA Guard** [INSERTED] — Guard against passing MongoDB URI to Postgres HA election (INT-03 gap closure)
 - [ ] **Phase 10: Rust FFI Acceleration** — Optional Rust-accelerated pgoutput decoding, TOAST cache, and JSON serialization behind build tag
 
 ## Phase Details
@@ -68,6 +69,19 @@ Plans:
 - [ ] 09-02-PLAN.md — BSON normalizer: Change Stream event to ChangeEvent field mapping (SRC-10, PAR-04)
 - [ ] 09-03-PLAN.md — MongoDB snapshot with watermark coordination + runPipeline wiring (SRC-12)
 
+### Phase 9.1: MongoDB HA Guard [INSERTED]
+**Goal**: Prevent silent runtime crash when `--ha` is used with a MongoDB source DSN by adding an explicit error guard in `runPipeline` before the HA election block attempts to connect via pgx
+**Depends on**: Phase 9
+**Requirements**: (gap closure — closes INT-03; restores HA-01, HA-02, HA-03 correctness for MongoDB deployments)
+**Gap Closure**: Addresses INT-03 from v1.1-MILESTONE-AUDIT.md
+**Success Criteria** (what must be TRUE):
+  1. Running `kaptanto --source mongodb://... --ha` returns a clear error message identifying that HA mode requires a Postgres DSN, not a MongoDB URI
+  2. Running `kaptanto --source postgres://... --ha` still works correctly — no regression to the Postgres HA path
+  3. Tests cover both the error path (MongoDB + HA) and the non-regression path (Postgres + HA routing)
+**Plans**: 1 plan
+Plans:
+- [ ] 09.1-01-PLAN.md — MongoDB + HA guard in runPipeline: early-return error before pgx connect when MongoDB URI detected with --ha (INT-03)
+
 ### Phase 10: Rust FFI Acceleration
 **Goal**: High-throughput users can opt into a Rust-accelerated build that delivers 3x throughput improvement for pgoutput decoding, TOAST cache, and JSON serialization, while the pure Go binary remains the default with no behavior change
 **Depends on**: Phase 9
@@ -90,6 +104,7 @@ Plans:
 | 6. SSE and gRPC Servers | v1.0 | 4/4 | ✓ Complete | 2026-03-12 |
 | 7. Configuration and Multi-Source | v1.0 | 4/4 | ✓ Complete | 2026-03-15 |
 | 7.1–7.7. Gap Closure [INSERTED] | v1.0 | 8/8 | ✓ Complete | 2026-03-16 |
-| 8. High Availability | 3/3 | Complete    | 2026-03-17 | — |
-| 9. MongoDB Connector | 3/3 | Complete   | 2026-03-17 | — |
+| 8. High Availability | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
+| 9. MongoDB Connector | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
+| 9.1. MongoDB HA Guard [INSERTED] | v1.1 | 0/1 | ○ Not started | — |
 | 10. Rust FFI Acceleration | v1.1 | 0/? | ○ Not started | — |

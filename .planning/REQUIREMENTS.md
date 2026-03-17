@@ -14,13 +14,14 @@ Requirements for the v1.1 milestone. Each maps to roadmap phases.
 - [x] **HA-02**: Standby instance polls for lock availability and takes over when primary drops
 - [x] **HA-03**: Active leader loads last checkpoint from shared Postgres store on takeover
 - [x] **CHK-05**: Postgres checkpoint store for HA mode (shared state between instances)
+- [ ] **INT-03**: `--ha` flag with MongoDB source returns a clear error (not a silent pgx connection failure)
 
 ### Source Connectors (MongoDB)
 
 - [x] **SRC-09**: Kaptanto connects to MongoDB via Change Streams on specific collections (MongoDB 4.2+)
 - [x] **SRC-10**: Kaptanto persists MongoDB resume tokens and resumes from last token on restart
 - [x] **SRC-11**: Kaptanto detects expired/invalid resume token and triggers automatic re-snapshot
-- [ ] **SRC-12**: Kaptanto handles MongoDB replica set elections transparently via driver
+- [x] **SRC-12**: Kaptanto handles MongoDB replica set elections transparently via driver
 
 ### Parser
 
@@ -77,16 +78,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SRC-09 | Phase 9 | Complete |
 | SRC-10 | Phase 9 | Complete |
 | SRC-11 | Phase 9 | Complete |
-| SRC-12 | Phase 9 | Pending |
+| SRC-12 | Phase 9 | Complete |
 | PAR-04 | Phase 9 | Complete |
+| INT-03 | Phase 9.1 | Pending |
 | PRF-01 | Phase 10 | Pending |
 | PRF-03 | Phase 10 | Pending |
 
 **Coverage:**
-- v1.1 requirements: 11 total
-- Mapped to phases: 11
+- v1.1 requirements: 12 total
+- Mapped to phases: 12
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-17*
-*Last updated: 2026-03-17 after roadmap creation (phases 8–10 complete)*
+*Last updated: 2026-03-17 — Phase 9.1 gap closure added (INT-03 from v1.1 audit)*
