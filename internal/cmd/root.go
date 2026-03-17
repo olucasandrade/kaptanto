@@ -24,6 +24,7 @@ import (
 	"github.com/kaptanto/kaptanto/internal/config"
 	"github.com/kaptanto/kaptanto/internal/event"
 	"github.com/kaptanto/kaptanto/internal/eventlog"
+	"github.com/kaptanto/kaptanto/internal/ha"
 	"github.com/kaptanto/kaptanto/internal/logging"
 	"github.com/kaptanto/kaptanto/internal/observability"
 	"github.com/kaptanto/kaptanto/internal/output"
@@ -107,7 +108,7 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().Duration("retention", 0, "Event Log retention period (e.g. 24h, 7d); 0 applies the built-in default of 1h at runtime")
 
 	// CFG-01: HA flags.
-	root.PersistentFlags().Bool("ha", false, "enable high-availability mode (requires etcd)")
+	root.PersistentFlags().Bool("ha", false, "enable high-availability mode (uses Postgres advisory locks; requires --source to point to a shared Postgres instance)")
 	root.PersistentFlags().String("node-id", "", "unique node identifier for HA mode")
 
 	// OBS-03: Observability flags.
@@ -212,8 +213,31 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		"data_dir", cfg.DataDir,
 	)
 
+	// HA election — must complete before any pipeline components start so that
+	// only the leader opens the replication slot and writes checkpoints.
+	var pgStore *checkpoint.PostgresStore
 	if cfg.HA {
-		slog.Warn("kaptanto: HA mode requested but not yet implemented; --ha flag is reserved for Phase 8")
+		// 1. Create LeaderElector with a dedicated Postgres connection.
+		elector, err := ha.NewLeaderElector(ctx, cfg.Source)
+		if err != nil {
+			return fmt.Errorf("ha: connect for leader election: %w", err)
+		}
+		defer elector.Close()
+
+		// 2. Compete for advisory lock — blocks in standby until acquired or ctx cancelled.
+		slog.Info("ha: entering standby, polling for advisory lock")
+		if err := elector.RunStandby(ctx, 2*time.Second); err != nil {
+			return fmt.Errorf("ha: standby interrupted: %w", err)
+		}
+		slog.Info("ha: advisory lock acquired — this instance is now the leader")
+
+		// 3. Open shared Postgres checkpoint store. The new leader loads LSN from
+		// this shared table so takeover resumes from where the old leader left off (HA-03).
+		pgStore, err = checkpoint.OpenPostgres(ctx, cfg.Source)
+		if err != nil {
+			return fmt.Errorf("ha: open postgres checkpoint store: %w", err)
+		}
+		defer pgStore.Close()
 	}
 
 	// 1. Create data directory (Badger does not create parent dirs).
@@ -238,12 +262,23 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 	defer el.Close() // closed AFTER g.Wait() returns (deferred after all components stop)
 
-	// 4. Open SQLite checkpoint store (source LSN persistence).
-	ckStore, err := checkpoint.Open(filepath.Join(cfg.DataDir, "checkpoint.db"))
-	if err != nil {
-		return fmt.Errorf("open checkpoint store: %w", err)
+	// 4. Open checkpoint store (source LSN persistence).
+	// HA mode: use the shared PostgresStore opened above (already deferred Close).
+	// Non-HA mode: use local SQLiteStore.
+	var ckStore checkpoint.CheckpointStore
+	var ckProbe func() error
+	if cfg.HA {
+		ckStore = pgStore
+		ckProbe = func() error { return pgStore.Ping(context.Background()) }
+	} else {
+		sqliteStore, err := checkpoint.Open(filepath.Join(cfg.DataDir, "checkpoint.db"))
+		if err != nil {
+			return fmt.Errorf("open checkpoint store: %w", err)
+		}
+		defer sqliteStore.Close()
+		ckStore = sqliteStore
+		ckProbe = sqliteStore.Ping
 	}
-	defer ckStore.Close()
 
 	// 5. Open SQLite cursor store (consumer resume cursors).
 	// Separate file from checkpoint.db to avoid coupling the two store implementations.
@@ -277,15 +312,17 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	rtr := router.NewRouter(el, numEventLogPartitions, cursorStore)
 
 	// 8. Create observability (metrics + health).
+	// Health probes are built incrementally so the ha_lock probe can be
+	// conditionally appended when HA mode is active.
 	metrics := observability.NewKaptantoMetrics()
-	healthHandler := observability.NewHealthHandler([]observability.HealthProbe{
+	healthProbes := []observability.HealthProbe{
 		{
 			Name:  "badger",
 			Check: el.Ping,
 		},
 		{
 			Name:  "checkpoint",
-			Check: ckStore.Ping,
+			Check: ckProbe,
 		},
 		{
 			Name:  "cursors",
@@ -304,7 +341,14 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 				return nil
 			},
 		},
-	})
+	}
+	if cfg.HA {
+		healthProbes = append(healthProbes, observability.HealthProbe{
+			Name:  "ha_lock",
+			Check: func() error { return pgStore.Ping(context.Background()) },
+		})
+	}
+	healthHandler := observability.NewHealthHandler(healthProbes)
 
 	// Thread metrics into components that write Prometheus gauges/counters.
 	rtr.SetMetrics(metrics)
