@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"testing"
+
+	"github.com/kaptanto/kaptanto/internal/checkpoint"
 )
 
 // TestPostgresStore runs integration tests for PostgresStore.
@@ -16,7 +18,7 @@ func TestPostgresStore_LoadEmpty(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	store, err := OpenPostgres(ctx, dsn)
+	store, err := checkpoint.OpenPostgres(ctx, dsn)
 	if err != nil {
 		t.Fatalf("OpenPostgres: %v", err)
 	}
@@ -39,7 +41,7 @@ func TestPostgresStore_SaveAndLoad(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	store, err := OpenPostgres(ctx, dsn)
+	store, err := checkpoint.OpenPostgres(ctx, dsn)
 	if err != nil {
 		t.Fatalf("OpenPostgres: %v", err)
 	}
@@ -68,7 +70,7 @@ func TestPostgresStore_SaveTwiceUpdates(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	store, err := OpenPostgres(ctx, dsn)
+	store, err := checkpoint.OpenPostgres(ctx, dsn)
 	if err != nil {
 		t.Fatalf("OpenPostgres: %v", err)
 	}
