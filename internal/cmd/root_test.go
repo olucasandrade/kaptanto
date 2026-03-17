@@ -2,6 +2,8 @@ package cmd_test
 
 import (
 	"bytes"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,4 +161,51 @@ func TestRunE_ConfigFileNotFound(t *testing.T) {
 	buf := &bytes.Buffer{}
 	err := cmd.ExecuteWithArgs([]string{"--config", "/tmp/nonexistent_kaptanto_test.yaml"}, buf)
 	require.Error(t, err)
+}
+
+// TestHAFlagHelpText verifies the --ha flag description references "advisory lock"
+// and no longer references the outdated "etcd" mechanism.
+func TestHAFlagHelpText(t *testing.T) {
+	root := cmd.NewRootCmd()
+	f := root.PersistentFlags().Lookup("ha")
+	require.NotNil(t, f, "flag 'ha' must exist")
+	assert.NotContains(t, f.Usage, "etcd", "--ha help text must not mention etcd")
+	assert.Contains(t, f.Usage, "advisory lock", "--ha help text must mention advisory lock")
+}
+
+// TestNonHAPathUnchanged verifies that running without --ha does not emit any
+// "ha:" log lines, confirming the non-HA pipeline path is unaffected.
+func TestNonHAPathUnchanged(t *testing.T) {
+	// Skip if no POSTGRES_TEST_DSN — this test would start a real pipeline.
+	if os.Getenv("POSTGRES_TEST_DSN") == "" {
+		t.Skip("POSTGRES_TEST_DSN not set; skipping non-HA path test")
+	}
+
+	var buf bytes.Buffer
+	// Run with a source but HA=false (default). The pipeline will fail quickly
+	// when it can't connect to Postgres, but we only care that no "ha:" lines
+	// appear before the failure.
+	_ = cmd.ExecuteWithArgs([]string{"--source", os.Getenv("POSTGRES_TEST_DSN")}, &buf)
+	out := buf.String()
+	assert.False(t, strings.Contains(out, "ha:"), "non-HA path must not emit ha: log lines; got: %s", out)
+}
+
+// TestHAFlagSkipsWithoutDSN verifies that --ha without POSTGRES_TEST_DSN
+// causes the pipeline to return an error (connection failure), not a panic.
+// This is an integration guard: when no Postgres is available the HA path
+// should fail gracefully.
+func TestHAFlagSkipsWithoutDSN(t *testing.T) {
+	if os.Getenv("POSTGRES_TEST_DSN") != "" {
+		t.Skip("POSTGRES_TEST_DSN is set; skipping graceful-skip test")
+	}
+	// Use an obviously unreachable DSN to trigger a connect error.
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--ha",
+	}, &buf)
+	// The HA path should return an error from NewLeaderElector or OpenPostgres,
+	// not panic and not emit the old slog.Warn stub.
+	require.Error(t, err, "HA mode with unreachable DB must return an error")
+	assert.NotContains(t, err.Error(), "not yet implemented", "old slog.Warn stub must be gone")
 }
