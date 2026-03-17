@@ -82,15 +82,19 @@ func (p *Parser) handleInsert(m *pglogrepl.InsertMessageV2) (*event.ChangeEvent,
 		return nil, fmt.Errorf("pgoutput: unknown relation ID %d", m.RelationID)
 	}
 
-	row := decodeColumns(rel, m.Tuple.Columns, nil)
 	pkMap := extractPK(rel, m.Tuple.Columns)
 	pkStr := marshalPK(pkMap)
-	tk := toastKey{RelationID: m.RelationID, PK: pkStr}
-	p.toast.Set(tk, row)
-
-	afterJSON, err := json.Marshal(row)
+	afterJSON, err := decodeAndSerializeRow(rel, m.Tuple.Columns, nil)
 	if err != nil {
-		return nil, fmt.Errorf("pgoutput: marshal after-row: %w", err)
+		return nil, fmt.Errorf("pgoutput: decode/serialize after-row (insert): %w", err)
+	}
+	// Update TOAST cache with decoded row for future TOAST merge.
+	// Pure-Go path: decodeAndSerializeRow is not yet Rust-backed for TOAST;
+	// we still maintain p.toast for the !rust path compatibility.
+	// Under rust tag, TOAST cache is managed separately (Plan 10-03 wires it).
+	tk := toastKey{RelationID: m.RelationID, PK: pkStr}
+	if row := decodeColumns(rel, m.Tuple.Columns, nil); row != nil {
+		p.toast.Set(tk, row)
 	}
 
 	keyJSON, err := json.Marshal(pkMap)
@@ -119,12 +123,13 @@ func (p *Parser) handleUpdate(m *pglogrepl.UpdateMessageV2) (*event.ChangeEvent,
 		prevRow = cached
 	}
 
-	row := decodeColumns(rel, m.NewTuple.Columns, prevRow)
-	p.toast.Set(tk, row)
-
-	afterJSON, err := json.Marshal(row)
+	afterJSON, err := decodeAndSerializeRow(rel, m.NewTuple.Columns, prevRow)
 	if err != nil {
-		return nil, fmt.Errorf("pgoutput: marshal after-row: %w", err)
+		return nil, fmt.Errorf("pgoutput: decode/serialize after-row (update): %w", err)
+	}
+	// Update TOAST cache with the decoded row for future TOAST merges.
+	if row := decodeColumns(rel, m.NewTuple.Columns, prevRow); row != nil {
+		p.toast.Set(tk, row)
 	}
 
 	keyJSON, err := json.Marshal(pkMap)
