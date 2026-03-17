@@ -13,7 +13,7 @@ Requirements for the v1.1 milestone. Each maps to roadmap phases.
 - [x] **HA-01**: Kaptanto supports leader election via Postgres advisory locks
 - [x] **HA-02**: Standby instance polls for lock availability and takes over when primary drops
 - [ ] **HA-03**: Active leader loads last checkpoint from shared Postgres store on takeover
-- [ ] **CHK-05**: Postgres checkpoint store for HA mode (shared state between instances)
+- [x] **CHK-05**: Postgres checkpoint store for HA mode (shared state between instances)
 
 ### Source Connectors (MongoDB)
 
@@ -73,7 +73,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HA-01 | Phase 8 | Complete |
 | HA-02 | Phase 8 | Complete |
 | HA-03 | Phase 8 | Pending |
-| CHK-05 | Phase 8 | Pending |
+| CHK-05 | Phase 8 | Complete |
 | SRC-09 | Phase 9 | Pending |
 | SRC-10 | Phase 9 | Pending |
 | SRC-11 | Phase 9 | Pending |

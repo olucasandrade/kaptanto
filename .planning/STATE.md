@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-17T00:26:55.572Z"
+last_updated: "2026-03-17T00:27:24.975Z"
 progress:
   total_phases: 15
   completed_phases: 14
   total_plans: 35
-  completed_plans: 33
+  completed_plans: 34
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: Phase 8 — High Availability (not started)
-Plan: —
-Status: Roadmap complete, ready for planning
-Last activity: 2026-03-17 — v1.1 roadmap created (phases 8–10, 11 requirements mapped)
+Phase: Phase 8 — High Availability (in progress)
+Plan: 08-01 complete — PostgresStore Postgres-backed CheckpointStore
+Status: in_progress
+Last activity: 2026-03-17 — 08-01 complete: PostgresStore with pgx.Conn, postgres_checkpoints table, CHK-05 satisfied
 
 Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 
@@ -72,6 +72,7 @@ Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 | Phase 07.6-backfill-correctness P01 | 3 | 2 tasks | 5 files |
 | Phase 07.7-stdout-metrics P01 | 6 | 2 tasks | 3 files |
 | Phase 08-high-availability P02 | 1 | 2 tasks | 2 files |
+| Phase 08-high-availability P01 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,9 @@ Recent decisions affecting current work:
 - [Phase 07.6-01]: SRC-06: single merged goroutine launch if block with || eliminates structural double-launch without mutex
 - [Phase 07.7-stdout-metrics]: StdoutWriter.SetMetrics follows post-construction injection pattern matching SSEConsumer/GRPCConsumer; nil guard on s.m prevents panic in unit tests
 - [Phase 08-high-availability]: Dedicated pgx.Conn per LeaderElector — lock held for full process lifetime; pg_try_advisory_lock() non-blocking so RunStandby respects ctx.Done(); haLockID=0x4B415054414E544F
+- [Phase 08-01]: PostgresStore uses pgx.Conn (single connection) not pgxpool — HA runs one process per instance; pool idle connections add complexity with no benefit
+- [Phase 08-01]: OpenPostgres takes DSN string not *pgx.Conn — matches Open() on SQLiteStore; callers in runPipeline use cfg.Source directly
+- [Phase 08-01]: Integration tests skip with t.Skip when POSTGRES_TEST_DSN unset — graceful CI behavior without Postgres container
 
 ### Pending Todos
 
@@ -172,5 +176,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-17
-Stopped at: v1.1 roadmap created — phases 8, 9, 10 fully defined with success criteria and requirement mappings
-Resume with: /gsd:plan-phase 8
+Stopped at: Completed 08-high-availability/08-01-PLAN.md — PostgresStore Postgres-backed CheckpointStore
+Resume with: /gsd:execute-phase 08 02
