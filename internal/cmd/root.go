@@ -216,6 +216,13 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		"data_dir", cfg.DataDir,
 	)
 
+	// Guard: HA mode requires a Postgres source DSN. MongoDB sources do not
+	// support advisory lock leader election via pgx. Reject early with a clear
+	// error rather than letting ha.NewLeaderElector fail with a pgx driver error.
+	if cfg.HA && cfg.SourceType() == "mongodb" {
+		return fmt.Errorf("ha: --ha requires a Postgres source DSN; MongoDB source detected (%s)", cfg.Source)
+	}
+
 	// HA election — must complete before any pipeline components start so that
 	// only the leader opens the replication slot and writes checkpoints.
 	var pgStore *checkpoint.PostgresStore

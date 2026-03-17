@@ -213,6 +213,22 @@ func TestMongoDBFlagRoute(t *testing.T) {
 		"error must be a connect failure, not the source guard")
 }
 
+// TestMongoDBWithHAReturnsError verifies that passing --ha with a MongoDB
+// source DSN returns a clear error before any Postgres connection is attempted.
+// INT-03 gap closure.
+func TestMongoDBWithHAReturnsError(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "mongodb://127.0.0.1:27999/testdb",
+		"--ha",
+		"--tables", "testcoll",
+	}, &buf)
+	require.Error(t, err, "mongodb + --ha must return an error")
+	assert.Contains(t, err.Error(), "ha:", "error must be prefixed ha:")
+	assert.Contains(t, err.Error(), "Postgres", "error must mention Postgres requirement")
+	assert.Contains(t, err.Error(), "mongodb", "error must mention the detected source type")
+}
+
 // TestHAFlagSkipsWithoutDSN verifies that --ha without POSTGRES_TEST_DSN
 // causes the pipeline to return an error (connection failure), not a panic.
 // This is an integration guard: when no Postgres is available the HA path
