@@ -99,3 +99,62 @@ func decodeAndSerializeRow(
 	C.kaptanto_free_buf(ptr, outLen)
 	return result, nil
 }
+
+// newToastCache allocates a Rust-owned TOAST cache and returns an opaque handle.
+// The caller must release it with freeToastCache when done.
+func newToastCache() unsafe.Pointer {
+	return unsafe.Pointer(C.kaptanto_toast_new())
+}
+
+// setToastCache stores row bytes in the Rust TOAST cache under (relID, pk).
+// Both pk and row are copied into C-managed memory before the call.
+func setToastCache(h unsafe.Pointer, relID uint32, pk []byte, row []byte) {
+	if h == nil {
+		return
+	}
+	cPK := C.CBytes(pk)
+	defer C.free(cPK)
+	cRow := C.CBytes(row)
+	defer C.free(cRow)
+	C.kaptanto_toast_set(
+		(*C.ToastCache)(h),
+		C.uint(relID),
+		(*C.uchar)(cPK),
+		C.size_t(len(pk)),
+		(*C.uchar)(cRow),
+		C.size_t(len(row)),
+	)
+}
+
+// getToastCache retrieves cached row bytes from the Rust TOAST cache.
+// Returns nil if no entry exists for (relID, pk).
+// The caller does NOT need to free the returned slice — it is a Go-owned copy.
+func getToastCache(h unsafe.Pointer, relID uint32, pk []byte) []byte {
+	if h == nil {
+		return nil
+	}
+	cPK := C.CBytes(pk)
+	defer C.free(cPK)
+	var outLen C.size_t
+	ptr := C.kaptanto_toast_get(
+		(*C.ToastCache)(h),
+		C.uint(relID),
+		(*C.uchar)(cPK),
+		C.size_t(len(pk)),
+		&outLen,
+	)
+	if ptr == nil {
+		return nil
+	}
+	result := C.GoBytes(unsafe.Pointer(ptr), C.int(outLen))
+	C.kaptanto_free_buf(ptr, outLen)
+	return result
+}
+
+// freeToastCache releases the Rust-owned TOAST cache handle.
+func freeToastCache(h unsafe.Pointer) {
+	if h == nil {
+		return
+	}
+	C.kaptanto_toast_free((*C.ToastCache)(h))
+}
