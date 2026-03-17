@@ -87,10 +87,14 @@ Plans:
 **Depends on**: Phase 9
 **Requirements**: PRF-01, PRF-03
 **Success Criteria** (what must be TRUE):
-  1. Building with `CGO_ENABLED=1` and the `rust` build tag produces a binary where pgoutput decoding, TOAST cache lookups, and JSON serialization are handled by Rust via FFI — the output event format is byte-for-byte identical to the pure Go build
+  1. Building with `CGO_ENABLED=1` and the `rust` build tag produces a binary where pgoutput decoding, TOAST cache lookups, and JSON serialization are handled by Rust via FFI — the output event format is structurally equivalent to the pure Go build (same fields and values; raw byte equality is not the criterion due to Go map JSON non-determinism)
   2. The default `go build ./cmd/kaptanto` (no build tags, CGO_ENABLED=0) produces a pure Go binary with no CGO dependency — the Rust acceleration is completely absent from this path
   3. The Makefile exposes a `make build` target for the pure Go binary and a `make build-rust` target for the Rust-accelerated binary, with clear output indicating which variant was built
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 10-01-PLAN.md — Rust crate scaffold + CGO build infrastructure (PRF-03): staticlib crate, cbindgen header, Makefile build-rust target
+- [ ] 10-02-PLAN.md — Rust pgoutput decoder + TOAST cache + Go FFI wrapper (PRF-01): decoder.rs, toast.rs, ffi_stub.go, ffi_rust.go, parser.go refactor
+- [ ] 10-03-PLAN.md — serde_json serializer + structural equality integration tests (PRF-01, PRF-03): serializer.rs, parser_ffi_test.go
 
 ## Progress
 
@@ -107,4 +111,4 @@ Plans:
 | 8. High Availability | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 9. MongoDB Connector | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 9.1. MongoDB HA Guard [INSERTED] | v1.1 | 0/1 | ○ Not started | — |
-| 10. Rust FFI Acceleration | v1.1 | 0/? | ○ Not started | — |
+| 10. Rust FFI Acceleration | v1.1 | 0/3 | ○ Not started | — |
