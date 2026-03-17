@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-17T11:50:18.503Z"
+last_updated: "2026-03-17T11:55:17.351Z"
 progress:
   total_phases: 18
-  completed_phases: 17
+  completed_phases: 18
   total_plans: 42
-  completed_plans: 41
+  completed_plans: 42
 ---
 
 # Project State
@@ -80,6 +80,7 @@ Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 | Phase 09.1-mongodb-ha-guard P01 | 1 | 2 tasks | 2 files |
 | Phase 10-rust-ffi-acceleration P01 | 3 | 2 tasks | 9 files |
 | Phase 10-rust-ffi-acceleration P02 | 203 | 2 tasks | 5 files |
+| Phase 10-rust-ffi-acceleration P03 | 168 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -189,6 +190,8 @@ Recent decisions affecting current work:
 - [Phase 10-rust-ffi-acceleration]: panic=abort in release profile plus catch_unwind on all extern C entry points — double safety boundary for Rust FFI
 - [Phase 10-rust-ffi-acceleration]: TOAST cache maintained via decodeColumns for both paths in Plan 10-02; full Rust TOAST wiring deferred to Plan 10-03
 - [Phase 10-rust-ffi-acceleration]: base64_encode inlined in decoder.rs without external crate — matches Go encoding/json []byte base64 behavior for output identity
+- [Phase 10-rust-ffi-acceleration]: serialize_ordered_fields uses serde_json::Map for deterministic JSON key ordering matching column-index order from pglogrepl
+- [Phase 10-rust-ffi-acceleration]: structural equality tests use field-by-field JSON parsing; raw bytes.Equal not used because Go map JSON key order is non-deterministic
 
 ### Pending Todos
 

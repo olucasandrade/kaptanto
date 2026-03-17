@@ -34,7 +34,7 @@ Full archive: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 8: High Availability** — Postgres advisory lock leader election with shared checkpoint store and automatic standby takeover (completed 2026-03-17)
 - [x] **Phase 9: MongoDB Connector** — Change Streams consumption, BSON normalization, resume token persistence, and re-snapshot on token expiry (completed 2026-03-17)
 - [ ] **Phase 9.1: MongoDB HA Guard** [INSERTED] — Guard against passing MongoDB URI to Postgres HA election (INT-03 gap closure)
-- [ ] **Phase 10: Rust FFI Acceleration** — Optional Rust-accelerated pgoutput decoding, TOAST cache, and JSON serialization behind build tag
+- [x] **Phase 10: Rust FFI Acceleration** — Optional Rust-accelerated pgoutput decoding, TOAST cache, and JSON serialization behind build tag (completed 2026-03-17)
 
 ## Phase Details
 
@@ -111,4 +111,4 @@ Plans:
 | 8. High Availability | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 9. MongoDB Connector | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 9.1. MongoDB HA Guard [INSERTED] | v1.1 | 0/1 | ○ Not started | — |
-| 10. Rust FFI Acceleration | 2/3 | In Progress|  | — |
+| 10. Rust FFI Acceleration | 3/3 | Complete   | 2026-03-17 | — |
