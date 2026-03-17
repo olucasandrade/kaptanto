@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-17T11:44:20.109Z"
+last_updated: "2026-03-17T11:50:18.503Z"
 progress:
   total_phases: 18
   completed_phases: 17
   total_plans: 42
-  completed_plans: 40
+  completed_plans: 41
 ---
 
 # Project State
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 ## Current Position
 
 Phase: Phase 10 — Rust FFI Acceleration (in progress)
-Plan: 10-01 complete — Rust FFI crate scaffold and dual-target Makefile, PRF-03 closed
+Plan: 10-02 complete — Rust column decoder, TOAST cache, FFI file-pair, parser hot path refactor, PRF-01 partially closed
 Status: in-progress
-Last activity: 2026-03-17 — 10-01 complete: Rust staticlib crate with stub FFI functions and cbindgen header generation; Makefile build-rust target
+Last activity: 2026-03-17 — 10-02 complete: decoder.rs + toast.rs filled in; ffi_stub.go + ffi_rust.go created; parser.go handleInsert/handleUpdate use decodeAndSerializeRow; make build-rust links cleanly
 
 Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 
@@ -79,6 +79,7 @@ Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 | Phase 09-mongodb-connector P03 | 530 | 2 tasks | 7 files |
 | Phase 09.1-mongodb-ha-guard P01 | 1 | 2 tasks | 2 files |
 | Phase 10-rust-ffi-acceleration P01 | 3 | 2 tasks | 9 files |
+| Phase 10-rust-ffi-acceleration P02 | 203 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -186,6 +187,8 @@ Recent decisions affecting current work:
 - [Phase 10-rust-ffi-acceleration]: Rust RUST_DIR/RUST_LIB variables defined at top of Makefile before clean target for correct immediate-expansion
 - [Phase 10-rust-ffi-acceleration]: build-rust documented as host-platform only — CGO + Rust toolchain requires matching cross-linker, use make build for cross-compilation
 - [Phase 10-rust-ffi-acceleration]: panic=abort in release profile plus catch_unwind on all extern C entry points — double safety boundary for Rust FFI
+- [Phase 10-rust-ffi-acceleration]: TOAST cache maintained via decodeColumns for both paths in Plan 10-02; full Rust TOAST wiring deferred to Plan 10-03
+- [Phase 10-rust-ffi-acceleration]: base64_encode inlined in decoder.rs without external crate — matches Go encoding/json []byte base64 behavior for output identity
 
 ### Pending Todos
 

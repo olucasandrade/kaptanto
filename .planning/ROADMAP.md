@@ -111,4 +111,4 @@ Plans:
 | 8. High Availability | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 9. MongoDB Connector | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 9.1. MongoDB HA Guard [INSERTED] | v1.1 | 0/1 | ○ Not started | — |
-| 10. Rust FFI Acceleration | 1/3 | In Progress|  | — |
+| 10. Rust FFI Acceleration | 2/3 | In Progress|  | — |
