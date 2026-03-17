@@ -32,7 +32,7 @@ Full archive: `.planning/milestones/v1.0-ROADMAP.md`
 ### 📋 v1.1 Production Hardening (Active)
 
 - [x] **Phase 8: High Availability** — Postgres advisory lock leader election with shared checkpoint store and automatic standby takeover (completed 2026-03-17)
-- [ ] **Phase 9: MongoDB Connector** — Change Streams consumption, BSON normalization, resume token persistence, and re-snapshot on token expiry
+- [x] **Phase 9: MongoDB Connector** — Change Streams consumption, BSON normalization, resume token persistence, and re-snapshot on token expiry (completed 2026-03-17)
 - [ ] **Phase 10: Rust FFI Acceleration** — Optional Rust-accelerated pgoutput decoding, TOAST cache, and JSON serialization behind build tag
 
 ## Phase Details
@@ -91,5 +91,5 @@ Plans:
 | 7. Configuration and Multi-Source | v1.0 | 4/4 | ✓ Complete | 2026-03-15 |
 | 7.1–7.7. Gap Closure [INSERTED] | v1.0 | 8/8 | ✓ Complete | 2026-03-16 |
 | 8. High Availability | 3/3 | Complete    | 2026-03-17 | — |
-| 9. MongoDB Connector | 2/3 | In Progress|  | — |
+| 9. MongoDB Connector | 3/3 | Complete   | 2026-03-17 | — |
 | 10. Rust FFI Acceleration | v1.1 | 0/? | ○ Not started | — |

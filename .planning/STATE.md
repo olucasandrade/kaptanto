@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-17T00:53:35.605Z"
+last_updated: "2026-03-17T01:05:14.678Z"
 progress:
   total_phases: 16
-  completed_phases: 15
+  completed_phases: 16
   total_plans: 38
-  completed_plans: 37
+  completed_plans: 38
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: Phase 9 — MongoDB Connector (in progress)
-Plan: 09-02 complete — MongoDB BSON normalizer: NormalizeChangeEvent with extended JSON
-Status: in_progress
-Last activity: 2026-03-17 — 09-02 complete: BSON normalizer implemented, SRC-10 + PAR-04 closed
+Phase: Phase 9 — MongoDB Connector (complete)
+Plan: 09-03 complete — MongoDB pipeline wiring, MongoSnapshot, SourceType auto-detection, SRC-12 closed
+Status: complete
+Last activity: 2026-03-17 — 09-03 complete: MongoDB pipeline wired, MongoSnapshot implemented, normalizeStub removed
 
 Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 
@@ -76,6 +76,7 @@ Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 | Phase 08-high-availability P01 | 2 | 2 tasks | 2 files |
 | Phase 09-mongodb-connector P02 | 2 | 1 tasks | 4 files |
 | Phase 09-mongodb-connector P01 | 3 | 1 tasks | 4 files |
+| Phase 09-mongodb-connector P03 | 530 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -176,6 +177,9 @@ Recent decisions affecting current work:
 - [Phase 09-01]: WatchFn injected via NewWithWatchFn — unit tests without real MongoDB; production lazily builds watchFn in Run
 - [Phase 09-01]: resumeToken loaded at construction (store.Load once in constructor); Run goroutines share initial token
 - [Phase 09-01]: CommandError code 260 = InvalidResumeToken; fallback strings.Contains handles wrapped errors
+- [Phase 09-03]: WatermarkChecker defined as local interface in snapshot.go — avoids import cycle between source/mongodb and backfill; *backfill.WatermarkChecker satisfies it via structural typing
+- [Phase 09-03]: SourceType() on Config struct, auto-detects mongodb:// and mongodb+srv:// prefixes — no new YAML flag required for basic usage
+- [Phase 09-03]: normalizeStub removed from connector.go — consumeStream now calls mongoparser.NormalizeChangeEvent directly (Plan 02 integration complete)
 
 ### Pending Todos
 
@@ -188,5 +192,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-17
-Stopped at: Completed 09-mongodb-connector/09-02-PLAN.md — MongoDB BSON normalizer: NormalizeChangeEvent with extended JSON
-Resume with: /gsd:execute-phase 09
+Stopped at: Completed 09-mongodb-connector/09-03-PLAN.md — MongoDB pipeline wiring, MongoSnapshot, SourceType auto-detection, SRC-12 closed
+Resume with: /gsd:execute-phase 10
