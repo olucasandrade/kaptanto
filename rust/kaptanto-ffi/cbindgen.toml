@@ -1,0 +1,4 @@
+language = "C"
+include_guard = "KAPTANTO_FFI_H"
+tab_width = 4
+documentation = true
