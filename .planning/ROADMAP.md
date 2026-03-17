@@ -86,6 +86,6 @@ Plans:
 | 6. SSE and gRPC Servers | v1.0 | 4/4 | ✓ Complete | 2026-03-12 |
 | 7. Configuration and Multi-Source | v1.0 | 4/4 | ✓ Complete | 2026-03-15 |
 | 7.1–7.7. Gap Closure [INSERTED] | v1.0 | 8/8 | ✓ Complete | 2026-03-16 |
-| 8. High Availability | v1.1 | 0/3 | ○ Not started | — |
+| 8. High Availability | 2/3 | In Progress|  | — |
 | 9. MongoDB Connector | v1.1 | 0/? | ○ Not started | — |
 | 10. Rust FFI Acceleration | v1.1 | 0/? | ○ Not started | — |

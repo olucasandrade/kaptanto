@@ -1,14 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
+milestone: v1.1
+milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-16T23:14:52.965Z"
+last_updated: "2026-03-17T00:26:55.572Z"
 progress:
-  total_phases: 14
+  total_phases: 15
   completed_phases: 14
-  total_plans: 32
-  completed_plans: 32
+  total_plans: 35
+  completed_plans: 33
 ---
 
 # Project State
@@ -18,15 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-17)
 
 **Core value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
-**Current focus:** Planning next milestone (v1.1)
+**Current focus:** Milestone v1.1 — HA, MongoDB, Rust FFI
 
 ## Current Position
 
-Milestone: v1.0 — COMPLETE (shipped 2026-03-16)
-Status: All 14 phases complete. All 52 v1.0 requirements satisfied. Tagged v1.0.
-Last activity: 2026-03-17 — milestone archived, RETROSPECTIVE.md written, v1.0 tag created
+Phase: Phase 8 — High Availability (not started)
+Plan: —
+Status: Roadmap complete, ready for planning
+Last activity: 2026-03-17 — v1.1 roadmap created (phases 8–10, 11 requirements mapped)
 
-Progress: [██████████] 100% — v1.0 shipped
+Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 
 ## Performance Metrics
 
@@ -70,6 +71,7 @@ Progress: [██████████] 100% — v1.0 shipped
 | Phase 07.5-observability-hardening P02 | 3 | 1 tasks | 2 files |
 | Phase 07.6-backfill-correctness P01 | 3 | 2 tasks | 5 files |
 | Phase 07.7-stdout-metrics P01 | 6 | 2 tasks | 3 files |
+| Phase 08-high-availability P02 | 1 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -81,6 +83,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Split research's 6-phase structure into 10 phases for comprehensive depth -- separates Event Log from Backfill, Router from Output Servers, Config from HA
 - [Roadmap]: MongoDB connector placed after HA (Phase 9) so it benefits from all production hardening
 - [Roadmap]: Rust FFI last (Phase 10) -- performance optimization only after correctness is proven
+- [v1.1 Roadmap]: Phase 8 success criteria derived from advisory lock semantics — session-scoped lock, standby polling interval, shared Postgres checkpoint table (CHK-05)
+- [v1.1 Roadmap]: Phase 9 success criteria include BSON field mapping (fullDocument → after, fullDocumentBeforeChange → before), watermark coordination reuse for re-snapshot, and driver-transparent replica set elections
+- [v1.1 Roadmap]: Phase 10 success criteria include byte-for-byte output identity between Go and Rust builds, CGO_ENABLED=0 default, explicit Makefile targets
 - [01-01]: json.RawMessage without omitempty for Before/After fields -- nil serializes as JSON null, gives consumers a consistent 10-field schema regardless of operation type
 - [01-01]: io.Writer injection in logging.Setup() -- enables test capture via bytes.Buffer without mocking global slog
 - [01-01]: Module path github.com/kaptanto/kaptanto -- can be changed with find-and-replace before first public release
@@ -154,6 +159,7 @@ Recent decisions affecting current work:
 - [Phase 07.6-01]: BKF-03: db.Exec pragma pattern in OpenSQLiteBackfillStore matches checkpoint/sqlite.go — eliminates OOM risk from URI pragma parsing
 - [Phase 07.6-01]: SRC-06: single merged goroutine launch if block with || eliminates structural double-launch without mutex
 - [Phase 07.7-stdout-metrics]: StdoutWriter.SetMetrics follows post-construction injection pattern matching SSEConsumer/GRPCConsumer; nil guard on s.m prevents panic in unit tests
+- [Phase 08-high-availability]: Dedicated pgx.Conn per LeaderElector — lock held for full process lifetime; pg_try_advisory_lock() non-blocking so RunStandby respects ctx.Done(); haLockID=0x4B415054414E544F
 
 ### Pending Todos
 
@@ -165,6 +171,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-16
-Stopped at: Completed 07.7-01-PLAN.md (StdoutWriter SetMetrics + EventsDelivered increment — OBS-01 closed)
-Resume file: None
+Last session: 2026-03-17
+Stopped at: v1.1 roadmap created — phases 8, 9, 10 fully defined with success criteria and requirement mappings
+Resume with: /gsd:plan-phase 8
