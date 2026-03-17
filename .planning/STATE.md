@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-17T01:05:14.678Z"
+last_updated: "2026-03-17T01:36:38.313Z"
 progress:
-  total_phases: 16
-  completed_phases: 16
-  total_plans: 38
-  completed_plans: 38
+  total_phases: 17
+  completed_phases: 17
+  total_plans: 39
+  completed_plans: 39
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: Phase 9 — MongoDB Connector (complete)
-Plan: 09-03 complete — MongoDB pipeline wiring, MongoSnapshot, SourceType auto-detection, SRC-12 closed
-Status: complete
-Last activity: 2026-03-17 — 09-03 complete: MongoDB pipeline wired, MongoSnapshot implemented, normalizeStub removed
+Phase: Phase 9.1 — MongoDB HA Guard (in progress)
+Plan: 09.1-01 complete — MongoDB + HA guard, INT-03 closed
+Status: in-progress
+Last activity: 2026-03-17 — 09.1-01 complete: MongoDB + HA guard added to runPipeline, INT-03 gap closed
 
 Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 
@@ -77,6 +77,7 @@ Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 | Phase 09-mongodb-connector P02 | 2 | 1 tasks | 4 files |
 | Phase 09-mongodb-connector P01 | 3 | 1 tasks | 4 files |
 | Phase 09-mongodb-connector P03 | 530 | 2 tasks | 7 files |
+| Phase 09.1-mongodb-ha-guard P01 | 1 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -180,6 +181,7 @@ Recent decisions affecting current work:
 - [Phase 09-03]: WatermarkChecker defined as local interface in snapshot.go — avoids import cycle between source/mongodb and backfill; *backfill.WatermarkChecker satisfies it via structural typing
 - [Phase 09-03]: SourceType() on Config struct, auto-detects mongodb:// and mongodb+srv:// prefixes — no new YAML flag required for basic usage
 - [Phase 09-03]: normalizeStub removed from connector.go — consumeStream now calls mongoparser.NormalizeChangeEvent directly (Plan 02 integration complete)
+- [Phase 09.1-mongodb-ha-guard]: Guard placed before HA block in runPipeline — rejects cfg.HA + cfg.SourceType() == mongodb early with message containing ha:, Postgres, and source URI
 
 ### Pending Todos
 
@@ -192,5 +194,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-17
-Stopped at: Completed 09-mongodb-connector/09-03-PLAN.md — MongoDB pipeline wiring, MongoSnapshot, SourceType auto-detection, SRC-12 closed
-Resume with: /gsd:execute-phase 10
+Stopped at: Completed 09.1-mongodb-ha-guard/09.1-01-PLAN.md — MongoDB + HA guard, INT-03 closed
+Resume with: /gsd:execute-phase 09.1

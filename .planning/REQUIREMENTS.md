@@ -14,7 +14,7 @@ Requirements for the v1.1 milestone. Each maps to roadmap phases.
 - [x] **HA-02**: Standby instance polls for lock availability and takes over when primary drops
 - [x] **HA-03**: Active leader loads last checkpoint from shared Postgres store on takeover
 - [x] **CHK-05**: Postgres checkpoint store for HA mode (shared state between instances)
-- [ ] **INT-03**: `--ha` flag with MongoDB source returns a clear error (not a silent pgx connection failure)
+- [x] **INT-03**: `--ha` flag with MongoDB source returns a clear error (not a silent pgx connection failure)
 
 ### Source Connectors (MongoDB)
 
@@ -80,7 +80,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SRC-11 | Phase 9 | Complete |
 | SRC-12 | Phase 9 | Complete |
 | PAR-04 | Phase 9 | Complete |
-| INT-03 | Phase 9.1 | Pending |
+| INT-03 | Phase 9.1 | Complete |
 | PRF-01 | Phase 10 | Pending |
 | PRF-03 | Phase 10 | Pending |
 
