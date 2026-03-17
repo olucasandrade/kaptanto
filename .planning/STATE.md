@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
 status: unknown
-last_updated: "2026-03-17T00:27:24.975Z"
+last_updated: "2026-03-17T00:34:44Z"
 progress:
   total_phases: 15
   completed_phases: 14
   total_plans: 35
-  completed_plans: 34
+  completed_plans: 35
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: Phase 8 — High Availability (in progress)
-Plan: 08-01 complete — PostgresStore Postgres-backed CheckpointStore
+Phase: Phase 8 — High Availability (complete)
+Plan: 08-03 complete — HA pipeline wiring: LeaderElector + PostgresStore wired into runPipeline
 Status: in_progress
-Last activity: 2026-03-17 — 08-01 complete: PostgresStore with pgx.Conn, postgres_checkpoints table, CHK-05 satisfied
+Last activity: 2026-03-17 — 08-03 complete: HA election + shared checkpoint store wired, HA-03 closed
 
 Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 
@@ -71,6 +71,7 @@ Progress: [░░░░░░░░░░] 0% — v1.1 in progress
 | Phase 07.5-observability-hardening P02 | 3 | 1 tasks | 2 files |
 | Phase 07.6-backfill-correctness P01 | 3 | 2 tasks | 5 files |
 | Phase 07.7-stdout-metrics P01 | 6 | 2 tasks | 3 files |
+| Phase 08-high-availability P03 | 6 | 2 tasks | 2 files |
 | Phase 08-high-availability P02 | 1 | 2 tasks | 2 files |
 | Phase 08-high-availability P01 | 2 | 2 tasks | 2 files |
 
@@ -164,6 +165,9 @@ Recent decisions affecting current work:
 - [Phase 08-01]: PostgresStore uses pgx.Conn (single connection) not pgxpool — HA runs one process per instance; pool idle connections add complexity with no benefit
 - [Phase 08-01]: OpenPostgres takes DSN string not *pgx.Conn — matches Open() on SQLiteStore; callers in runPipeline use cfg.Source directly
 - [Phase 08-01]: Integration tests skip with t.Skip when POSTGRES_TEST_DSN unset — graceful CI behavior without Postgres container
+- [Phase 08-03]: HA election placed before all pipeline components in runPipeline — guarantees only the leader opens the replication slot and writes checkpoints
+- [Phase 08-03]: pgStore.Ping wraps context.Background() into func() error closure — HealthProbe.Check signature has no context param; PostgresStore.Ping requires one
+- [Phase 08-03]: ckStore declared as CheckpointStore interface, ckProbe as func() error — allows both SQLiteStore and PostgresStore to be assigned without type assertions downstream
 
 ### Pending Todos
 
@@ -176,5 +180,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-17
-Stopped at: Completed 08-high-availability/08-01-PLAN.md — PostgresStore Postgres-backed CheckpointStore
-Resume with: /gsd:execute-phase 08 02
+Stopped at: Completed 08-high-availability/08-03-PLAN.md — HA pipeline wiring: LeaderElector + PostgresStore into runPipeline
+Resume with: /gsd:execute-phase 09
