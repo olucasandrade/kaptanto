@@ -9,6 +9,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -36,6 +37,15 @@ type Config struct {
 	Retention string                 `yaml:"retention"` // stored as string; "" means use runtime default (1h)
 	HA        bool                   `yaml:"ha"`        // CFG-01: --ha flag; Phase 8 leader election
 	NodeID    string                 `yaml:"node-id"`   // CFG-01: --node-id flag; Phase 8 node identity
+}
+
+// SourceType returns the detected source database type based on the DSN prefix.
+// Returns "mongodb" for mongodb:// and mongodb+srv:// URIs, "postgres" otherwise.
+func (c *Config) SourceType() string {
+	if strings.HasPrefix(c.Source, "mongodb://") || strings.HasPrefix(c.Source, "mongodb+srv://") {
+		return "mongodb"
+	}
+	return "postgres"
 }
 
 // Load reads the YAML file at path and unmarshals it into a new Config.

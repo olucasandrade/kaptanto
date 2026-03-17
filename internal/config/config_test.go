@@ -210,6 +210,28 @@ func TestMerge_ChangedTables_NilColumns(t *testing.T) {
 	assert.Nil(t, cfg.Tables["public.orders"].Columns)
 }
 
+// --- SourceType tests ---
+
+func TestSourceType_Postgres(t *testing.T) {
+	cfg := &config.Config{Source: "postgres://user:pass@host/db"}
+	assert.Equal(t, "postgres", cfg.SourceType())
+}
+
+func TestSourceType_MongoDB(t *testing.T) {
+	cfg := &config.Config{Source: "mongodb://localhost:27017/mydb"}
+	assert.Equal(t, "mongodb", cfg.SourceType())
+}
+
+func TestSourceType_MongoDBSrv(t *testing.T) {
+	cfg := &config.Config{Source: "mongodb+srv://cluster0.example.mongodb.net/mydb"}
+	assert.Equal(t, "mongodb", cfg.SourceType())
+}
+
+func TestSourceType_Empty(t *testing.T) {
+	cfg := &config.Config{Source: ""}
+	assert.Equal(t, "postgres", cfg.SourceType(), "empty source should default to postgres")
+}
+
 // --- TableConfig semantics ---
 
 func TestTableConfig_NilColumnsAllColumns(t *testing.T) {
