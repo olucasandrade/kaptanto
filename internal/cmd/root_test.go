@@ -190,6 +190,29 @@ func TestNonHAPathUnchanged(t *testing.T) {
 	assert.False(t, strings.Contains(out, "ha:"), "non-HA path must not emit ha: log lines; got: %s", out)
 }
 
+// TestMongoDBFlagRoute verifies that when --source starts with "mongodb://",
+// runPipeline takes the MongoDB branch (not the Postgres branch). The test
+// confirms this by checking the error is a connection error, not the
+// "source is required" guard error.
+//
+// serverSelectionTimeoutMS=500 makes the MongoDB driver fail fast when the
+// server is unreachable, so the test completes in under 2s.
+func TestMongoDBFlagRoute(t *testing.T) {
+	// Use an unreachable MongoDB URI so the pipeline fails at connect time,
+	// proving the MongoDB branch was entered (not the Postgres branch).
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "mongodb://127.0.0.1:27999/testdb?serverSelectionTimeoutMS=500",
+		"--tables", "testcoll",
+	}, &buf)
+	// Must return an error (connect failure), NOT the "source is required" guard.
+	require.Error(t, err, "mongodb pipeline must fail (no server at 27999)")
+	assert.NotContains(t, err.Error(), "--source or --config is required",
+		"error must be a connect failure, not the source guard")
+	assert.NotContains(t, err.Error(), "source is required",
+		"error must be a connect failure, not the source guard")
+}
+
 // TestHAFlagSkipsWithoutDSN verifies that --ha without POSTGRES_TEST_DSN
 // causes the pipeline to return an error (connection failure), not a panic.
 // This is an integration guard: when no Postgres is available the HA path

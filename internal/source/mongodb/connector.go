@@ -22,6 +22,7 @@ import (
 	"github.com/kaptanto/kaptanto/internal/checkpoint"
 	"github.com/kaptanto/kaptanto/internal/event"
 	"github.com/kaptanto/kaptanto/internal/eventlog"
+	mongoparser "github.com/kaptanto/kaptanto/internal/parser/mongodb"
 )
 
 const (
@@ -353,7 +354,7 @@ func (c *MongoDBConnector) consumeStream(ctx context.Context, collName string, i
 
 		token := iter.ResumeToken()
 
-		ev, normErr := normalizeStub(rawDoc, c.cfg.SourceID, collName, c.idGen)
+		ev, normErr := mongoparser.NormalizeChangeEvent(rawDoc, c.cfg.SourceID, c.idGen)
 		if normErr != nil {
 			slog.Warn("mongodb: normalize change event", "collection", collName, "error", normErr)
 			continue
@@ -439,44 +440,6 @@ func tokenFromString(s string) (bson.Raw, error) {
 		return nil, fmt.Errorf("parse resume token %q: %w", s, err)
 	}
 	return raw, nil
-}
-
-// normalizeStub is a minimal stub normalizer used in Plan 01. The real
-// normalizer (Plan 02) replaces this via parser/mongodb.NormalizeChangeEvent.
-func normalizeStub(raw bson.Raw, sourceID, collection string, idGen *event.IDGenerator) (*event.ChangeEvent, error) {
-	// Extract operationType from raw bson doc.
-	opTypeVal, err := raw.LookupErr("operationType")
-	if err != nil {
-		return nil, fmt.Errorf("mongodb: missing operationType field: %w", err)
-	}
-	opTypeStr, ok := opTypeVal.StringValueOK()
-	if !ok {
-		return nil, errors.New("mongodb: operationType is not a string")
-	}
-
-	var op event.Operation
-	switch opTypeStr {
-	case "insert":
-		op = event.OpInsert
-	case "update", "replace":
-		op = event.OpUpdate
-	case "delete":
-		op = event.OpDelete
-	default:
-		// Non-DML operations (invalidate, drop, etc.) — skip silently.
-		return nil, nil
-	}
-
-	id := idGen.New()
-	ev := &event.ChangeEvent{
-		ID:             id,
-		Source:         sourceID,
-		Operation:      op,
-		Table:          collection,
-		IdempotencyKey: fmt.Sprintf("%s:%s:%s:%s", sourceID, collection, op, id.String()),
-		Metadata:       map[string]any{"source": "mongodb"},
-	}
-	return ev, nil
 }
 
 // nextBackoff doubles backoff, capped at defaultMaxBackoff.

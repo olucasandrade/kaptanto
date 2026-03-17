@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"net/url"
+
 	"golang.org/x/sync/errgroup"
 
 	"github.com/jackc/pgx/v5"
@@ -32,6 +34,7 @@ import (
 	"github.com/kaptanto/kaptanto/internal/output/sse"
 	"github.com/kaptanto/kaptanto/internal/output/stdout"
 	"github.com/kaptanto/kaptanto/internal/router"
+	mongodb "github.com/kaptanto/kaptanto/internal/source/mongodb"
 	postgres "github.com/kaptanto/kaptanto/internal/source/postgres"
 	"github.com/spf13/cobra"
 
@@ -419,6 +422,13 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("unknown output mode %q: use stdout, sse, or grpc", cfg.Output)
 	}
 
+	// 10. Dispatch to source-specific pipeline based on DSN type.
+	// Auto-detection from DSN prefix: "mongodb://" or "mongodb+srv://" → MongoDB;
+	// everything else → Postgres (existing pipeline unchanged).
+	if cfg.SourceType() == "mongodb" {
+		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, outputServer, metrics)
+	}
+
 	// 10. Build Postgres connector and BackfillEngine.
 	// Two-step construction avoids circular dependency:
 	//   Step a: create connector (nil engine placeholder)
@@ -477,4 +487,110 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 	slog.Info("kaptanto shut down cleanly")
 	return nil
+}
+
+// runMongoPipeline starts the MongoDB CDC pipeline. It is called from
+// runPipeline when cfg.SourceType() == "mongodb".
+//
+// It creates a MongoDBConnector with the shared EventLog, runs it in an
+// errgroup alongside the router and output server, and handles
+// NeedsSnapshot() by running MongoSnapshot with WatermarkChecker then
+// restarting the connector (single re-snapshot attempt).
+func runMongoPipeline(
+	ctx context.Context,
+	cfg *config.Config,
+	ckStore checkpoint.CheckpointStore,
+	el eventlog.EventLog,
+	rtr *router.Router,
+	cursorStore *checkpoint.SQLiteCursorStore,
+	outputServer func(ctx context.Context) error,
+	metrics *observability.KaptantoMetrics,
+) error {
+	idGen := event.NewIDGenerator()
+
+	// Build collection list from cfg.Tables keys (or empty for all).
+	tables := make([]string, 0, len(cfg.Tables))
+	for t := range cfg.Tables {
+		tables = append(tables, t)
+	}
+
+	dbName := extractDBFromMongoURI(cfg.Source)
+
+	mongoCfg := mongodb.Config{
+		URI:         cfg.Source,
+		Database:    dbName,
+		Collections: tables,
+		SourceID:    "default",
+	}
+
+	connector, err := mongodb.NewWithEventLog(mongoCfg, ckStore, idGen, el)
+	if err != nil {
+		return fmt.Errorf("mongodb: create connector: %w", err)
+	}
+
+	// appendFn wraps connector.AppendAndQueue for use by MongoSnapshot.
+	// The connector's AppendAndQueue also persists the resume token, but for
+	// snapshot rows there is no resume token — we use a nil token sentinel.
+	appendFn := func(ctx context.Context, ev *event.ChangeEvent) error {
+		return connector.AppendAndQueue(ctx, ev, nil)
+	}
+
+	// Run first connector pass.
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { cursorStore.Run(gctx); return nil })
+	g.Go(func() error { return connector.Run(gctx) })
+	g.Go(func() error { return rtr.Run(gctx) })
+	g.Go(func() error { return outputServer(gctx) })
+
+	if err := g.Wait(); err != nil && err != context.Canceled {
+		return err
+	}
+
+	// If the connector detected an InvalidResumeToken, run a snapshot then
+	// restart streaming. Single re-snapshot attempt (retry loop is future work).
+	if connector.NeedsSnapshot() {
+		slog.Info("mongodb: InvalidResumeToken detected — running re-snapshot")
+		wc := backfill.NewWatermarkChecker(el, numEventLogPartitions)
+		snapCfg := mongodb.SnapshotConfig{
+			Database:    dbName,
+			Collections: tables,
+			SourceID:    "default",
+		}
+		snap := mongodb.NewMongoSnapshot(snapCfg, nil, wc, idGen, appendFn)
+		if snapErr := snap.Run(ctx); snapErr != nil && snapErr != context.Canceled {
+			return fmt.Errorf("mongodb: snapshot failed: %w", snapErr)
+		}
+
+		// Restart the connector after snapshot.
+		connector2, err := mongodb.NewWithEventLog(mongoCfg, ckStore, idGen, el)
+		if err != nil {
+			return fmt.Errorf("mongodb: create connector after snapshot: %w", err)
+		}
+		g2, gctx2 := errgroup.WithContext(ctx)
+		g2.Go(func() error { cursorStore.Run(gctx2); return nil })
+		g2.Go(func() error { return connector2.Run(gctx2) })
+		g2.Go(func() error { return rtr.Run(gctx2) })
+		g2.Go(func() error { return outputServer(gctx2) })
+		if err := g2.Wait(); err != nil && err != context.Canceled {
+			return err
+		}
+	}
+
+	slog.Info("kaptanto (mongodb) shut down cleanly")
+	return nil
+}
+
+// extractDBFromMongoURI parses the database name from a MongoDB URI path
+// component (e.g., "mongodb://host/mydb" → "mydb").
+// Returns an empty string if the path has no database component.
+func extractDBFromMongoURI(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return ""
+	}
+	// Path is "/dbname" — trim the leading slash.
+	if len(u.Path) > 1 {
+		return strings.TrimPrefix(u.Path, "/")
+	}
+	return ""
 }
