@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Postgres CDC Binary** — Phases 1–7.7 (shipped 2026-03-16)
-- 📋 **v1.1 Production Hardening** — Phases 8–10 (active, Phase 9.1 inserted)
+- ✅ **v1.1 Production Hardening** — Phases 8–10 (shipped 2026-03-20)
 
 ## Phases
 
@@ -29,72 +29,17 @@ Full archive: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
 
-### 📋 v1.1 Production Hardening (Active)
+<details>
+<summary>✅ v1.1 Production Hardening (Phases 8–10) — SHIPPED 2026-03-20</summary>
 
 - [x] **Phase 8: High Availability** — Postgres advisory lock leader election with shared checkpoint store and automatic standby takeover (completed 2026-03-17)
 - [x] **Phase 9: MongoDB Connector** — Change Streams consumption, BSON normalization, resume token persistence, and re-snapshot on token expiry (completed 2026-03-17)
-- [ ] **Phase 9.1: MongoDB HA Guard** [INSERTED] — Guard against passing MongoDB URI to Postgres HA election (INT-03 gap closure)
+- [x] **Phase 9.1: MongoDB HA Guard** [INSERTED] — Guard against passing MongoDB URI to Postgres HA election; INT-03 gap closure (completed 2026-03-17)
 - [x] **Phase 10: Rust FFI Acceleration** — Optional Rust-accelerated pgoutput decoding, TOAST cache, and JSON serialization behind build tag (completed 2026-03-17)
 
-## Phase Details
+Full archive: `.planning/milestones/v1.1-ROADMAP.md`
 
-### Phase 8: High Availability
-**Goal**: Two Kaptanto instances can run against the same database; exactly one is active at any time, and the standby takes over automatically when the leader drops
-**Depends on**: Phase 7
-**Requirements**: HA-01, HA-02, HA-03, CHK-05
-**Success Criteria** (what must be TRUE):
-  1. Running two Kaptanto instances against the same database results in exactly one active WAL consumer — the other remains in standby polling; this is enforced by a Postgres session-scoped advisory lock held by the leader
-  2. When the active leader process crashes or loses its database connection, the standby acquires the advisory lock within its polling interval and begins consuming WAL without operator intervention
-  3. After takeover, the new leader reads the last saved checkpoint from a shared Postgres table and resumes from that LSN — no events are skipped and no duplicate processing window exceeds the checkpoint flush interval
-  4. The shared Postgres checkpoint store (CHK-05) is created automatically on first run and is accessible to both instances via the same DSN
-**Plans**: 3 plans
-Plans:
-- [ ] 08-01-PLAN.md — Postgres-backed CheckpointStore (CHK-05): PostgresStore implementing CheckpointStore against shared Postgres table
-- [ ] 08-02-PLAN.md — Leader election engine (HA-01, HA-02): LeaderElector with pg_try_advisory_lock, standby polling loop, session-scoped lock semantics
-- [ ] 08-03-PLAN.md — Wire HA into runPipeline (HA-03): advisory lock acquisition before pipeline start, Postgres checkpoint store swap, ha_lock health probe
-
-### Phase 9: MongoDB Connector
-**Goal**: Kaptanto captures changes from MongoDB collections via Change Streams, producing the same unified ChangeEvent format as the Postgres connector, with durable resume tokens and automatic re-snapshot on token expiry
-**Depends on**: Phase 8
-**Requirements**: SRC-09, SRC-10, SRC-11, SRC-12, PAR-04
-**Success Criteria** (what must be TRUE):
-  1. Kaptanto connects to a configured MongoDB replica set or sharded cluster, opens Change Streams on the specified collections, and emits ChangeEvents with operation insert/update/delete in the unified JSON format
-  2. BSON documents from MongoDB Change Stream events are normalized into the ChangeEvent schema — _id maps to key, fullDocument maps to after, fullDocumentBeforeChange maps to before, and the resume token is stored in metadata
-  3. On restart, Kaptanto reads the persisted resume token from the checkpoint store and resumes the Change Stream from that point — no full re-snapshot is needed if the token is still valid
-  4. When the resume token is expired or the Change Stream returns an error indicating the token is invalid, Kaptanto automatically triggers a collection snapshot and streams WAL changes from the point the snapshot began — the same watermark coordination used by the Postgres backfill engine applies
-  5. MongoDB replica set elections (primary stepdown, election, new primary) are handled transparently by the MongoDB driver — Kaptanto does not crash and resumes consuming from the new primary without operator intervention
-**Plans**: 3 plans
-Plans:
-- [ ] 09-01-PLAN.md — MongoDBConnector with Change Stream loop and resume token persistence (SRC-09, SRC-11)
-- [ ] 09-02-PLAN.md — BSON normalizer: Change Stream event to ChangeEvent field mapping (SRC-10, PAR-04)
-- [ ] 09-03-PLAN.md — MongoDB snapshot with watermark coordination + runPipeline wiring (SRC-12)
-
-### Phase 9.1: MongoDB HA Guard [INSERTED]
-**Goal**: Prevent silent runtime crash when `--ha` is used with a MongoDB source DSN by adding an explicit error guard in `runPipeline` before the HA election block attempts to connect via pgx
-**Depends on**: Phase 9
-**Requirements**: (gap closure — closes INT-03; restores HA-01, HA-02, HA-03 correctness for MongoDB deployments)
-**Gap Closure**: Addresses INT-03 from v1.1-MILESTONE-AUDIT.md
-**Success Criteria** (what must be TRUE):
-  1. Running `kaptanto --source mongodb://... --ha` returns a clear error message identifying that HA mode requires a Postgres DSN, not a MongoDB URI
-  2. Running `kaptanto --source postgres://... --ha` still works correctly — no regression to the Postgres HA path
-  3. Tests cover both the error path (MongoDB + HA) and the non-regression path (Postgres + HA routing)
-**Plans**: 1 plan
-Plans:
-- [ ] 09.1-01-PLAN.md — MongoDB + HA guard in runPipeline: early-return error before pgx connect when MongoDB URI detected with --ha (INT-03)
-
-### Phase 10: Rust FFI Acceleration
-**Goal**: High-throughput users can opt into a Rust-accelerated build that delivers 3x throughput improvement for pgoutput decoding, TOAST cache, and JSON serialization, while the pure Go binary remains the default with no behavior change
-**Depends on**: Phase 9
-**Requirements**: PRF-01, PRF-03
-**Success Criteria** (what must be TRUE):
-  1. Building with `CGO_ENABLED=1` and the `rust` build tag produces a binary where pgoutput decoding, TOAST cache lookups, and JSON serialization are handled by Rust via FFI — the output event format is structurally equivalent to the pure Go build (same fields and values; raw byte equality is not the criterion due to Go map JSON non-determinism)
-  2. The default `go build ./cmd/kaptanto` (no build tags, CGO_ENABLED=0) produces a pure Go binary with no CGO dependency — the Rust acceleration is completely absent from this path
-  3. The Makefile exposes a `make build` target for the pure Go binary and a `make build-rust` target for the Rust-accelerated binary, with clear output indicating which variant was built
-**Plans**: 3 plans
-Plans:
-- [ ] 10-01-PLAN.md — Rust crate scaffold + CGO build infrastructure (PRF-03): staticlib crate, cbindgen header, Makefile build-rust target
-- [ ] 10-02-PLAN.md — Rust pgoutput decoder + TOAST cache + Go FFI wrapper (PRF-01): decoder.rs, toast.rs, ffi_stub.go, ffi_rust.go, parser.go refactor
-- [ ] 10-03-PLAN.md — serde_json serializer + structural equality integration tests (PRF-01, PRF-03): serializer.rs, parser_ffi_test.go
+</details>
 
 ## Progress
 
@@ -110,5 +55,5 @@ Plans:
 | 7.1–7.7. Gap Closure [INSERTED] | v1.0 | 8/8 | ✓ Complete | 2026-03-16 |
 | 8. High Availability | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 9. MongoDB Connector | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
-| 9.1. MongoDB HA Guard [INSERTED] | v1.1 | 0/1 | ○ Not started | — |
-| 10. Rust FFI Acceleration | 3/3 | Complete   | 2026-03-17 | — |
+| 9.1. MongoDB HA Guard [INSERTED] | v1.1 | 1/1 | ✓ Complete | 2026-03-17 |
+| 10. Rust FFI Acceleration | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |

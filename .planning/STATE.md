@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production Hardening
-status: unknown
-last_updated: "2026-03-17T11:55:17.351Z"
+status: complete
+last_updated: "2026-03-20T21:28:25.355Z"
 progress:
   total_phases: 18
   completed_phases: 18
@@ -15,19 +15,20 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-17)
+See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
-**Current focus:** Milestone v1.1 — HA, MongoDB, Rust FFI
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: Phase 10 — Rust FFI Acceleration (in progress)
-Plan: 10-02 complete — Rust column decoder, TOAST cache, FFI file-pair, parser hot path refactor, PRF-01 partially closed
-Status: in-progress
-Last activity: 2026-03-17 — 10-02 complete: decoder.rs + toast.rs filled in; ffi_stub.go + ffi_rust.go created; parser.go handleInsert/handleUpdate use decodeAndSerializeRow; make build-rust links cleanly
+Milestone v1.1 Production Hardening — COMPLETE (shipped 2026-03-20)
+All 18 phases, 42 plans complete.
 
-Progress: [░░░░░░░░░░] 0% — v1.1 in progress
+Status: between-milestones
+Last activity: 2026-03-20 — v1.1 milestone archived; ROADMAP.md collapsed; PROJECT.md evolved; RETROSPECTIVE.md updated
+
+Progress: [████████████████████] 42/42 plans (100%)
 
 ## Performance Metrics
 
@@ -203,6 +204,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-17
-Stopped at: Completed 10-rust-ffi-acceleration/10-01-PLAN.md — Rust FFI crate scaffold and dual-target Makefile, PRF-03 closed
-Resume with: /gsd:execute-phase 10
+Last session: 2026-03-20
+Stopped at: v1.1 milestone complete — all archives created, git tagged v1.1
+Resume with: /gsd:new-milestone
