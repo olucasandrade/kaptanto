@@ -11,6 +11,17 @@ Kaptanto is an open-source, single Go binary for universal database Change Data 
 
 Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
 
+## Current Milestone: v1.2 Benchmark Suite
+
+**Goal:** Give potential users a reproducible, single-command benchmark that objectively compares Kaptanto against Debezium, PeerDB, Maxwell's Daemon, and Sequin across throughput, latency, resource usage, and crash recovery — and generates a self-contained HTML report with charts.
+
+**Target features:**
+- Docker Compose harness spinning up all five CDC tools against a shared Postgres instance with a load generator
+- Benchmark scenarios: steady-state throughput, burst load, large batch, crash+recovery, idle resource usage
+- Metrics collected: events/sec (p50/p95/p99), end-to-end latency, CPU%, RSS memory, recovery time
+- Self-contained HTML report with comparison charts (no external dependencies)
+- Markdown summary auto-generated alongside the HTML (for GitHub README embedding)
+
 ## Requirements
 
 ### Validated
@@ -31,7 +42,11 @@ Every database change is captured and delivered reliably, in order, with zero in
 
 ### Active
 
-(None — planning next milestone)
+- [ ] Docker Compose benchmark harness with all 5 CDC tools + Postgres + load generator (Phase 11)
+- [ ] Benchmark scenarios: steady throughput, burst, large batch, crash recovery, idle resource (Phase 11–12)
+- [ ] Metrics collection: throughput, latency (p50/p95/p99), CPU%, RSS, recovery time (Phase 12)
+- [ ] Self-contained HTML report with comparison charts (Phase 13)
+- [ ] Markdown summary auto-generated for README embedding (Phase 13)
 
 ### Known Tech Debt (v1.1)
 
@@ -89,4 +104,4 @@ The full technical specification at `kaptanto-technical-specification.md` remain
 | Postgres store for HA checkpoint (not SQLite) | Shared state requires a shared store; SQLite is per-instance | ✓ Good — PostgresStore implements CheckpointStore cleanly |
 
 ---
-*Last updated: 2026-03-20 after v1.1 milestone*
+*Last updated: 2026-03-20 — v1.2 milestone started*

@@ -18,17 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
-**Current focus:** Planning next milestone
+**Current focus:** Milestone v1.2 — Benchmark Suite
 
 ## Current Position
 
-Milestone v1.1 Production Hardening — COMPLETE (shipped 2026-03-20)
-All 18 phases, 42 plans complete.
-
-Status: between-milestones
-Last activity: 2026-03-20 — v1.1 milestone archived; ROADMAP.md collapsed; PROJECT.md evolved; RETROSPECTIVE.md updated
-
-Progress: [████████████████████] 42/42 plans (100%)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-20 — Milestone v1.2 started
 
 ## Performance Metrics
 
