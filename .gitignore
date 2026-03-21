@@ -32,6 +32,10 @@ dist-ssr
 
 # Bench binaries
 bench/loadgen
+bench/reporter
+
+# Bench generated HTML reports (large self-contained files, not committed)
+bench/results/report.html
 
 # Build artifacts
 *.o
