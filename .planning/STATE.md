@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Benchmark Suite
 status: unknown
-last_updated: "2026-03-21T03:18:14.894Z"
+last_updated: "2026-03-21T03:21:00.856Z"
 progress:
   total_phases: 20
   completed_phases: 19
   total_plans: 48
-  completed_plans: 46
+  completed_plans: 47
 ---
 
 # Project State
@@ -51,6 +51,7 @@ Progress: [████████░░░░░░░░░░░░] 46/50 p
 
 *Updated after each plan completion*
 | Phase 12-metrics-collector-and-scenarios P02 | 193s | 2 tasks | 6 files |
+| Phase 12-metrics-collector-and-scenarios P01 | 5 | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - [Phase 12-metrics-collector-and-scenarios]: docker:cli runtime for Dockerfile.statsd — statsd calls exec.Command(docker) for inspect and stats; distroless lacks the docker CLI binary
 - [Phase 12-metrics-collector-and-scenarios]: vmrss_kb JSON field name (not rss_kb) — Phase 13 report generator reads this field by name from docker_stats.jsonl
 - [Phase 12-metrics-collector-and-scenarios]: Debezium sink switched redis->http pointing collector:8081/ingest/debezium — without this MET-02 is unsatisfiable (zero events reach collector)
+- [Phase 12-metrics-collector-and-scenarios]: RunKaptanto/RunPeerDB naming: disambiguated Run functions in same adapters package to avoid compile error without splitting into sub-packages
+- [Phase 12-metrics-collector-and-scenarios]: Fan-out goroutine pattern: adapterCh -> fan-out updates lastSeen -> records -> writer keeps management API reads consistent without blocking adapters
+- [Phase 12-metrics-collector-and-scenarios]: Always-200 before processing in Debezium/Sequin handlers: prevents retry floods from CDC sinks treating non-2xx as retriable
 
 ### Pending Todos
 

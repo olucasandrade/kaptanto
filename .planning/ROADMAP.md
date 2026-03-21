@@ -118,5 +118,5 @@ Plans:
 | 9.1. MongoDB HA Guard [INSERTED] | v1.1 | 1/1 | ✓ Complete | 2026-03-17 |
 | 10. Rust FFI Acceleration | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 11. Harness and Load Generator | 3/3 | Complete    | 2026-03-21 | - |
-| 12. Metrics Collector and Scenarios | 1/3 | In Progress|  | - |
+| 12. Metrics Collector and Scenarios | 2/3 | In Progress|  | - |
 | 13. Report Generator | v1.2 | 0/2 | Not started | - |
