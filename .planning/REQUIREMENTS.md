@@ -30,11 +30,11 @@ Requirements for the v1.2 milestone. Each maps to roadmap phases.
 
 ### Scenarios
 
-- [ ] **SCN-01**: Steady-state: 10k ops/s for 60s after 30s warmup — measures peak throughput and p50/p95/p99 latency
-- [ ] **SCN-02**: Burst: 0→50k ops/s spike for 10s then back to 10k — measures overload recovery
-- [ ] **SCN-03**: Large-batch: single transaction of 100k rows — measures latency tail under bulk insert
-- [ ] **SCN-04**: Crash+recovery: SIGKILL each CDC tool, measure seconds until delivery resumes
-- [ ] **SCN-05**: Idle resource: 60s at zero load — measures baseline CPU% and RSS at rest
+- [x] **SCN-01**: Steady-state: 10k ops/s for 60s after 30s warmup — measures peak throughput and p50/p95/p99 latency
+- [x] **SCN-02**: Burst: 0→50k ops/s spike for 10s then back to 10k — measures overload recovery
+- [x] **SCN-03**: Large-batch: single transaction of 100k rows — measures latency tail under bulk insert
+- [x] **SCN-04**: Crash+recovery: SIGKILL each CDC tool, measure seconds until delivery resumes
+- [x] **SCN-05**: Idle resource: 60s at zero load — measures baseline CPU% and RSS at rest
 
 ### Report
 
@@ -89,11 +89,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MET-02 | Phase 12 | Complete |
 | MET-03 | Phase 12 | Complete |
 | MET-04 | Phase 12 | Complete |
-| SCN-01 | Phase 12 | Pending |
-| SCN-02 | Phase 12 | Pending |
-| SCN-03 | Phase 12 | Pending |
-| SCN-04 | Phase 12 | Pending |
-| SCN-05 | Phase 12 | Pending |
+| SCN-01 | Phase 12 | Complete |
+| SCN-02 | Phase 12 | Complete |
+| SCN-03 | Phase 12 | Complete |
+| SCN-04 | Phase 12 | Complete |
+| SCN-05 | Phase 12 | Complete |
 | RPT-01 | Phase 13 | Pending |
 | RPT-02 | Phase 13 | Pending |
 | RPT-03 | Phase 13 | Pending |

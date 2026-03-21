@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 12 of 21 (Metrics Collector and Scenarios) — IN PROGRESS
-Plan: 02 complete (12-02-SUMMARY.md written)
+Plan: 03 complete (12-03-SUMMARY.md written)
 Status: in_progress
-Last activity: 2026-03-21 — 12-02 statsd poller, redpanda service, Debezium HTTP sink reconfiguration
+Last activity: 2026-03-21 — 12-03 scenario orchestrator, runner, crash+recovery mechanics
 
-Progress: [████████░░░░░░░░░░░░] 46/50 plans (92%)
+Progress: [████████░░░░░░░░░░░░] 47/50 plans (94%)
 
 ## Performance Metrics
 
@@ -46,10 +46,11 @@ Progress: [████████░░░░░░░░░░░░] 46/50 p
 | 11-harness-and-load-generator | 3/3 | ~25 min | ~8 min |
 
 **Recent Trend:**
-- Last plan: 12-02 statsd poller, redpanda service, Debezium HTTP sink (~3 min)
-- Trend: Phase 12 in progress, plans 01 and 02 complete
+- Last plan: 12-03 scenario orchestrator and runner (~3 min)
+- Trend: Phase 12 in progress, plans 01, 02 and 03 complete
 
 *Updated after each plan completion*
+| Phase 12-metrics-collector-and-scenarios P03 | 179s | 2 tasks | 3 files |
 | Phase 12-metrics-collector-and-scenarios P02 | 193s | 2 tasks | 6 files |
 | Phase 12-metrics-collector-and-scenarios P01 | 5 | 3 tasks | 10 files |
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - [Phase 12-metrics-collector-and-scenarios]: RunKaptanto/RunPeerDB naming: disambiguated Run functions in same adapters package to avoid compile error without splitting into sub-packages
 - [Phase 12-metrics-collector-and-scenarios]: Fan-out goroutine pattern: adapterCh -> fan-out updates lastSeen -> records -> writer keeps management API reads consistent without blocking adapters
 - [Phase 12-metrics-collector-and-scenarios]: Always-200 before processing in Debezium/Sequin handlers: prevents retry floods from CDC sinks treating non-2xx as retriable
+- [12-03 Scenario Orchestrator]: ScenarioDef.PreWaitS=30 for steady (warmup configurable without changing loadgen flags)
+- [12-03 Scenario Orchestrator]: buildLoadgenCmd always prepends --dsn to loadgen args — required by loadgen CLI
+- [12-03 Scenario Orchestrator]: pollRecovery returns elapsed regardless of timeout — no -1 sentinel; caller logs the value
 
 ### Pending Todos
 
@@ -90,5 +94,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-21
-Stopped at: Phase 12 Plan 02 complete — statsd poller, redpanda service, Debezium HTTP sink (12-02-SUMMARY.md written)
-Resume with: /gsd:execute-phase 12 (Phase 12 Plan 03 — Benchmark Scenarios)
+Stopped at: Phase 12 Plan 03 complete — scenario orchestrator, runner core, crash+recovery mechanics (12-03-SUMMARY.md written)
+Resume with: /gsd:execute-phase 13 (Phase 13 — next phase)
