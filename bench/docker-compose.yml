@@ -302,6 +302,47 @@ services:
       retries: 10
       start_period: 30s
 
+  # ---------------------------------------------------------------------------
+  # Redpanda — single-node Kafka-compatible broker for PeerDB Kafka output
+  # Using v24.3.10; rpk cluster health used as healthcheck probe
+  # ---------------------------------------------------------------------------
+  redpanda:
+    image: redpandadata/redpanda:v24.3.10
+    command: >
+      redpanda start
+      --overprovisioned
+      --smp 1
+      --memory 512M
+      --reserve-memory 0M
+      --kafka-addr PLAINTEXT://0.0.0.0:9092
+      --advertise-kafka-addr PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # statsd — polls container CPU% and VmRSS every 2s, writes docker_stats.jsonl
+  # pid: "host" is required so the container can read /proc/<host-pid>/status
+  # (docker inspect returns host PIDs; those are only visible in the host
+  # process namespace, which Docker Desktop bridges from the VM)
+  # ---------------------------------------------------------------------------
+  statsd:
+    build:
+      context: .
+      dockerfile: Dockerfile.statsd
+    pid: "host"
+    volumes:
+      - ./results:/results
+    command: ["--containers=kaptanto,debezium,sequin,peerdb,redpanda", "--output=/results/docker_stats.jsonl"]
+    depends_on:
+      kaptanto:
+        condition: service_healthy
+
 # Named volumes
 volumes:
   debezium-data:

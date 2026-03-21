@@ -1,0 +1,18 @@
+# Two-stage build for the statsd Docker stats poller.
+#
+# Runtime image MUST be docker:cli (not distroless/static) because
+# readVmRSSFromHost and readCPUPct both call exec.Command("docker", ...).
+# The docker CLI binary is absent from distroless, causing all poll
+# iterations to fail silently.
+#
+# The compose service also requires pid: "host" so the container can
+# read /proc/<host-pid>/status from the host process namespace.
+
+FROM golang:1.25-alpine AS builder
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /statsd ./cmd/statsd
+
+FROM docker:cli
+COPY --from=builder /statsd /statsd
+ENTRYPOINT ["/statsd"]
