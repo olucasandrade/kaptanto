@@ -1,0 +1,23 @@
+# Dockerfile.bench
+# Multi-stage build: build kaptanto from source, ship in distroless runtime.
+# Build context must be the repo root (not bench/) because Go source lives at root.
+#
+# Usage (from repo root):
+#   docker build -f bench/Dockerfile.bench -t kaptanto-bench .
+
+# Stage 1: Build
+# golang:1.25-alpine matches go 1.25.0 in go.mod.
+# CGO_ENABLED=0 is the project standard; Rust FFI is excluded from the bench build.
+FROM golang:1.25-alpine AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /kaptanto ./cmd/kaptanto
+
+# Stage 2: Runtime
+# distroless/static:nonroot — no shell, no package manager, minimal attack surface.
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder /kaptanto /kaptanto
+ENTRYPOINT ["/kaptanto"]
+# No CMD — the compose service passes --source, --output, --port as the command.
