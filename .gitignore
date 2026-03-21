@@ -30,6 +30,9 @@ dist-ssr
 /kaptanto
 /kaptanto-*
 
+# Bench binaries
+bench/loadgen
+
 # Build artifacts
 *.o
 *.a
