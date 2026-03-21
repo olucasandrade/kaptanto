@@ -1,6 +1,7 @@
 package reporter
 
 import (
+	"html/template"
 	"math"
 	"slices"
 )
@@ -23,11 +24,25 @@ type ScenarioStats struct {
 
 // ReportData is the fully-populated output of Aggregate, ready for rendering
 // by the plan 13-02 renderer.
+// The renderer populates the template.JS fields (ChartJS, *Chart, Hardware,
+// GeneratedAt) before executing the HTML template.
 type ReportData struct {
 	Tools           []string
 	Scenarios       []string
 	Stats           map[string]map[string]ScenarioStats
 	RecoverySeconds map[string]float64
+
+	// Renderer-populated fields (set by RenderHTML before template execution).
+	ChartJS         template.JS // inlined chart.umd.min.js content
+	ThroughputChart template.JS // JSON: ChartData
+	P50Chart        template.JS
+	P95Chart        template.JS
+	P99Chart        template.JS
+	CPUChart        template.JS
+	RSSChart        template.JS
+	RecoveryChart   template.JS
+	Hardware        string // from --hardware flag
+	GeneratedAt     string // RFC3339 timestamp
 }
 
 // Aggregate consumes the parsed Accumulator and raw StatRecord slice produced
