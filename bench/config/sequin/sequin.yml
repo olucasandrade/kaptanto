@@ -1,0 +1,17 @@
+# Sequin source database reference configuration
+#
+# Sequin reads CDC events from the shared benchmark Postgres instance.
+# Sequin's own metadata is stored in the sequin-postgres service (separate).
+#
+# This file is mounted into the Sequin container at /config/sequin.yml
+# via the CONFIG_FILE_PATH environment variable.
+
+databases:
+  - name: bench-postgres
+    hostname: postgres
+    port: 5432
+    database: bench
+    username: bench
+    password: bench
+    slot_name: sequin_bench
+    publication_name: sequin_bench_pub
