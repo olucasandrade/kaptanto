@@ -26,7 +26,7 @@ Requirements for the v1.2 milestone. Each maps to roadmap phases.
 - [ ] **MET-01**: `bench/cmd/collector` receives CDC events from all tools via per-tool adapters and writes per-event records to `metrics.jsonl`
 - [ ] **MET-02**: Adapters implemented for: Kaptanto (SSE), Debezium Server (HTTP POST webhook), Sequin (HTTP push), PeerDB (Kafka)
 - [ ] **MET-03**: Each event record contains: tool, scenario, receive timestamp, `_bench_ts` from payload, computed latency (µs)
-- [ ] **MET-04**: Container CPU% and RSS memory polled every 2s into `docker_stats.jsonl`; RSS sourced from `/proc/1/status` VmRSS (not `docker stats`)
+- [x] **MET-04**: Container CPU% and RSS memory polled every 2s into `docker_stats.jsonl`; RSS sourced from `/proc/1/status` VmRSS (not `docker stats`)
 
 ### Scenarios
 
@@ -88,7 +88,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MET-01 | Phase 12 | Pending |
 | MET-02 | Phase 12 | Pending |
 | MET-03 | Phase 12 | Pending |
-| MET-04 | Phase 12 | Pending |
+| MET-04 | Phase 12 | Complete |
 | SCN-01 | Phase 12 | Pending |
 | SCN-02 | Phase 12 | Pending |
 | SCN-03 | Phase 12 | Pending |

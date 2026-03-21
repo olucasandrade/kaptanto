@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Benchmark Suite
 status: unknown
-last_updated: "2026-03-21T02:48:09.039Z"
+last_updated: "2026-03-21T03:18:14.894Z"
 progress:
-  total_phases: 19
+  total_phases: 20
   completed_phases: 19
-  total_plans: 45
-  completed_plans: 45
+  total_plans: 48
+  completed_plans: 46
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 11 of 21 (Harness and Load Generator) — COMPLETE
-Plan: 03 complete (11-03-SUMMARY.md written)
+Phase: 12 of 21 (Metrics Collector and Scenarios) — IN PROGRESS
+Plan: 02 complete (12-02-SUMMARY.md written)
 Status: in_progress
-Last activity: 2026-03-21 — 11-03 bench/README.md, tag audit, human-verified smoke test
+Last activity: 2026-03-21 — 12-02 statsd poller, redpanda service, Debezium HTTP sink reconfiguration
 
-Progress: [████████░░░░░░░░░░░░] 45/50 plans (90%)
+Progress: [████████░░░░░░░░░░░░] 46/50 plans (92%)
 
 ## Performance Metrics
 
@@ -46,10 +46,11 @@ Progress: [████████░░░░░░░░░░░░] 45/50 p
 | 11-harness-and-load-generator | 3/3 | ~25 min | ~8 min |
 
 **Recent Trend:**
-- Last plan: 11-03 bench/README.md, tag audit, smoke test (15 min including human verify)
-- Trend: Phase 11 complete, ready for Phase 12 metrics and scenarios
+- Last plan: 12-02 statsd poller, redpanda service, Debezium HTTP sink (~3 min)
+- Trend: Phase 12 in progress, plans 01 and 02 complete
 
 *Updated after each plan completion*
+| Phase 12-metrics-collector-and-scenarios P02 | 193s | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,9 @@ Recent decisions affecting current work:
 - [11-01 Harness]: flow-snapshot-worker included in PeerDB set — avoids missing-worker errors on startup
 - [11-01 Harness]: Isolated internal Postgres per CDC tool (sequin-postgres, peerdb-postgres) — source postgres is CDC source only
 - [Phase 11]: Sequin image tag v0.14.6 verified at execution time — no digest fallback needed, docker-compose.yml unchanged
+- [Phase 12-metrics-collector-and-scenarios]: docker:cli runtime for Dockerfile.statsd — statsd calls exec.Command(docker) for inspect and stats; distroless lacks the docker CLI binary
+- [Phase 12-metrics-collector-and-scenarios]: vmrss_kb JSON field name (not rss_kb) — Phase 13 report generator reads this field by name from docker_stats.jsonl
+- [Phase 12-metrics-collector-and-scenarios]: Debezium sink switched redis->http pointing collector:8081/ingest/debezium — without this MET-02 is unsatisfiable (zero events reach collector)
 
 ### Pending Todos
 
@@ -82,5 +86,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-21
-Stopped at: Phase 11 Plan 03 complete — bench/README.md, tag audit, human-verified smoke test (11-03-SUMMARY.md written)
-Resume with: /gsd:execute-phase 12 (Phase 12 — Metrics and Scenarios)
+Stopped at: Phase 12 Plan 02 complete — statsd poller, redpanda service, Debezium HTTP sink (12-02-SUMMARY.md written)
+Resume with: /gsd:execute-phase 12 (Phase 12 Plan 03 — Benchmark Scenarios)
