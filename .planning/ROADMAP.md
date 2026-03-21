@@ -119,4 +119,4 @@ Plans:
 | 10. Rust FFI Acceleration | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 11. Harness and Load Generator | 3/3 | Complete    | 2026-03-21 | - |
 | 12. Metrics Collector and Scenarios | 3/3 | Complete    | 2026-03-21 | - |
-| 13. Report Generator | v1.2 | 0/2 | Not started | - |
+| 13. Report Generator | 1/2 | In Progress|  | - |

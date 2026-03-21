@@ -38,8 +38,8 @@ Requirements for the v1.2 milestone. Each maps to roadmap phases.
 
 ### Report
 
-- [ ] **RPT-01**: `bench/cmd/reporter` reads `metrics.jsonl` + `docker_stats.jsonl` and generates a self-contained HTML file (JS/CSS inlined, no CDN)
-- [ ] **RPT-02**: HTML report includes charts for: throughput, latency (p50/p95/p99), CPU%, RSS, recovery time — one chart per scenario per metric
+- [x] **RPT-01**: `bench/cmd/reporter` reads `metrics.jsonl` + `docker_stats.jsonl` and generates a self-contained HTML file (JS/CSS inlined, no CDN)
+- [x] **RPT-02**: HTML report includes charts for: throughput, latency (p50/p95/p99), CPU%, RSS, recovery time — one chart per scenario per metric
 - [ ] **RPT-03**: HTML includes methodology section: tool versions, hardware, scenarios, measurement approach, Maxwell exclusion rationale
 - [ ] **RPT-04**: Reporter generates `bench/results/REPORT.md` (Markdown tables + link to HTML) alongside raw `metrics.jsonl` and `docker_stats.jsonl`
 
@@ -94,8 +94,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SCN-03 | Phase 12 | Complete |
 | SCN-04 | Phase 12 | Complete |
 | SCN-05 | Phase 12 | Complete |
-| RPT-01 | Phase 13 | Pending |
-| RPT-02 | Phase 13 | Pending |
+| RPT-01 | Phase 13 | Complete |
+| RPT-02 | Phase 13 | Complete |
 | RPT-03 | Phase 13 | Pending |
 | RPT-04 | Phase 13 | Pending |
 
