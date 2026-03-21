@@ -1,0 +1,309 @@
+# Kaptanto Benchmark Harness
+# Starts all CDC tools against a shared Postgres 16 benchmark instance.
+#
+# Usage: docker compose up --build    (from bench/ directory)
+# All image tags are pinned.
+#
+# Service topology:
+#   postgres (shared benchmark source, wal_level=logical)
+#     ├── kaptanto (built from source via Dockerfile.bench)
+#     ├── debezium (quay.io, sink → redis)
+#     ├── sequin (needs sequin-postgres + redis)
+#     └── peerdb-server, flow-api, flow-worker, flow-snapshot-worker, peerdb-ui
+#         └── temporal (needs peerdb-postgres)
+#   redis (shared: debezium sink + sequin)
+#   sequin-postgres (isolated metadata DB for Sequin)
+#   peerdb-postgres (isolated catalog DB for PeerDB + Temporal)
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Shared benchmark Postgres — CDC source for all three tools
+  # wal_level=logical is required by all CDC connectors
+  # max_wal_senders/slots=20 avoids "all slots in use" with 3 concurrent tools
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16.13-alpine
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: bench
+    command: >
+      postgres
+      -c wal_level=logical
+      -c max_wal_senders=20
+      -c max_replication_slots=20
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bench -d bench"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Shared Redis — Debezium sink + Sequin internal broker
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.2.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Kaptanto — built from source via bench/Dockerfile.bench
+  # Build context is repo root because Go source lives there.
+  # Healthcheck: GET /healthz on observability port (cfg.Port+1 = 7655)
+  # ---------------------------------------------------------------------------
+  kaptanto:
+    build:
+      context: ..
+      dockerfile: bench/Dockerfile.bench
+    command:
+      - start
+      - --source
+      - postgres
+      - --dsn
+      - postgres://bench:bench@postgres:5432/bench
+      - --port
+      - "7654"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7655/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Debezium Server 3.4.2.Final — Postgres source, Redis sink
+  # IMPORTANT: quay.io only — Docker Hub is frozen at 2.x for this image
+  # Config mounted from ./config/debezium/application.properties
+  # ---------------------------------------------------------------------------
+  debezium:
+    image: quay.io/debezium/server:3.4.2.Final
+    volumes:
+      - ./config/debezium:/debezium/conf
+      - debezium-data:/debezium/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/q/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Sequin internal Postgres — isolated metadata store for Sequin
+  # NOT the benchmark source; the benchmark source is the 'postgres' service above
+  # ---------------------------------------------------------------------------
+  sequin-postgres:
+    image: postgres:16.13-alpine
+    environment:
+      POSTGRES_USER: sequin
+      POSTGRES_PASSWORD: sequin
+      POSTGRES_DB: sequin
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sequin -d sequin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Sequin — Postgres CDC via logical replication
+  # Uses sequin-postgres for its own metadata, redis for broker,
+  # and connects to the shared 'postgres' as CDC source (via sequin.yml config)
+  # SECRET_KEY_BASE must be 64+ chars (Phoenix framework requirement)
+  # ---------------------------------------------------------------------------
+  sequin:
+    image: sequin/sequin:v0.14.6
+    environment:
+      PG_HOSTNAME: sequin-postgres
+      PG_PORT: "5432"
+      PG_DATABASE: sequin
+      PG_USERNAME: sequin
+      PG_PASSWORD: sequin
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY_BASE: "bench-secret-key-base-for-dev-only-do-not-use-in-production-xxxxxxxx"
+      VAULT_KEY: "bench-vault-key-32-chars-xxxxxxxx"
+      CONFIG_FILE_PATH: /config/sequin.yml
+    volumes:
+      - ./config/sequin:/config
+    depends_on:
+      sequin-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7376/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # PeerDB internal Postgres — isolated catalog DB for PeerDB catalog + Temporal
+  # ---------------------------------------------------------------------------
+  peerdb-postgres:
+    image: postgres:16.13-alpine
+    environment:
+      POSTGRES_USER: peerdb
+      POSTGRES_PASSWORD: peerdb
+      POSTGRES_DB: peerdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peerdb -d peerdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Temporal — workflow orchestration for PeerDB flow workers
+  # Uses peerdb-postgres as its DB backend (auto-setup image creates schema)
+  # start_period=60s: Temporal takes 20-30s to initialize schema on first run
+  # ---------------------------------------------------------------------------
+  temporal:
+    image: temporalio/auto-setup:1.29
+    environment:
+      DB: postgresql
+      DB_PORT: "5432"
+      POSTGRES_USER: peerdb
+      POSTGRES_PWD: peerdb
+      POSTGRES_SEEDS: peerdb-postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    depends_on:
+      peerdb-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "temporal", "workflow", "list", "--address", "localhost:7233"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # PeerDB application services — all use stable-v0.36.12 from ghcr.io
+  # All require Temporal + peerdb-postgres to be healthy before starting
+  # ---------------------------------------------------------------------------
+  peerdb-server:
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.36.12
+    ports:
+      - "9900:9900"
+    environment:
+      TEMPORAL_HOST_PORT: temporal:7233
+      PEERDB_CATALOG_HOST: peerdb-postgres
+      PEERDB_CATALOG_PORT: "5432"
+      PEERDB_CATALOG_USER: peerdb
+      PEERDB_CATALOG_PASSWORD: peerdb
+      PEERDB_CATALOG_DATABASE: peerdb
+    depends_on:
+      temporal:
+        condition: service_healthy
+      peerdb-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 9900 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  flow-api:
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.36.12
+    environment:
+      TEMPORAL_HOST_PORT: temporal:7233
+      PEERDB_CATALOG_HOST: peerdb-postgres
+      PEERDB_CATALOG_PORT: "5432"
+      PEERDB_CATALOG_USER: peerdb
+      PEERDB_CATALOG_PASSWORD: peerdb
+      PEERDB_CATALOG_DATABASE: peerdb
+    depends_on:
+      temporal:
+        condition: service_healthy
+      peerdb-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8112/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  flow-worker:
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.36.12
+    environment:
+      TEMPORAL_HOST_PORT: temporal:7233
+      PEERDB_CATALOG_HOST: peerdb-postgres
+      PEERDB_CATALOG_PORT: "5432"
+      PEERDB_CATALOG_USER: peerdb
+      PEERDB_CATALOG_PASSWORD: peerdb
+      PEERDB_CATALOG_DATABASE: peerdb
+    depends_on:
+      temporal:
+        condition: service_healthy
+      peerdb-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8113/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  flow-snapshot-worker:
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.36.12
+    environment:
+      TEMPORAL_HOST_PORT: temporal:7233
+      PEERDB_CATALOG_HOST: peerdb-postgres
+      PEERDB_CATALOG_PORT: "5432"
+      PEERDB_CATALOG_USER: peerdb
+      PEERDB_CATALOG_PASSWORD: peerdb
+      PEERDB_CATALOG_DATABASE: peerdb
+    depends_on:
+      temporal:
+        condition: service_healthy
+      peerdb-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8114/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  peerdb-ui:
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.36.12
+    ports:
+      - "3000:3000"
+    environment:
+      TEMPORAL_HOST_PORT: temporal:7233
+      PEERDB_CATALOG_HOST: peerdb-postgres
+      PEERDB_CATALOG_PORT: "5432"
+      PEERDB_CATALOG_USER: peerdb
+      PEERDB_CATALOG_PASSWORD: peerdb
+      PEERDB_CATALOG_DATABASE: peerdb
+    depends_on:
+      peerdb-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+# Named volumes
+volumes:
+  debezium-data:
+    # Stores Debezium offset files so the connector resumes from the last
+    # committed offset on restart (avoids full re-scan on compose restart)
