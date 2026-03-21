@@ -1,5 +1,14 @@
 # Milestones
 
+## v1.2 Benchmark Suite (Shipped: 2026-03-21)
+
+**Phases completed:** 3 phases, 8 plans, 0 tasks
+
+**Key accomplishments:**
+- (none recorded)
+
+---
+
 ## v1.1 Production Hardening (Shipped: 2026-03-20)
 
 **Phases completed:** 4 phases (8, 9, 9.1, 10), 10 plans

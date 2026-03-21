@@ -6,21 +6,15 @@ Kaptanto is an open-source, single Go binary for universal database Change Data 
 
 **v1.0 shipped:** Full Postgres CDC pipeline — 10,749 LOC Go, 114 commits, 9 days.
 **v1.1 shipped:** HA leader election, MongoDB connector, Rust FFI acceleration — 14,209 LOC (Go + Rust), 33 commits, 3 days.
+**v1.2 shipped:** Benchmark suite — Docker Compose harness, 5 benchmark scenarios, self-contained HTML report with Chart.js — 3,727 LOC Go (bench/), 1 day.
 
 ## Core Value
 
 Every database change is captured and delivered reliably, in order, with zero infrastructure dependencies beyond the database itself.
 
-## Current Milestone: v1.2 Benchmark Suite
+## Current State
 
-**Goal:** Give potential users a reproducible, single-command benchmark that objectively compares Kaptanto against Debezium, PeerDB, Maxwell's Daemon, and Sequin across throughput, latency, resource usage, and crash recovery — and generates a self-contained HTML report with charts.
-
-**Target features:**
-- Docker Compose harness spinning up all five CDC tools against a shared Postgres instance with a load generator
-- Benchmark scenarios: steady-state throughput, burst load, large batch, crash+recovery, idle resource usage
-- Metrics collected: events/sec (p50/p95/p99), end-to-end latency, CPU%, RSS memory, recovery time
-- Self-contained HTML report with comparison charts (no external dependencies)
-- Markdown summary auto-generated alongside the HTML (for GitHub README embedding)
+**v1.2 shipped 2026-03-21.** 21 phases total, 50 plans. Full benchmark suite: `cd bench && docker compose up` starts the full harness; `./scenarios` runs all 5 scenarios; `./reporter` generates a self-contained HTML report with Chart.js charts comparing Kaptanto, Debezium, Sequin, and PeerDB.
 
 ## Requirements
 
@@ -39,14 +33,17 @@ Every database change is captured and delivered reliably, in order, with zero in
 - ✓ MongoDB Change Streams connector with resume tokens and automatic re-snapshot — v1.1
 - ✓ Optional Rust FFI for pgoutput decoding, TOAST cache, and JSON serialization — v1.1
 - ✓ `--ha` with MongoDB source returns clear error (INT-03) — v1.1
+- ✓ Docker Compose benchmark harness (13 services, all pinned, healthchecked) — v1.2
+- ✓ Load generator with 4 scenario modes (steady, burst, large-batch, idle), 10k–50k ops/s — v1.2
+- ✓ Metrics collector with 4 per-tool adapters (SSE, HTTP, HTTP, Kafka), channel-serialized NDJSON — v1.2
+- ✓ Docker stats poller (VmRSS via host /proc, CPU% via docker stats) every 2s — v1.2
+- ✓ 5 benchmark scenarios orchestrated end-to-end with crash+recovery detection — v1.2
+- ✓ Self-contained HTML report with Chart.js (208KB inlined, no CDN), 7 charts — v1.2
+- ✓ Markdown summary (REPORT.md) with percentile tables auto-generated — v1.2
 
 ### Active
 
-- [ ] Docker Compose benchmark harness with all 5 CDC tools + Postgres + load generator (Phase 11)
-- [ ] Benchmark scenarios: steady throughput, burst, large batch, crash recovery, idle resource (Phase 11–12)
-- [ ] Metrics collection: throughput, latency (p50/p95/p99), CPU%, RSS, recovery time (Phase 12)
-- [ ] Self-contained HTML report with comparison charts (Phase 13)
-- [ ] Markdown summary auto-generated for README embedding (Phase 13)
+*(none — planning next milestone)*
 
 ### Known Tech Debt (v1.1)
 
