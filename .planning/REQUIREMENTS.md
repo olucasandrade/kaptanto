@@ -10,16 +10,16 @@ Requirements for the v1.2 milestone. Each maps to roadmap phases.
 
 ### Harness
 
-- [ ] **HRN-01**: `docker compose up` starts all tools (Kaptanto, Debezium Server, Sequin, PeerDB + dependencies) against a shared Postgres instance
-- [ ] **HRN-02**: Each service has a healthcheck and `depends_on` so the harness waits for full readiness before scenarios begin
-- [ ] **HRN-03**: Kaptanto is built from source and containerized via `Dockerfile.bench` as a compose service
-- [ ] **HRN-04**: Tool versions are pinned in the compose file; Maxwell's Daemon exclusion is documented in `bench/README.md`
+- [x] **HRN-01**: `docker compose up` starts all tools (Kaptanto, Debezium Server, Sequin, PeerDB + dependencies) against a shared Postgres instance
+- [x] **HRN-02**: Each service has a healthcheck and `depends_on` so the harness waits for full readiness before scenarios begin
+- [x] **HRN-03**: Kaptanto is built from source and containerized via `Dockerfile.bench` as a compose service
+- [x] **HRN-04**: Tool versions are pinned in the compose file; Maxwell's Daemon exclusion is documented in `bench/README.md`
 
 ### Load Generator
 
-- [ ] **LOAD-01**: `bench/cmd/loadgen` inserts rows into Postgres at a configurable rate (default 10k ops/s, configurable up to 50k)
-- [ ] **LOAD-02**: Each row contains a `_bench_ts` column populated by `clock_timestamp()` for end-to-end latency measurement
-- [ ] **LOAD-03**: Load generator supports scenario modes: steady, burst (0→50k ops/s spike), large-batch (100k row single tx), idle
+- [x] **LOAD-01**: `bench/cmd/loadgen` inserts rows into Postgres at a configurable rate (default 10k ops/s, configurable up to 50k)
+- [x] **LOAD-02**: Each row contains a `_bench_ts` column populated by `clock_timestamp()` for end-to-end latency measurement
+- [x] **LOAD-03**: Load generator supports scenario modes: steady, burst (0→50k ops/s spike), large-batch (100k row single tx), idle
 
 ### Metrics Collection
 
@@ -78,13 +78,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HRN-01 | Phase 11 | Pending |
-| HRN-02 | Phase 11 | Pending |
-| HRN-03 | Phase 11 | Pending |
-| HRN-04 | Phase 11 | Pending |
-| LOAD-01 | Phase 11 | Pending |
-| LOAD-02 | Phase 11 | Pending |
-| LOAD-03 | Phase 11 | Pending |
+| HRN-01 | Phase 11 | Complete |
+| HRN-02 | Phase 11 | Complete |
+| HRN-03 | Phase 11 | Complete |
+| HRN-04 | Phase 11 | Complete |
+| LOAD-01 | Phase 11 | Complete (11-02) |
+| LOAD-02 | Phase 11 | Complete (11-02) |
+| LOAD-03 | Phase 11 | Complete (11-02) |
 | MET-01 | Phase 12 | Pending |
 | MET-02 | Phase 12 | Pending |
 | MET-03 | Phase 12 | Pending |

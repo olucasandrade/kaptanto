@@ -66,7 +66,7 @@ Full archive: `.planning/milestones/v1.1-ROADMAP.md`
 
 Plans:
 - [ ] 11-01: Docker Compose harness — compose file with all services, healthchecks, depends_on ordering, and Dockerfile.bench
-- [ ] 11-02: Load generator binary — `bench/cmd/loadgen` with configurable rate, `_bench_ts` column, scenario modes
+- [x] 11-02: Load generator binary — `bench/cmd/loadgen` with configurable rate, `_bench_ts` column, scenario modes (completed 2026-03-21)
 - [ ] 11-03: Harness integration — verify compose+loadgen end-to-end, pin versions, write bench/README.md
 
 ### Phase 12: Metrics Collector and Scenarios
@@ -117,6 +117,6 @@ Plans:
 | 9. MongoDB Connector | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 9.1. MongoDB HA Guard [INSERTED] | v1.1 | 1/1 | ✓ Complete | 2026-03-17 |
 | 10. Rust FFI Acceleration | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
-| 11. Harness and Load Generator | v1.2 | 0/3 | Not started | - |
+| 11. Harness and Load Generator | 2/3 | In Progress|  | - |
 | 12. Metrics Collector and Scenarios | v1.2 | 0/3 | Not started | - |
 | 13. Report Generator | v1.2 | 0/2 | Not started | - |
