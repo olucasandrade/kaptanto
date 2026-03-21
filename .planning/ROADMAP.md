@@ -48,7 +48,7 @@ Full archive: `.planning/milestones/v1.1-ROADMAP.md`
 
 - [x] **Phase 11: Harness and Load Generator** — Docker Compose with all CDC tools against shared Postgres, plus loadgen binary with scenario modes (completed 2026-03-21)
 - [x] **Phase 12: Metrics Collector and Scenarios** — Per-tool adapters writing to JSONL, all 5 benchmark scenarios executed (completed 2026-03-21)
-- [ ] **Phase 13: Report Generator** — Self-contained HTML report with charts and Markdown summary from JSONL data
+- [x] **Phase 13: Report Generator** — Self-contained HTML report with charts and Markdown summary from JSONL data (completed 2026-03-21)
 
 ## Phase Details
 
@@ -119,4 +119,4 @@ Plans:
 | 10. Rust FFI Acceleration | v1.1 | 3/3 | ✓ Complete | 2026-03-17 |
 | 11. Harness and Load Generator | 3/3 | Complete    | 2026-03-21 | - |
 | 12. Metrics Collector and Scenarios | 3/3 | Complete    | 2026-03-21 | - |
-| 13. Report Generator | 1/2 | In Progress|  | - |
+| 13. Report Generator | 2/2 | Complete   | 2026-03-21 | - |
