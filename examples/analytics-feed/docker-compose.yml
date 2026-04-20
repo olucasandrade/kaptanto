@@ -1,0 +1,59 @@
+services:
+  mongo:
+    image: mongo:8
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27018:27017"
+
+  mongo-init:
+    image: mongo:8
+    depends_on:
+      - mongo
+    restart: on-failure
+    command:
+      [
+        "mongosh",
+        "mongodb://mongo:27017/admin",
+        "--eval",
+        "try { rs.status() } catch (e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'mongo:27017'}]}) }"
+      ]
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - mongo
+      - mongo-init
+    ports:
+      - "7854:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  api:
+    build:
+      context: ..
+      dockerfile: analytics-feed/api/Dockerfile
+    environment:
+      PORT: "4003"
+      MONGODB_URL: mongodb://mongo:27017/?replicaSet=rs0
+      DATABASE_NAME: analytics_demo
+      KAPTANTO_URL: http://kaptanto:7654/events?consumer=analytics-api&tables=product_events
+      ALLOWED_ORIGIN: http://localhost:3003
+    depends_on:
+      - mongo
+      - kaptanto
+    ports:
+      - "4003:4003"
+
+  web:
+    build:
+      context: ..
+      dockerfile: analytics-feed/web/Dockerfile
+    environment:
+      VITE_API_URL: http://localhost:4003
+    depends_on:
+      - api
+    ports:
+      - "3003:3000"

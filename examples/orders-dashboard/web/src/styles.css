@@ -1,0 +1,88 @@
+:root {
+  font-family: "IBM Plex Sans", sans-serif;
+  color: #10263d;
+  background: #eef4f9;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top right, rgba(30, 119, 183, 0.18), transparent 30%),
+    linear-gradient(180deg, #f6fbff, #e8f1f7 65%);
+}
+
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 20px 44px;
+}
+
+.hero h1 {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 2.8rem;
+  margin-bottom: 8px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(16, 38, 61, 0.08);
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 20px 50px rgba(21, 52, 78, 0.08);
+}
+
+.grid {
+  display: grid;
+  gap: 12px;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.lane {
+  display: grid;
+  gap: 12px;
+}
+
+.ticket {
+  background: #f7fbff;
+  border-radius: 14px;
+  padding: 12px;
+  border: 1px solid rgba(16, 38, 61, 0.08);
+}
+
+button {
+  background: #0067a8;
+  color: white;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+input,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  padding: 10px 12px;
+  border: 1px solid #bfd5e6;
+}
+
+@media (max-width: 920px) {
+  .layout,
+  .board {
+    grid-template-columns: 1fr;
+  }
+}
+

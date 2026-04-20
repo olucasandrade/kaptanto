@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: notifications
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./api/sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - postgres
+    ports:
+      - "7654:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  api:
+    build:
+      context: ..
+      dockerfile: notifications/api/Dockerfile
+    environment:
+      PORT: "4001"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/notifications
+      KAPTANTO_URL: http://kaptanto:7654/events?consumer=notifications-api&tables=users,comments,mentions,follows
+      ALLOWED_ORIGIN: http://localhost:3001
+    depends_on:
+      - postgres
+      - kaptanto
+    ports:
+      - "4001:4001"
+
+  web:
+    build:
+      context: ..
+      dockerfile: notifications/web/Dockerfile
+    environment:
+      VITE_API_URL: http://localhost:4001
+    depends_on:
+      - api
+    ports:
+      - "3001:3000"

@@ -1,0 +1,7 @@
+source: mongodb://mongo:27017/analytics_demo?replicaSet=rs0
+output: sse
+port: 7654
+data-dir: /data
+source-id: analytics_demo
+tables:
+  product_events: {}

@@ -1,0 +1,11 @@
+source: postgres://postgres:postgres@postgres:5432/notifications?sslmode=disable
+output: sse
+port: 7654
+data-dir: /data
+source-id: notifications_demo
+tables:
+  public.users: {}
+  public.comments: {}
+  public.mentions: {}
+  public.follows: {}
+
