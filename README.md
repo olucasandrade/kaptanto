@@ -1,8 +1,8 @@
 # Kaptanto
 
-Every insert, update, and delete from your Postgres or MongoDB database — streamed the moment it happens.
+Every insert, update, and delete from your Postgres or MongoDB database, streamed the moment it happens.
 
-One static Go binary. No Kafka. No JVM. No infrastructure to operate.
+Kaptanto is a CDC tool in one static Go binary.
 
 ```bash
 ./kaptanto \
