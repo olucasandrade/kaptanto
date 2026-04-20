@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: billing
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - ./billing-api/sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - postgres
+    ports:
+      - "7954:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  billing-api:
+    build:
+      context: ..
+      dockerfile: entitlements-sync/billing-api/Dockerfile
+    environment:
+      PORT: "4010"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/billing
+      ALLOWED_ORIGIN: "*"
+    depends_on:
+      - postgres
+    ports:
+      - "4010:4010"
+
+  entitlements-api:
+    build:
+      context: ..
+      dockerfile: entitlements-sync/entitlements-api/Dockerfile
+    environment:
+      PORT: "4011"
+      ALLOWED_ORIGIN: "*"
+    ports:
+      - "4011:4011"
+
+  sync-api:
+    build:
+      context: ..
+      dockerfile: entitlements-sync/sync-api/Dockerfile
+    environment:
+      PORT: "4012"
+      KAPTANTO_URL: http://kaptanto:7654/events?consumer=entitlements-sync-worker&tables=subscriptions,invoice_payments
+      ENTITLEMENTS_URL: http://entitlements-api:4011/internal/entitlements/sync
+      ALLOWED_ORIGIN: "*"
+    depends_on:
+      - kaptanto
+      - entitlements-api
+    ports:
+      - "4012:4012"
+

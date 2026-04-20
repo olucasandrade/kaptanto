@@ -1,0 +1,10 @@
+source: postgres://postgres:postgres@postgres:5432/orders?sslmode=disable
+output: sse
+port: 7654
+data-dir: /data
+source-id: orders_demo
+tables:
+  public.orders: {}
+  public.payments: {}
+  public.shipments: {}
+

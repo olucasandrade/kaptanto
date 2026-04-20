@@ -1,0 +1,75 @@
+:root {
+  font-family: "IBM Plex Sans", sans-serif;
+  color: #122116;
+  background: #eef7ef;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(73, 154, 88, 0.2), transparent 34%),
+    linear-gradient(180deg, #f7fff7, #eaf4ea 60%);
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 20px;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.86);
+  border-radius: 18px;
+  padding: 18px;
+  border: 1px solid rgba(18, 33, 22, 0.08);
+  box-shadow: 0 20px 44px rgba(47, 84, 53, 0.08);
+}
+
+.grid {
+  display: grid;
+  gap: 12px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.stat {
+  padding: 12px;
+  border-radius: 14px;
+  background: #f3fbf4;
+}
+
+button {
+  background: #237c42;
+  color: white;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+input,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  padding: 10px 12px;
+  border: 1px solid #c5dbc7;
+}
+
+@media (max-width: 920px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+

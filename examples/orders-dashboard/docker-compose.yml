@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./api/sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - postgres
+    ports:
+      - "7754:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  api:
+    build:
+      context: ..
+      dockerfile: orders-dashboard/api/Dockerfile
+    environment:
+      PORT: "4002"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/orders
+      KAPTANTO_URL: http://kaptanto:7654/events?consumer=orders-api&tables=orders,payments,shipments
+      ALLOWED_ORIGIN: http://localhost:3002
+    depends_on:
+      - postgres
+      - kaptanto
+    ports:
+      - "4002:4002"
+
+  web:
+    build:
+      context: ..
+      dockerfile: orders-dashboard/web/Dockerfile
+    environment:
+      VITE_API_URL: http://localhost:4002
+    depends_on:
+      - api
+    ports:
+      - "3002:3000"
