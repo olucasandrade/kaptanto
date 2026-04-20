@@ -34,7 +34,7 @@ services:
       -c max_wal_senders=20
       -c max_replication_slots=20
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bench -d bench"]
       interval: 5s
@@ -62,23 +62,65 @@ services:
     build:
       context: ..
       dockerfile: bench/Dockerfile.bench
+    ports:
+      - "7654:7654"
     command:
-      - start
       - --source
-      - postgres
-      - --dsn
       - postgres://bench:bench@postgres:5432/bench
+      - --output
+      - sse
       - --port
       - "7654"
+      - --tables
+      - public.bench_events
+      - --data-dir
+      - /data
+    volumes:
+      - kaptanto-data:/data
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:7655/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7654/healthz || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Kaptanto (Rust FFI) — same binary with CGO+Rust parser acceleration
+  # Built from Dockerfile.bench-rust; uses source-id "rust" → slot kaptanto_rust
+  # ---------------------------------------------------------------------------
+  kaptanto-rust:
+    build:
+      context: ..
+      dockerfile: bench/Dockerfile.bench-rust
+    ports:
+      - "7656:7656"
+    command:
+      - --source
+      - postgres://bench:bench@postgres:5432/bench
+      - --output
+      - sse
+      - --port
+      - "7656"
+      - --tables
+      - public.bench_events
+      - --data-dir
+      - /data
+      - --source-id
+      - rust
+    volumes:
+      - kaptanto-rust-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7656/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
 
   # ---------------------------------------------------------------------------
   # Debezium Server 3.4.2.Final — Postgres source, Redis sink
@@ -87,8 +129,9 @@ services:
   # ---------------------------------------------------------------------------
   debezium:
     image: quay.io/debezium/server:3.4.2.Final
+    restart: on-failure
     volumes:
-      - ./config/debezium:/debezium/conf
+      - ./config/debezium:/debezium/config
       - debezium-data:/debezium/data
     depends_on:
       postgres:
@@ -134,8 +177,10 @@ services:
       PG_PASSWORD: sequin
       REDIS_URL: redis://redis:6379
       SECRET_KEY_BASE: "bench-secret-key-base-for-dev-only-do-not-use-in-production-xxxxxxxx"
-      VAULT_KEY: "bench-vault-key-32-chars-xxxxxxxx"
+      VAULT_KEY: "A4pGqCTCRNqMcetNETc2ppc97m0gKB3Xba3WTLeY+EA="
       CONFIG_FILE_PATH: /config/sequin.yml
+      SERVER_PORT: "7376"
+      PHX_SERVER: "true"
     volumes:
       - ./config/sequin:/config
     depends_on:
@@ -146,7 +191,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:7376/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -175,12 +220,15 @@ services:
   temporal:
     image: temporalio/auto-setup:1.29
     environment:
-      DB: postgresql
+      DB: postgres12
       DB_PORT: "5432"
       POSTGRES_USER: peerdb
       POSTGRES_PWD: peerdb
       POSTGRES_SEEDS: peerdb-postgres
-      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      DYNAMIC_CONFIG_FILE_PATH: /config/dynamicconfig/development-sql.yaml
+      BIND_ON_IP: "0.0.0.0"
+    volumes:
+      - ./config/dynamicconfig:/config/dynamicconfig
     depends_on:
       peerdb-postgres:
         condition: service_healthy
@@ -338,13 +386,17 @@ services:
     pid: "host"
     volumes:
       - ./results:/results
-    command: ["--containers=kaptanto,debezium,sequin,peerdb,redpanda", "--output=/results/docker_stats.jsonl"]
+    command: ["--containers=kaptanto,kaptanto-rust,debezium,sequin,peerdb,redpanda", "--output=/results/docker_stats.jsonl"]
     depends_on:
       kaptanto:
+        condition: service_healthy
+      kaptanto-rust:
         condition: service_healthy
 
 # Named volumes
 volumes:
+  kaptanto-data:
+  kaptanto-rust-data:
   debezium-data:
     # Stores Debezium offset files so the connector resumes from the last
     # committed offset on restart (avoids full re-scan on compose restart)

@@ -34,6 +34,19 @@ func (m *mockEventLog) ReadPartition(_ context.Context, _ uint32, _ uint64, _ in
 	return nil, nil
 }
 
+func (m *mockEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
+	seqs := make([]uint64, len(evs))
+	for i, ev := range evs {
+		m.appendCalls = append(m.appendCalls, ev)
+		if m.appendErr != nil {
+			return nil, m.appendErr
+		}
+		m.appendSeq++
+		seqs[i] = m.appendSeq
+	}
+	return seqs, nil
+}
+
 func (m *mockEventLog) Close() error { return nil }
 
 // --- Mock CheckpointStore ---

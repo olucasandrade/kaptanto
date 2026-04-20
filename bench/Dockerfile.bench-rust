@@ -1,0 +1,26 @@
+# Stage 1: Build Rust static library for Linux ARM64/AMD64
+FROM rust:1.85-alpine AS rust-builder
+RUN apk add --no-cache musl-dev
+WORKDIR /src/rust/kaptanto-ffi
+COPY rust/kaptanto-ffi/Cargo.toml rust/kaptanto-ffi/Cargo.lock ./
+COPY rust/kaptanto-ffi/src ./src
+COPY rust/kaptanto-ffi/build.rs ./
+RUN cargo build --release
+
+# Stage 2: Build Go binary with CGO + Rust FFI
+FROM golang:1.25-alpine AS go-builder
+RUN apk add --no-cache gcc musl-dev
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=rust-builder /src/rust/kaptanto-ffi/target/release/libkaptanto_ffi.a ./rust/kaptanto-ffi/target/release/
+# Use the pre-generated header (already committed); no cbindgen needed
+COPY rust/kaptanto-ffi/include/kaptanto_ffi.h ./rust/kaptanto-ffi/include/
+RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w" --tags rust -o /kaptanto ./cmd/kaptanto
+
+# Stage 3: Runtime
+FROM alpine:3.21
+RUN apk add --no-cache libgcc
+COPY --from=go-builder /kaptanto /kaptanto
+ENTRYPOINT ["/kaptanto"]

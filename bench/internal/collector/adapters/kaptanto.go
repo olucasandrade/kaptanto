@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -40,7 +41,6 @@ func ParseKaptantoLine(line string) (collector.EventRecord, bool) {
 		return collector.EventRecord{}, false
 	}
 
-	// Extract after._bench_ts.
 	var after map[string]any
 	if err := json.Unmarshal(evt.After, &after); err != nil {
 		return collector.EventRecord{}, false
@@ -65,8 +65,6 @@ func ParseKaptantoLine(line string) (collector.EventRecord, bool) {
 }
 
 // RunKaptanto connects to the Kaptanto SSE endpoint and streams events to out.
-// It reads scenario from scenario.Load().(string) on each event.
-// Also exported as Run for compatibility with plan artifact spec.
 func RunKaptanto(ctx context.Context, url string, scenario *atomic.Value, out chan<- collector.EventRecord) {
 	for {
 		if ctx.Err() != nil {
@@ -86,11 +84,11 @@ func RunKaptanto(ctx context.Context, url string, scenario *atomic.Value, out ch
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("kaptanto adapter: connect: %v — retrying in 2s", err)
+			log.Printf("kaptanto adapter: connect: %v — retrying in 200ms", err)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(2 * time.Second):
+			case <-time.After(200 * time.Millisecond):
 			}
 			continue
 		}
@@ -120,19 +118,33 @@ func RunKaptanto(ctx context.Context, url string, scenario *atomic.Value, out ch
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("kaptanto adapter: stream ended — retrying in 2s")
+		log.Printf("kaptanto adapter: stream ended — retrying in 200ms")
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(2 * time.Second):
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
 }
 
+// parseBenchTS parses the _bench_ts string emitted by kaptanto's WAL text decoder.
+// Postgres TIMESTAMPTZ is serialized as "2006-01-02 15:04:05.999999-07" (space
+// instead of T, timezone offset without colon for whole-hour zones). We try
+// RFC3339 variants first for forward-compat, then the Postgres text layouts.
 func parseBenchTS(s string) (time.Time, error) {
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		t, err = time.Parse(time.RFC3339, s)
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999-07",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05-07",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
 	}
-	return t, err
+	return time.Time{}, fmt.Errorf("parseBenchTS: unrecognized format %q", s)
 }

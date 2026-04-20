@@ -47,12 +47,44 @@ type eventRecord struct {
 	Tool      string    `json:"tool"`
 	Scenario  string    `json:"scenario"`
 	ReceiveTS time.Time `json:"receive_ts"`
+	BenchTS   time.Time `json:"bench_ts"`
 	LatencyUS int64     `json:"latency_us"`
+}
+
+// rawEvent is an intermediate buffer entry used for bench_ts-based attribution.
+type rawEvent struct {
+	tool      string
+	benchTS   time.Time
+	receiveTS time.Time
+	latencyUS int64
+	scenario  string // original tag; fallback when benchTS is zero
+}
+
+// scenarioForBenchTS returns the scenario name whose window contains benchTS,
+// or "" if benchTS falls outside all known windows.
+func scenarioForBenchTS(windows map[string]ScenarioWindow, benchTS time.Time) string {
+	for name, w := range windows {
+		if w.Start.IsZero() || w.End.IsZero() {
+			continue
+		}
+		if !benchTS.Before(w.Start) && !benchTS.After(w.End) {
+			return name
+		}
+	}
+	return ""
 }
 
 // ParseMetrics reads path (metrics.jsonl) and returns an Accumulator populated
 // with latency samples, event counts, min/max timestamps, scenario time windows,
 // and recovery times. Malformed lines are skipped.
+//
+// Scenario attribution uses bench_ts (the Postgres-side insert timestamp) to
+// assign each event to the scenario window in which the row was inserted, rather
+// than the scenario tag that was active when the event was received. This gives
+// accurate per-scenario numbers even when a consumer (e.g. kaptanto) has a
+// delivery backlog that causes events to arrive in a later scenario window.
+// If bench_ts is zero or falls outside all windows, the original scenario tag is
+// used as a fallback.
 func ParseMetrics(path string) (*Accumulator, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -71,6 +103,9 @@ func ParseMetrics(path string) (*Accumulator, error) {
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+
+	// First pass: collect scenario windows, recovery times, and buffer raw events.
+	var events []rawEvent
 
 	for scanner.Scan() {
 		var raw map[string]json.RawMessage
@@ -126,7 +161,6 @@ func ParseMetrics(path string) (*Accumulator, error) {
 					acc.ScenarioWindows[scenario] = win
 				}
 			}
-			// All scenario_event lines are consumed; skip to next line.
 			continue
 		}
 
@@ -139,21 +173,45 @@ func ParseMetrics(path string) (*Accumulator, error) {
 			continue
 		}
 
-		k := key{tool: rec.Tool, scenario: rec.Scenario}
-		acc.Latencies[k] = append(acc.Latencies[k], rec.LatencyUS)
-		acc.EventCounts[k]++
-
-		if acc.MinTS[k].IsZero() || rec.ReceiveTS.Before(acc.MinTS[k]) {
-			acc.MinTS[k] = rec.ReceiveTS
-		}
-		if rec.ReceiveTS.After(acc.MaxTS[k]) {
-			acc.MaxTS[k] = rec.ReceiveTS
-		}
+		events = append(events, rawEvent{
+			tool:      rec.Tool,
+			benchTS:   rec.BenchTS,
+			receiveTS: rec.ReceiveTS,
+			latencyUS: rec.LatencyUS,
+			scenario:  rec.Scenario,
+		})
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+
+	// Second pass: attribute each event to a scenario using bench_ts, then
+	// aggregate into the Accumulator maps.
+	for _, ev := range events {
+		scenario := ""
+		if !ev.benchTS.IsZero() {
+			scenario = scenarioForBenchTS(acc.ScenarioWindows, ev.benchTS)
+		}
+		if scenario == "" {
+			scenario = ev.scenario // fallback to original tag
+		}
+		if scenario == "" {
+			continue
+		}
+
+		k := key{tool: ev.tool, scenario: scenario}
+		acc.Latencies[k] = append(acc.Latencies[k], ev.latencyUS)
+		acc.EventCounts[k]++
+
+		if acc.MinTS[k].IsZero() || ev.receiveTS.Before(acc.MinTS[k]) {
+			acc.MinTS[k] = ev.receiveTS
+		}
+		if ev.receiveTS.After(acc.MaxTS[k]) {
+			acc.MaxTS[k] = ev.receiveTS
+		}
+	}
+
 	return acc, nil
 }
 

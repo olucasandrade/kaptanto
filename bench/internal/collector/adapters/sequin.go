@@ -19,12 +19,17 @@ type sequinBody struct {
 	Data []sequinEntry `json:"data"`
 }
 
+// sequinSingleRecord handles Sequin v0.14+ format: {"record": {...}, ...}
+// where the record fields are delivered directly (not wrapped in a data array).
+type sequinSingleRecord struct {
+	Record map[string]any `json:"record"`
+}
+
 // SequinHandler returns an http.HandlerFunc for Sequin push webhook POSTs.
-// One EventRecord is emitted per valid entry in the data array.
-// Exported as SequinHandler for main.go registration.
+// Supports both the batched format {"data":[{"ack_id":"...","record":{...}}]}
+// and the single-record format {"record":{...}} used by Sequin v0.14+.
 func SequinHandler(scenario *atomic.Value, out chan<- collector.EventRecord) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Always 200 first.
 		w.WriteHeader(http.StatusOK)
 
 		receiveTS := time.Now()
@@ -34,40 +39,60 @@ func SequinHandler(scenario *atomic.Value, out chan<- collector.EventRecord) htt
 			return
 		}
 
-		var payload sequinBody
-		if err := json.Unmarshal(body, &payload); err != nil {
-			return
-		}
-
 		sc := ""
 		if s, ok2 := scenario.Load().(string); ok2 {
 			sc = s
 		}
 
-		for _, entry := range payload.Data {
-			if entry.Record == nil {
-				continue
+		// Try batched format first: {"data": [{"ack_id": "...", "record": {...}}]}
+		var payload sequinBody
+		if err := json.Unmarshal(body, &payload); err == nil && len(payload.Data) > 0 {
+			for _, entry := range payload.Data {
+				if entry.Record == nil {
+					continue
+				}
+				emitSequinRecord(entry.Record, sc, receiveTS, out)
 			}
-			benchTSStr, ok := entry.Record["_bench_ts"].(string)
-			if !ok || benchTSStr == "" {
-				continue
-			}
-			benchTS, err := parseBenchTS(benchTSStr)
-			if err != nil {
-				continue
-			}
-			rec := collector.EventRecord{
-				Tool:      "sequin",
-				Scenario:  sc,
-				ReceiveTS: receiveTS,
-				BenchTS:   benchTS,
-				LatencyUS: receiveTS.Sub(benchTS).Microseconds(),
-			}
-			select {
-			case out <- rec:
-			default:
-				// Channel full — drop.
-			}
+			return
 		}
+
+		// Fall back to single-record format: {"record": {...}, ...}
+		var single sequinSingleRecord
+		if err := json.Unmarshal(body, &single); err != nil {
+			return
+		}
+		if single.Record != nil {
+			emitSequinRecord(single.Record, sc, receiveTS, out)
+			return
+		}
+
+		// Last resort: treat top-level object as the record itself
+		var raw map[string]any
+		if err := json.Unmarshal(body, &raw); err == nil {
+			emitSequinRecord(raw, sc, receiveTS, out)
+		}
+	}
+}
+
+func emitSequinRecord(record map[string]any, sc string, receiveTS time.Time, out chan<- collector.EventRecord) {
+	benchTSStr, ok := record["_bench_ts"].(string)
+	if !ok || benchTSStr == "" {
+		return
+	}
+	benchTS, err := parseBenchTS(benchTSStr)
+	if err != nil {
+		return
+	}
+	rec := collector.EventRecord{
+		Tool:      "sequin",
+		Scenario:  sc,
+		ReceiveTS: receiveTS,
+		BenchTS:   benchTS,
+		LatencyUS: receiveTS.Sub(benchTS).Microseconds(),
+	}
+	select {
+	case out <- rec:
+	default:
+		// Channel full — drop.
 	}
 }

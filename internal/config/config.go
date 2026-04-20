@@ -37,6 +37,7 @@ type Config struct {
 	Retention string                 `yaml:"retention"` // stored as string; "" means use runtime default (1h)
 	HA        bool                   `yaml:"ha"`        // CFG-01: --ha flag; Phase 8 leader election
 	NodeID    string                 `yaml:"node-id"`   // CFG-01: --node-id flag; Phase 8 node identity
+	SourceID  string                 `yaml:"source-id"` // logical name used for slot/publication naming (default: "default")
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
@@ -155,6 +156,14 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 			return fmt.Errorf("config: merge node-id: %w", err)
 		}
 		cfg.NodeID = v
+	}
+
+	if flags.Changed("source-id") {
+		v, err := flags.GetString("source-id")
+		if err != nil {
+			return fmt.Errorf("config: merge source-id: %w", err)
+		}
+		cfg.SourceID = v
 	}
 
 	return nil

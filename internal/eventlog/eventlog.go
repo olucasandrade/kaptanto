@@ -34,6 +34,17 @@ type EventLog interface {
 	// The event is durable (fsync'd) before Append returns, satisfying LOG-01.
 	Append(ev *event.ChangeEvent) (seq uint64, err error)
 
+	// AppendBatch durably writes all events in evs within a single store
+	// transaction. This amortises the per-transaction fsync cost across the
+	// whole batch, which is critical on high-latency storage (e.g. Docker
+	// Desktop virtiofs). Deduplication semantics are identical to Append: a
+	// duplicate entry returns seq=0 for that position (LOG-03). The returned
+	// slice has the same length as evs; position i corresponds to evs[i].
+	//
+	// CHK-01 ordering applies: callers must not advance the source LSN
+	// checkpoint until AppendBatch returns without error.
+	AppendBatch(evs []*event.ChangeEvent) (seqs []uint64, err error)
+
 	// ReadPartition returns up to limit events from the given partition,
 	// starting at fromSeq (inclusive), in ascending sequence order.
 	//

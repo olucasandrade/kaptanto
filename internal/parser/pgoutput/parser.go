@@ -14,16 +14,23 @@ import (
 // It maintains a RelationCache (schema metadata) and a TOASTCache (for merging
 // unchanged TOAST column values in UPDATE events).
 //
-// Parse returns (nil, nil) for Begin, Commit, and Relation messages — these
-// update internal state but do not produce ChangeEvents.
+// Parse returns (nil, nil) for Begin, Commit, Relation, and streaming control
+// messages — these update internal state but do not produce ChangeEvents.
 //
 // Parse returns (nil, error) for DML messages referencing an unknown RelationID.
+//
+// The parser tracks streaming-transaction state internally: it sets inStream=true
+// when a StreamStartMessageV2 is received and inStream=false on StreamStopMessageV2.
+// This is required for correct decoding of proto_version '2' messages when
+// streaming=true is enabled, because in-stream messages carry a 4-byte XID prefix
+// that must be stripped before the payload is decoded.
 type Parser struct {
-	sourceID  string
-	idGen     *event.IDGenerator
-	relations *RelationCache
-	toast     *TOASTCache
+	sourceID   string
+	idGen      *event.IDGenerator
+	relations  *RelationCache
+	toast      *TOASTCache
 	currentLSN pglogrepl.LSN
+	inStream   bool // true between StreamStartMessageV2 and StreamStopMessageV2
 }
 
 // New creates a Parser for the given source identifier.
@@ -39,11 +46,11 @@ func New(sourceID string, idGen *event.IDGenerator) *Parser {
 
 // Parse decodes a raw pgoutput WAL message and returns a ChangeEvent.
 //
-// inStream must be true when inside a streaming transaction (after
-// StreamStartMessageV2 and before StreamStopMessageV2). For standard
-// non-streaming logical replication, pass false.
-func (p *Parser) Parse(walData []byte, inStream bool) (*event.ChangeEvent, error) {
-	msg, err := pglogrepl.ParseV2(walData, inStream)
+// The inStream parameter is ignored; the parser tracks streaming state
+// internally by watching StreamStartMessageV2 / StreamStopMessageV2 messages.
+// Callers may always pass false.
+func (p *Parser) Parse(walData []byte, _ bool) (*event.ChangeEvent, error) {
+	msg, err := pglogrepl.ParseV2(walData, p.inStream)
 	if err != nil {
 		return nil, fmt.Errorf("pgoutput: parse WAL bytes: %w", err)
 	}
@@ -69,8 +76,24 @@ func (p *Parser) Parse(walData []byte, inStream bool) (*event.ChangeEvent, error
 	case *pglogrepl.DeleteMessageV2:
 		return p.handleDelete(m)
 
+	case *pglogrepl.StreamStartMessageV2:
+		p.inStream = true
+		return nil, nil
+
+	case *pglogrepl.StreamStopMessageV2:
+		p.inStream = false
+		return nil, nil
+
+	case *pglogrepl.StreamCommitMessageV2:
+		// Streamed transaction committed — no ChangeEvent.
+		return nil, nil
+
+	case *pglogrepl.StreamAbortMessageV2:
+		// Streamed transaction aborted — no ChangeEvent.
+		return nil, nil
+
 	default:
-		// Truncate, Type, Origin, streaming control messages — no ChangeEvent.
+		// Truncate, Type, Origin, and other control messages — no ChangeEvent.
 		return nil, nil
 	}
 }
@@ -217,11 +240,13 @@ func (p *Parser) newEvent(
 	}
 }
 
-// ClearRelationCache resets the relation cache. It must be called at the start
-// of every new replication session — Postgres re-sends RelationMessages at the
-// beginning of each session, so stale OID → schema mappings must be evicted.
+// ClearRelationCache resets the relation cache and streaming state. It must be
+// called at the start of every new replication session — Postgres re-sends
+// RelationMessages at the beginning of each session, so stale OID → schema
+// mappings must be evicted and the inStream flag reset to false.
 func (p *Parser) ClearRelationCache() {
 	p.relations = NewRelationCache()
+	p.inStream = false
 }
 
 // marshalPK JSON-marshals the primary key map into a compact string.

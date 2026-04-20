@@ -73,6 +73,11 @@ func (f *fakeEventLog) ReadPartition(_ context.Context, partition uint32, fromSe
 	return out, nil
 }
 
+func (f *fakeEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
+	seqs := make([]uint64, len(evs))
+	return seqs, nil
+}
+
 func (f *fakeEventLog) Close() error { return nil }
 
 // makeEntry builds a minimal LogEntry with the given seq and JSON key bytes.

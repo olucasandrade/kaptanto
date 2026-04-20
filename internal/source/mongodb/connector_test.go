@@ -60,6 +60,15 @@ func (f *fakeEventLog) ReadPartition(_ context.Context, _ uint32, _ uint64, _ in
 	return nil, nil
 }
 
+func (f *fakeEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
+	f.appendCalls += len(evs)
+	seqs := make([]uint64, len(evs))
+	for i := range seqs {
+		seqs[i] = 1
+	}
+	return seqs, f.appendErr
+}
+
 func (f *fakeEventLog) Close() error { return nil }
 
 // fakeIter is an injectable change stream iterator.
