@@ -17,7 +17,7 @@ import (
 var chartJSContent string
 
 // toolColors provides a cycling color palette for up to 4 tools.
-var toolColors = []string{"#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0"}
+var toolColors = []string{"#FF6384", "#9B59B6", "#36A2EB", "#FFCE56", "#4BC0C0"}
 
 // ChartDataset is the per-tool dataset shape expected by Chart.js.
 type ChartDataset struct {
@@ -213,9 +213,9 @@ new Chart(document.getElementById('chart-recovery'), {
 <h3>Tool Versions</h3>
 <ul>
   <li><strong>Kaptanto</strong> — built from source (this repository)</li>
-  <li><strong>Debezium Server</strong> — 2.5</li>
-  <li><strong>Sequin</strong> — 1.1</li>
-  <li><strong>PeerDB</strong> — v0.15</li>
+  <li><strong>Debezium Server</strong> — 3.4.2.Final</li>
+  <li><strong>Sequin</strong> — v0.14.6</li>
+  <li><strong>PeerDB</strong> — v0.36.12</li>
 </ul>
 <h3>Hardware</h3>
 <p>{{.Hardware}}</p>

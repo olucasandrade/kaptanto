@@ -6,6 +6,9 @@
 # This file is mounted into the Sequin container at /config/sequin.yml
 # via the CONFIG_FILE_PATH environment variable.
 
+account:
+  name: bench
+
 databases:
   - name: bench-postgres
     hostname: postgres
@@ -15,3 +18,18 @@ databases:
     password: bench
     slot_name: sequin_bench
     publication_name: sequin_bench_pub
+
+http_endpoints:
+  - name: collector-sequin
+    url: "http://host.docker.internal:8082/ingest/sequin"
+
+sinks:
+  - name: bench-events-sink
+    database: bench-postgres
+    source:
+      include_tables:
+        - public.bench_events
+    destination:
+      type: webhook
+      http_endpoint: collector-sequin
+      batch: false

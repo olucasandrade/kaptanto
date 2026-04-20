@@ -4,12 +4,11 @@ import (
 	"html/template"
 	"math"
 	"slices"
+	"strconv"
+	"strings"
 )
 
-// canonicalTools defines the deterministic display order for tools.
-var canonicalTools = []string{"kaptanto", "debezium", "sequin", "peerdb"}
-
-// canonicalScenarios defines the deterministic display order for scenarios.
+var canonicalTools = []string{"kaptanto", "kaptanto-rust", "debezium", "sequin", "peerdb"}
 var canonicalScenarios = []string{"steady", "burst", "large-batch", "crash-recovery", "idle"}
 
 // ScenarioStats holds the aggregated statistics for a single (tool, scenario) pair.
@@ -22,8 +21,7 @@ type ScenarioStats struct {
 	AvgRSSMB      float64
 }
 
-// ReportData is the fully-populated output of Aggregate, ready for rendering
-// by the plan 13-02 renderer.
+// ReportData is the fully-populated output of Aggregate, ready for rendering.
 // The renderer populates the template.JS fields (ChartJS, *Chart, Hardware,
 // GeneratedAt) before executing the HTML template.
 type ReportData struct {
@@ -92,14 +90,15 @@ func Aggregate(acc *Accumulator, stats []StatRecord) *ReportData {
 			if (rec.TS.Equal(win.Start) || rec.TS.After(win.Start)) &&
 				(rec.TS.Equal(win.End) || rec.TS.Before(win.End)) {
 
-				if cpuSamples[rec.Container] == nil {
-					cpuSamples[rec.Container] = make(map[string][]float64)
+				tool := normalizeContainer(rec.Container)
+				if cpuSamples[tool] == nil {
+					cpuSamples[tool] = make(map[string][]float64)
 				}
-				if rssSamples[rec.Container] == nil {
-					rssSamples[rec.Container] = make(map[string][]float64)
+				if rssSamples[tool] == nil {
+					rssSamples[tool] = make(map[string][]float64)
 				}
-				cpuSamples[rec.Container][scenario] = append(cpuSamples[rec.Container][scenario], rec.CPUPCT)
-				rssSamples[rec.Container][scenario] = append(rssSamples[rec.Container][scenario], float64(rec.VmRSSKB)/1024.0)
+				cpuSamples[tool][scenario] = append(cpuSamples[tool][scenario], rec.CPUPCT)
+				rssSamples[tool][scenario] = append(rssSamples[tool][scenario], float64(rec.VmRSSKB)/1024.0)
 				break // a record belongs to at most one scenario window
 			}
 		}
@@ -118,12 +117,18 @@ func Aggregate(acc *Accumulator, stats []StatRecord) *ReportData {
 		ss.P95us = percentile(latencies, 95)
 		ss.P99us = percentile(latencies, 99)
 
-		// Throughput.
+		// Throughput — use scenario window duration (start→end marker) as denominator
+		// so that tools with a delivery backlog (events arrive late in a burst) still
+		// show correct eps. Falls back to receive span if no window markers exist.
 		count := acc.EventCounts[k]
 		if count > 0 {
-			minTS := acc.MinTS[k]
-			maxTS := acc.MaxTS[k]
-			dur := maxTS.Sub(minTS).Seconds()
+			dur := 0.0
+			if win, ok := acc.ScenarioWindows[scenario]; ok && !win.Start.IsZero() && !win.End.IsZero() {
+				dur = win.End.Sub(win.Start).Seconds()
+			}
+			if dur <= 0 {
+				dur = acc.MaxTS[k].Sub(acc.MinTS[k]).Seconds()
+			}
 			if dur > 0 {
 				ss.ThroughputEPS = float64(count) / dur
 			}
@@ -161,6 +166,29 @@ func percentile(sorted []int64, p float64) int64 {
 		idx = len(sorted) - 1
 	}
 	return sorted[idx]
+}
+
+// normalizeContainer maps a Docker container name (e.g. "bench-kaptanto-rust-1")
+// to its canonical tool name (e.g. "kaptanto-rust"). It strips the compose
+// project prefix ("bench-") and instance suffix ("-<number>"), then matches
+// against canonicalTools longest-first so "kaptanto-rust" beats "kaptanto".
+func normalizeContainer(container string) string {
+	s := strings.TrimPrefix(container, "bench-")
+	if i := strings.LastIndex(s, "-"); i >= 0 {
+		if _, err := strconv.Atoi(s[i+1:]); err == nil {
+			s = s[:i]
+		}
+	}
+	// Sort canonical tools by descending length so longer names match first.
+	sorted := make([]string, len(canonicalTools))
+	copy(sorted, canonicalTools)
+	slices.SortFunc(sorted, func(a, b string) int { return len(b) - len(a) })
+	for _, t := range sorted {
+		if s == t || strings.HasPrefix(s, t+"-") {
+			return t
+		}
+	}
+	return container // unknown container — keep as-is
 }
 
 // mean returns the arithmetic mean of a float64 slice. Panics on empty slice;

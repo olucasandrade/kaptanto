@@ -26,8 +26,57 @@ func RenderMarkdown(data *ReportData, htmlPath string) string {
 	sb.WriteString("Generated: " + data.GeneratedAt + "\n\n")
 	sb.WriteString("[View interactive report](" + htmlPath + ")\n\n")
 
+	// Executive Summary: best throughput and latency across all scenarios per tool.
+	sb.WriteString("## Executive Summary\n\n")
+	summaryHeaders := []string{"Tool", "Peak Throughput (eps)", "p50 Latency (ms)", "p95 Latency (ms)", "Recovery (s)", "Infrastructure"}
+	infraMap := map[string]string{
+		"kaptanto":      "1 binary (Go, ~15 MB)",
+		"kaptanto-rust": "1 binary (Go+Rust FFI, ~15 MB)",
+		"debezium":      "JVM + config files",
+		"sequin":        "Elixir + Redis + PG",
+		"peerdb":        "4 Go services + Temporal + Kafka + PG",
+	}
+	var summaryRows [][]string
+	for _, tool := range data.Tools {
+		var bestThroughput float64
+		var bestP50, bestP95 int64
+		first := true
+		for _, scen := range data.Scenarios {
+			ss := data.Stats[tool][scen]
+			if ss.ThroughputEPS > bestThroughput {
+				bestThroughput = ss.ThroughputEPS
+			}
+			if first || (ss.P50us > 0 && ss.P50us < bestP50) {
+				if ss.P50us > 0 {
+					bestP50 = ss.P50us
+					bestP95 = ss.P95us
+					first = false
+				}
+			}
+		}
+		rec := data.RecoverySeconds[tool]
+		recStr := "N/A"
+		if rec > 0 {
+			recStr = fmt.Sprintf("%.1f", rec)
+		}
+		infra := infraMap[tool]
+		if infra == "" {
+			infra = "-"
+		}
+		summaryRows = append(summaryRows, []string{
+			tool,
+			fmt.Sprintf("%.0f", bestThroughput),
+			fmt.Sprintf("%.1f", float64(bestP50)/1000.0),
+			fmt.Sprintf("%.1f", float64(bestP95)/1000.0),
+			recStr,
+			infra,
+		})
+	}
+	sb.WriteString(mdTable(summaryHeaders, summaryRows))
+	sb.WriteString("\n")
+
 	// Latency table: p50 / p95 / p99 in milliseconds.
-	sb.WriteString("## Latency\n\n")
+	sb.WriteString("## Latency (p50 / p95 / p99 ms)\n\n")
 	latHeaders := append([]string{"Tool"}, data.Scenarios...)
 	var latRows [][]string
 	for _, tool := range data.Tools {

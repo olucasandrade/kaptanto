@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://kaptanto.dev/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://kaptanto.dev/docs</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-intro</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-quickstart</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-install</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-postgres</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-mongo</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-schema</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-backfills</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-consistency</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-ordering</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-stdout</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-sse</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-grpc</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-config</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-filtering</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-grouping</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-ha</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-metrics</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-api</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-troubleshooting</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kaptanto.dev/docs/docs-guides</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+</urlset>

@@ -93,6 +93,10 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = lastEventID // cursor loaded by Router via consumer.ID()
 
 	s.router.Register(consumer)
+	// Close must be called before ServeHTTP returns. This blocks until any
+	// in-flight Deliver completes, preventing use of the ResponseWriter after
+	// net/http has torn it down (nil-deref panic in rc.Flush).
+	defer consumer.Close()
 
 	pingTicker := time.NewTicker(s.pingInterval)
 	defer pingTicker.Stop()

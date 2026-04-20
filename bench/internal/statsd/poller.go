@@ -25,6 +25,38 @@ type StatRecord struct {
 	VmRSSKB   int64     `json:"vmrss_kb"`
 }
 
+// containerStats holds both CPU and memory for one container poll.
+type containerStats struct {
+	CPUPCT  float64
+	VmRSSKB int64
+}
+
+// readContainerStats calls docker stats --no-stream once and returns both
+// CPU% and memory usage in kibibytes. Uses the Docker stats API (works on
+// any OS via the Docker socket; does not require /proc or pid:host).
+func readContainerStats(containerName string) (containerStats, error) {
+	out, err := exec.Command("docker", "stats", "--no-stream", "--format", "{{json .}}", containerName).Output()
+	if err != nil {
+		return containerStats{}, fmt.Errorf("readContainerStats: docker stats %s: %w", containerName, err)
+	}
+	var row struct {
+		CPUPerc  string `json:"CPUPerc"`
+		MemUsage string `json:"MemUsage"`
+	}
+	if err := json.Unmarshal(out, &row); err != nil {
+		return containerStats{}, fmt.Errorf("readContainerStats: unmarshal: %w (output: %q)", err, out)
+	}
+	cpu, err := parseCPUPct(row.CPUPerc)
+	if err != nil {
+		return containerStats{}, fmt.Errorf("readContainerStats: cpu: %w", err)
+	}
+	memKB, err := parseMemUsage(row.MemUsage)
+	if err != nil {
+		return containerStats{}, fmt.Errorf("readContainerStats: mem: %w", err)
+	}
+	return containerStats{CPUPCT: cpu, VmRSSKB: memKB}, nil
+}
+
 // parseCPUPct converts a docker stats CPUPerc string (e.g. "0.13%") to a
 // float64. The trailing "%" is optional — both "0.13%" and "0.13" are accepted.
 // Returns an error for empty input.
@@ -40,8 +72,44 @@ func parseCPUPct(s string) (float64, error) {
 	return v, nil
 }
 
+// parseMemUsage parses a docker stats MemUsage string like "15.3MiB / 7.77GiB"
+// and returns the used portion in kibibytes.
+func parseMemUsage(s string) (int64, error) {
+	parts := strings.SplitN(s, "/", 2)
+	return parseDockerSize(strings.TrimSpace(parts[0]))
+}
+
+// parseDockerSize parses a Docker size string (e.g. "15.3MiB", "512kB", "1.2GB")
+// and returns the value in kibibytes.
+func parseDockerSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	units := []struct {
+		suffix string
+		bytes  float64
+	}{
+		{"GiB", 1024 * 1024 * 1024},
+		{"MiB", 1024 * 1024},
+		{"KiB", 1024},
+		{"GB", 1e9},
+		{"MB", 1e6},
+		{"kB", 1e3},
+		{"B", 1},
+	}
+	for _, u := range units {
+		if strings.HasSuffix(s, u.suffix) {
+			numStr := strings.TrimSpace(strings.TrimSuffix(s, u.suffix))
+			v, err := strconv.ParseFloat(numStr, 64)
+			if err != nil {
+				return 0, fmt.Errorf("parseDockerSize: parse %q: %w", s, err)
+			}
+			return int64(v * u.bytes / 1024), nil
+		}
+	}
+	return 0, fmt.Errorf("parseDockerSize: unrecognized unit in %q", s)
+}
+
 // parseVmRSS scans the content of a /proc/<pid>/status file and returns the
-// VmRSS value in kibibytes. Returns an error if the VmRSS line is absent.
+// VmRSS value in kibibytes. Kept for testing; production code uses docker stats.
 func parseVmRSS(content string) (int64, error) {
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "VmRSS:") {
@@ -53,42 +121,6 @@ func parseVmRSS(content string) (int64, error) {
 		}
 	}
 	return 0, fmt.Errorf("parseVmRSS: VmRSS line not found")
-}
-
-// readVmRSSFromHost uses docker inspect to obtain the container's host PID,
-// then reads /proc/<pid>/status directly from the host proc filesystem.
-// The statsd container must run with pid: "host" for this to work.
-func readVmRSSFromHost(containerName string) (int64, error) {
-	pidOut, err := exec.Command("docker", "inspect",
-		"--format", "{{.State.Pid}}", containerName).Output()
-	if err != nil {
-		return 0, fmt.Errorf("readVmRSSFromHost: docker inspect %s: %w", containerName, err)
-	}
-	pid := strings.TrimSpace(string(pidOut))
-	if pid == "" || pid == "0" {
-		return 0, fmt.Errorf("readVmRSSFromHost: container %s has no PID (stopped?)", containerName)
-	}
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%s/status", pid))
-	if err != nil {
-		return 0, fmt.Errorf("readVmRSSFromHost: read /proc/%s/status: %w", pid, err)
-	}
-	return parseVmRSS(string(data))
-}
-
-// readCPUPct calls docker stats --no-stream for a single container and returns
-// the CPU usage percentage.
-func readCPUPct(containerName string) (float64, error) {
-	out, err := exec.Command("docker", "stats", "--no-stream", "--format", "{{json .}}", containerName).Output()
-	if err != nil {
-		return 0, fmt.Errorf("readCPUPct: docker stats %s: %w", containerName, err)
-	}
-	var row struct {
-		CPUPerc string `json:"CPUPerc"`
-	}
-	if err := json.Unmarshal(out, &row); err != nil {
-		return 0, fmt.Errorf("readCPUPct: unmarshal: %w (output: %q)", err, out)
-	}
-	return parseCPUPct(row.CPUPerc)
 }
 
 // RunPoller opens path for append (creating it if needed), then polls each
@@ -123,24 +155,17 @@ func RunPoller(ctx context.Context, containers []string, path string, interval t
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					cpu, cpuErr := readCPUPct(name)
-					rss, rssErr := readVmRSSFromHost(name)
-					if cpuErr != nil {
-						log.Printf("statsd: cpu poll %s: %v", name, cpuErr)
-					}
-					if rssErr != nil {
-						log.Printf("statsd: rss poll %s: %v", name, rssErr)
-					}
-					if cpuErr != nil && rssErr != nil {
-						// Both failed — container likely stopped; skip record.
+					cs, err := readContainerStats(name)
+					if err != nil {
+						log.Printf("statsd: poll %s: %v", name, err)
 						return
 					}
 					mu.Lock()
 					records = append(records, StatRecord{
 						Container: name,
 						TS:        ts,
-						CPUPCT:    cpu,
-						VmRSSKB:   rss,
+						CPUPCT:    cs.CPUPCT,
+						VmRSSKB:   cs.VmRSSKB,
 					})
 					mu.Unlock()
 				}()

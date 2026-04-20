@@ -44,6 +44,15 @@ func (f *fakeSnapshotEventLog) ReadPartition(_ context.Context, _ uint32, _ uint
 	return nil, nil
 }
 
+func (f *fakeSnapshotEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
+	seqs := make([]uint64, len(evs))
+	for i, ev := range evs {
+		f.appended = append(f.appended, ev)
+		seqs[i] = uint64(len(f.appended))
+	}
+	return seqs, nil
+}
+
 func (f *fakeSnapshotEventLog) Close() error { return nil }
 
 // buildRawDoc builds a minimal bson.Raw document with an _id and a field.

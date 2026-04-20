@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/web-manifest-combined.json",
+  "name": "Kaptanto",
+  "short_name": "Kaptanto",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060708",
+  "theme_color": "#24c9b7",
+  "description": "Universal CDC for Postgres and MongoDB"
+}

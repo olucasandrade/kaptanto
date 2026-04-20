@@ -33,9 +33,17 @@ dist-ssr
 # Bench binaries
 bench/loadgen
 bench/reporter
+bench/collector
+bench/scenarios
+bench/statsd
+bench/cmd/scenarios/scenarios
 
-# Bench generated HTML reports (large self-contained files, not committed)
+# Ad-hoc test output
+result.json
+
+# Bench generated HTML reports and raw metrics (large files, not committed)
 bench/results/report.html
+bench/results/*.jsonl
 
 # Build artifacts
 *.o

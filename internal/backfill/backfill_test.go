@@ -97,6 +97,10 @@ func (m *mockEventLog) ReadPartition(_ context.Context, partition uint32, fromSe
 	return m.entries, nil
 }
 
+func (m *mockEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
+	return make([]uint64, len(evs)), nil
+}
+
 func (m *mockEventLog) Close() error { return nil }
 
 func TestWatermarkChecker_ShouldEmit_NoEntries(t *testing.T) {

@@ -138,6 +138,83 @@ func (b *BadgerEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 	return seq, nil
 }
 
+// AppendBatch durably writes all events in evs within a single db.Update
+// transaction, amortising the virtiofs fsync cost over the whole batch.
+//
+// Phase 1: all per-event data (JSON marshal, sequence number) is prepared
+// outside the Badger transaction to avoid holding sequence locks inside the
+// MVCC window (same reasoning as Append). Sequence number gaps on crash are
+// acceptable (sequences need not be gapless — pitfall 3).
+//
+// Phase 2: a single db.Update writes every non-duplicate event atomically.
+// Duplicates (idempotency key already present) return seq=0 for that index,
+// matching Append's sentinel convention (LOG-03).
+func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
+	if len(evs) == 0 {
+		return nil, nil
+	}
+
+	seqs := make([]uint64, len(evs)) // zero-initialised; 0 = duplicate sentinel
+
+	// Phase 1: marshal and allocate sequence numbers before the transaction.
+	type prepared struct {
+		partition uint32
+		val       []byte
+		dedupKey  []byte
+		seq       uint64
+	}
+	items := make([]prepared, len(evs))
+	for i, ev := range evs {
+		partition := PartitionOf(ev.Key, b.numPartitions)
+		val, err := json.Marshal(ev)
+		if err != nil {
+			return nil, fmt.Errorf("eventlog: marshal event[%d]: %w", i, err)
+		}
+		seq, err := b.seqs[partition].Next()
+		if err != nil {
+			return nil, fmt.Errorf("eventlog: sequence for partition %d: %w", partition, err)
+		}
+		items[i] = prepared{
+			partition: partition,
+			val:       val,
+			dedupKey:  encodeDedupKey(ev.IdempotencyKey),
+			seq:       seq,
+		}
+	}
+
+	// Phase 2: single transaction for all events (the key throughput fix).
+	err := b.db.Update(func(txn *badger.Txn) error {
+		for i, item := range items {
+			// Dedup check: skip if idempotency key already exists (LOG-03).
+			if _, err := txn.Get(item.dedupKey); err == nil {
+				continue // duplicate; seqs[i] stays 0
+			} else if err != badger.ErrKeyNotFound {
+				return fmt.Errorf("eventlog: dedup check[%d]: %w", i, err)
+			}
+
+			partKey := encodePartKey(item.partition, item.seq)
+
+			partEntry := badger.NewEntry(partKey, item.val).WithTTL(b.retention)
+			if err := txn.SetEntry(partEntry); err != nil {
+				return fmt.Errorf("eventlog: set partition entry[%d]: %w", i, err)
+			}
+
+			dedupEntry := badger.NewEntry(item.dedupKey, encodePartSeq(item.partition, item.seq)).WithTTL(b.retention)
+			if err := txn.SetEntry(dedupEntry); err != nil {
+				return fmt.Errorf("eventlog: set dedup entry[%d]: %w", i, err)
+			}
+
+			seqs[i] = item.seq
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return seqs, nil
+}
+
 // ReadPartition returns up to limit events from partition, starting at fromSeq (inclusive),
 // in ascending sequence order. Expired entries are automatically excluded by Badger.
 // Cancellation via ctx is respected between items.

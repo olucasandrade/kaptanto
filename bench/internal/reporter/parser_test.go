@@ -8,20 +8,24 @@ import (
 	"time"
 )
 
-// TestParseMetrics_FiveLineFixture tests that a known 5-line JSONL with one of
-// each record type routes correctly to the accumulators.
+// TestParseMetrics_FiveLineFixture tests that a known JSONL fixture with one of
+// each record type routes correctly to the accumulators, including bench_ts-based
+// scenario attribution.
+//
+// Attribution rules under test:
+//   - kaptanto bench_ts=09:59:59 is before all windows → falls back to scenario tag "steady"
+//   - debezium bench_ts=10:00:59 falls inside the burst window → attributed to "burst"
+//     (even though debezium received the event inside the steady receive window)
 func TestParseMetrics_FiveLineFixture(t *testing.T) {
-	// Fixture:
-	//   line 1: EventRecord tool=kaptanto scenario=steady latency_us=1000
-	//   line 2: EventRecord tool=debezium scenario=burst latency_us=2000
-	//   line 3: boundary start for steady
-	//   line 4: boundary end for steady
-	//   line 5: recovery marker for kaptanto
+	// steady window: 10:00:00–10:00:30  (kaptanto bench_ts 09:59:59 is before it → tag fallback)
+	// burst  window: 10:00:45–10:01:30  (debezium bench_ts 10:00:59 falls here → bench_ts wins)
 	fixture := strings.Join([]string{
 		`{"tool":"kaptanto","scenario":"steady","receive_ts":"2026-03-21T10:00:00Z","bench_ts":"2026-03-21T09:59:59Z","latency_us":1000}`,
-		`{"tool":"debezium","scenario":"burst","receive_ts":"2026-03-21T10:01:00Z","bench_ts":"2026-03-21T10:00:59Z","latency_us":2000}`,
+		`{"tool":"debezium","scenario":"steady","receive_ts":"2026-03-21T10:01:00Z","bench_ts":"2026-03-21T10:00:59Z","latency_us":2000}`,
 		`{"scenario_event":"start","scenario":"steady","ts":"2026-03-21T10:00:00Z"}`,
-		`{"scenario_event":"end","scenario":"steady","ts":"2026-03-21T10:01:30Z"}`,
+		`{"scenario_event":"end","scenario":"steady","ts":"2026-03-21T10:00:30Z"}`,
+		`{"scenario_event":"start","scenario":"burst","ts":"2026-03-21T10:00:45Z"}`,
+		`{"scenario_event":"end","scenario":"burst","ts":"2026-03-21T10:01:30Z"}`,
 		`{"scenario_event":"recovery","tool":"kaptanto","recovery_seconds":4.37,"ts":"2026-03-21T10:05:04Z"}`,
 	}, "\n")
 
@@ -31,20 +35,19 @@ func TestParseMetrics_FiveLineFixture(t *testing.T) {
 		t.Fatalf("ParseMetrics error: %v", err)
 	}
 
-	// EventRecord counts
+	// kaptanto: bench_ts outside all windows → falls back to scenario tag "steady"
 	k1 := key{tool: "kaptanto", scenario: "steady"}
-	k2 := key{tool: "debezium", scenario: "burst"}
-
 	if got := acc.EventCounts[k1]; got != 1 {
 		t.Errorf("EventCounts[kaptanto,steady] = %d, want 1", got)
 	}
-	if got := acc.EventCounts[k2]; got != 1 {
-		t.Errorf("EventCounts[debezium,burst] = %d, want 1", got)
-	}
-
-	// Latencies
 	if len(acc.Latencies[k1]) != 1 || acc.Latencies[k1][0] != 1000 {
 		t.Errorf("Latencies[kaptanto,steady] = %v, want [1000]", acc.Latencies[k1])
+	}
+
+	// debezium: bench_ts inside burst window → attributed to "burst" (not "steady" tag)
+	k2 := key{tool: "debezium", scenario: "burst"}
+	if got := acc.EventCounts[k2]; got != 1 {
+		t.Errorf("EventCounts[debezium,burst] = %d, want 1 (bench_ts attribution)", got)
 	}
 
 	// ScenarioWindow for steady
@@ -53,7 +56,7 @@ func TestParseMetrics_FiveLineFixture(t *testing.T) {
 		t.Fatal("ScenarioWindows[steady] not found")
 	}
 	wantStart, _ := time.Parse(time.RFC3339, "2026-03-21T10:00:00Z")
-	wantEnd, _ := time.Parse(time.RFC3339, "2026-03-21T10:01:30Z")
+	wantEnd, _ := time.Parse(time.RFC3339, "2026-03-21T10:00:30Z")
 	if !win.Start.Equal(wantStart) {
 		t.Errorf("ScenarioWindows[steady].Start = %v, want %v", win.Start, wantStart)
 	}

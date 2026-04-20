@@ -6,80 +6,127 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Kaptanto is an open-source, single Go binary for universal database Change Data Capture (CDC). It streams changes from Postgres (WAL logical replication) and MongoDB (Change Streams) via stdout, SSE, or gRPC. The name means "who captures" in Esperanto.
 
-**Current state:** The technical specification is complete (`kaptanto-technical-specification.md`) and the landing page is live (`landing/`). The Go implementation has not been started yet.
+The implementation is complete. `kaptanto-technical-specification.md` remains the authoritative architecture reference.
 
-## Repository Structure
+## Build & Test
 
-- `kaptanto-technical-specification.md` — Complete architecture and implementation spec (authoritative source of truth)
-- `landing/` — Static marketing site and docs (vanilla HTML/CSS/JS, no build step)
-  - `landing/js/main.js` — All docs content is embedded here as a JS object; routing is client-side
+```bash
+make build          # CGO_ENABLED=0 static binary (default, cross-platform)
+make test           # all tests, CGO_ENABLED=0
+make test-race      # race detector (requires CGO)
+make build-rust     # optional Rust-accelerated binary (requires Rust 1.77+, cargo, cbindgen)
+make verify-no-cgo  # cross-compile linux/amd64 + darwin/arm64 to confirm no CGO leakage
+```
 
-## Implementation Plan
+Run a single test:
+```bash
+go test ./internal/router -run TestPerKeyOrdering -v
+go test ./internal/cmd -run TestFlagSource -v
+```
 
-The Go binary is planned as a 6-phase, 24-week roadmap (see spec section 15):
+Pure Go build (CGO_ENABLED=0) is enforced for static distribution. The Rust FFI path requires the `build_ffi` build tag and CGO.
 
-| Phase | Goal |
+## Architecture
+
+### Data Flow
+
+```
+Source (Postgres WAL / MongoDB Change Stream)
+  → Parser (pgoutput/parser.go or mongodb/normalizer.go)
+      → EventLog (badger.go, 64 partitions, TTL, dedup by IdempotencyKey)
+          → Checkpoint saved (ONLY after Append succeeds — CHK-01)
+              → Router (fan-out to consumers, per-key ordering — RTR-04)
+                  → Output (stdout NDJSON / SSE /events / gRPC CdcStream)
+```
+
+Backfill runs concurrently with WAL streaming. The WatermarkChecker discards snapshot rows where a WAL event with a higher LSN already exists for the same key (same 64-partition hash as EventLog — BKF-02).
+
+### Key Packages
+
+| Package | Role |
 |---|---|
-| 1 | Postgres → stdout (core pipeline) |
-| 2 | Event Log (Badger) + backfills |
-| 3 | Partitioned router, SSE, gRPC outputs |
-| 4 | Multi-source, filtering, YAML config |
-| 5 | HA, metrics, management API |
-| 6 | MongoDB, Rust FFI, Docker, release |
+| `internal/cmd/root.go` | Cobra CLI, pipeline assembly, graceful shutdown |
+| `internal/event/event.go` | ChangeEvent struct (ULID ID, unified insert/update/delete/read/control) |
+| `internal/config/config.go` | YAML + CLI flag merging; CLI flags always win |
+| `internal/eventlog/badger.go` | Durable append-only store: FNV-1a partitioned, TTL, seq=0 on dup |
+| `internal/source/postgres/connector.go` | Logical replication slot, heartbeats, reconnect backoff |
+| `internal/source/mongodb/connector.go` | Change Streams, resume token, snapshot on InvalidResumeToken |
+| `internal/parser/pgoutput/parser.go` | WAL → ChangeEvent; RelationCache + TOASTCache |
+| `internal/backfill/backfill.go` | Snapshot engine (keyset cursor, watermark check) |
+| `internal/router/router.go` | Fan-out, per-key ordering, cursor persistence |
+| `internal/output/sse/server.go` | SSE `/events` endpoint with consumer/table/operation filters |
+| `internal/output/grpc/server.go` | gRPC Subscribe + Acknowledge RPCs |
+| `internal/ha/leader.go` | Postgres advisory lock leader election (~5s failover) |
+| `internal/observability/metrics.go` | Custom prometheus.Registry; `/metrics` + `/healthz` |
+| `internal/checkpoint/` | SQLite (local) or PostgreSQL (HA) for source LSN + consumer cursors |
 
-## Go Architecture (when implementing)
+### Runtime Data Directory
 
-The binary entry point will be `./cmd/kaptanto`. Build with:
 ```
-go build -o kaptanto ./cmd/kaptanto
+./data/
+├── events/        # Badger event log
+├── checkpoint.db  # SQLite: source LSN (non-HA)
+├── cursors.db     # SQLite: per-consumer, per-partition delivery positions
+└── backfill.db    # SQLite: snapshot progress + watermark state
 ```
-
-With Rust FFI acceleration (requires Rust 1.77+, CGO):
-```
-make build-rust
-```
-
-**Key Go packages to use** (from spec section 16):
-- `jackc/pglogrepl` — Postgres WAL logical replication
-- `jackc/pgx/v5` — Postgres driver for snapshots and advisory locks
-- `go.mongodb.org/mongo-driver` — MongoDB Change Streams
-- `dgraph-io/badger/v4` — embedded Event Log (LSM tree, TTL)
-- `google.golang.org/grpc` — gRPC server
-- `modernc.org/sqlite` — checkpoint store (pure Go, no CGO)
-- `spf13/cobra` — CLI
-- `prometheus/client_golang` — metrics
-- `oklog/ulid` — sortable event IDs
 
 ## Critical Invariants
 
-From the spec — these must never be violated in implementation:
+These must never be violated:
 
-1. **Source checkpoint is NEVER advanced until the event is durably written to the Event Log.** If kaptanto crashes, the source re-sends; the Event Log deduplicates by event ID.
+1. **CHK-01 — Durability:** Source checkpoint NEVER advances until `EventLog.Append()` returns successfully. Crash → source re-sends → EventLog deduplicates by `IdempotencyKey`.
 
-2. **TOAST handling is mandatory.** Postgres may omit unchanged large column values in update events; the parser must merge from a TOAST cache keyed by `(relation_id, primary_key)`.
+2. **RTR-04 — Per-key ordering:** Router delivers events for the same primary key in order. A failed delivery blocks that key only; other keys continue. Retry logic in `internal/router/retry.go`.
 
-3. **Keyset cursors, never OFFSET** for snapshot pagination. OFFSET breaks on concurrent inserts/deletes.
+3. **BKF-02 — Watermark consistency:** WatermarkChecker and EventLog must use the same partition count (64) so FNV-1a hashes are consistent.
 
-4. **Watermark coordination during backfills.** For each snapshot row, check if a WAL event for the same key with a higher LSN already exists in the Event Log; if so, discard the snapshot read.
+4. **TOAST handling:** Postgres UPDATE events may omit unchanged large columns. Parser merges from TOASTCache keyed by `(relation_id, primary_key)`.
 
-## Event Schema
+5. **Keyset cursors, never OFFSET:** Snapshot pagination uses `internal/backfill/cursor.go`; OFFSET breaks under concurrent writes.
 
-All events share a unified JSON format (operation: `insert`, `update`, `delete`, `read`, `control`):
-```json
-{
-  "id": "<ulid>",
-  "idempotency_key": "<source>:<schema>.<table>:<pk>:<op>:<position>",
-  "operation": "update",
-  "table": "orders",
-  "key": { "id": 1234 },
-  "before": { ... },
-  "after": { ... },
-  "metadata": { "lsn": "0/1A2B3C4", "checkpoint": "...", "snapshot": false }
-}
+6. **SRC-01 — Connection isolation:** Postgres connector keeps a separate `pgx.Conn` for snapshots; replication connections cannot be reused for regular queries.
+
+## Test Patterns
+
+- Tests use fake implementations (e.g., `fakeConsumer`, `fakeEventLog`) rather than mocks.
+- `internal/metrics`: each test creates its own `prometheus.Registry` via `NewKaptantoMetrics()` — no global state.
+- `internal/cmd`: tests call `cmd.ExecuteWithArgs(args, out)` which creates a fresh `cobra.Command` — no shared state.
+- Router tests pass `nil` for `cursorStore`; the router substitutes a `noopCursorStore` automatically.
+
+## Benchmarking
+
+The `bench/` directory contains a harness that compares Kaptanto vs Debezium, Sequin, and PeerDB. It requires Docker Compose.
+
+```bash
+cd bench
+docker compose down -v          # REQUIRED before every run (prevents cross-run state contamination)
+docker compose up --build -d
+# Run a scenario:
+go run ./cmd/scenarios -- --scenario steady
+docker compose down -v          # clean up after
+```
+
+Results are written to `bench/results/`. The rendered report is at `bench/results/REPORT.md`.
+
+Clean-run procedure is mandatory — see memory for details on contamination risk.
+
+## Configuration
+
+YAML config (all fields also available as CLI flags; flags take precedence):
+
+```yaml
+source: "postgres://user:pass@host/db"
+output: sse          # stdout | sse | grpc
+port: 7654
+data_dir: /var/lib/kaptanto
+retention: 24h
+
+tables:
+  - name: public.orders
+    columns: [id, status, total]
+    where: "status != 'archived'"
 ```
 
 ## Landing Page
 
-The landing page (`landing/`) is a single HTML file with no build step. To preview locally, open `landing/index.html` in a browser or serve with any static file server.
-
-All documentation content lives in `landing/js/main.js` as the `docs` object — each key is a doc page ID, each value has `title`, `sub`, and `body` (HTML string). The sidebar structure is defined in the `sidebar` array in the same file. To add or edit docs pages, modify `main.js` directly.
+`landing/` is a static site with no build step. Open `landing/index.html` directly in a browser. All documentation content lives in `landing/js/main.js` as the `docs` object; the sidebar is defined in the `sidebar` array in the same file.

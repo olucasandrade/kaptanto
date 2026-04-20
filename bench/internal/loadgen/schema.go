@@ -16,9 +16,6 @@ CREATE TABLE IF NOT EXISTS bench_events (
     _bench_ts   TIMESTAMPTZ NOT NULL
 );`
 
-const createPublicationSQL = `
-CREATE PUBLICATION IF NOT EXISTS bench_pub FOR TABLE bench_events;`
-
 // EnsureSchema creates the bench_events table and bench_pub publication
 // if they do not already exist. Safe to call on every loadgen startup.
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
@@ -32,7 +29,15 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("create table: %w", err)
 	}
 
-	if _, err := conn.Exec(ctx, createPublicationSQL); err != nil {
+	// CREATE PUBLICATION IF NOT EXISTS requires PG15+; use DO block for PG14 compat.
+	_, err = conn.Exec(ctx, `
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'bench_pub') THEN
+    CREATE PUBLICATION bench_pub FOR TABLE bench_events;
+  END IF;
+END$$;`)
+	if err != nil {
 		return fmt.Errorf("create publication: %w", err)
 	}
 

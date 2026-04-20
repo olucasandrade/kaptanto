@@ -16,8 +16,8 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /kaptanto ./cmd/kaptanto
 
 # Stage 2: Runtime
-# distroless/static:nonroot — no shell, no package manager, minimal attack surface.
-FROM gcr.io/distroless/static:nonroot
+# alpine — minimal image with wget for healthcheck probes in bench environment.
+FROM alpine:3.21
 COPY --from=builder /kaptanto /kaptanto
 ENTRYPOINT ["/kaptanto"]
 # No CMD — the compose service passes --source, --output, --port as the command.

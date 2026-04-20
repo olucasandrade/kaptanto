@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,7 +43,8 @@ func newFakeRouter(cs router.ConsumerCursorStore) *fakeRouter {
 	}
 }
 
-// Register mimics the real Router: load cursor for each partition, then deliver one event.
+// Register mimics the real Router: load cursor for each partition, deliver one
+// event, then flush (matching the batch-flush path added by Fix E).
 func (f *fakeRouter) Register(c router.Consumer) {
 	ctx := context.Background()
 	for p := uint32(0); p < f.numPartitions; p++ {
@@ -53,15 +55,31 @@ func (f *fakeRouter) Register(c router.Consumer) {
 		entry := eventlog.LogEntry{Seq: seq, Event: f.testEvent}
 		_ = c.Deliver(ctx, entry)
 	}
+	// Flush buffered writes so the HTTP client sees the response (Fix E).
+	if bf, ok := c.(router.BatchFlusher); ok {
+		_ = bf.FlushBatch(ctx)
+	}
 }
 
 // fakeRouterNoDeliver is a router stub that registers without delivering any events.
 type fakeRouterNoDeliver struct {
+	mu         sync.Mutex
 	registered []string
 }
 
 func (f *fakeRouterNoDeliver) Register(c router.Consumer) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.registered = append(f.registered, c.ID())
+}
+
+// Registered returns a safe copy of the registered consumer IDs.
+func (f *fakeRouterNoDeliver) Registered() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, len(f.registered))
+	copy(out, f.registered)
+	return out
 }
 
 // wrapForSSEServer wraps a fakeRouter to satisfy the *router.Router type required by SSEServer.
@@ -279,9 +297,11 @@ func TestSSEServer_IndependentConsumers(t *testing.T) {
 	}
 
 	// Both consumers must have been registered with distinct IDs.
-	assert.Len(t, fr.registered, 2)
-	assert.Contains(t, fr.registered, "sse:consumer-a")
-	assert.Contains(t, fr.registered, "sse:consumer-b")
+	// Use the mutex-safe getter to avoid a data race with the handler goroutines.
+	registered := fr.Registered()
+	assert.Len(t, registered, 2)
+	assert.Contains(t, registered, "sse:consumer-a")
+	assert.Contains(t, registered, "sse:consumer-b")
 }
 
 // Test 6 (resume integration): cursor store -> LoadCursor -> Router -> Deliver pipeline.

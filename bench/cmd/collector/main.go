@@ -21,7 +21,8 @@ import (
 
 func main() {
 	output := flag.String("output", "metrics.jsonl", "Path for NDJSON output file")
-	kaptantoURL := flag.String("kaptanto-url", "http://localhost:7654/stream?consumer=collector", "Kaptanto SSE URL")
+	kaptantoURL := flag.String("kaptanto-url", "http://localhost:7654/events?consumer=collector", "Kaptanto SSE URL")
+	kaptantoRustURL := flag.String("kaptanto-rust-url", "http://localhost:7656/events?consumer=collector", "Kaptanto Rust FFI SSE URL")
 	debeziumPort := flag.Int("debezium-port", 8081, "HTTP port for Debezium webhook receiver")
 	sequinPort := flag.Int("sequin-port", 8082, "HTTP port for Sequin push receiver")
 	kafkaBrokers := flag.String("kafka-brokers", "localhost:9092", "Comma-separated Redpanda/Kafka brokers")
@@ -29,13 +30,9 @@ func main() {
 	managementPort := flag.Int("management-port", 8080, "HTTP port for scenario management API")
 	flag.Parse()
 
-	// Shared adapter channel (buffered, adapters never block HTTP handlers).
 	adapterCh := make(chan collector.EventRecord, 10000)
-
-	// Writer channel (fan-out goroutine forwards from adapterCh to this).
 	records := make(chan collector.EventRecord, 10000)
 
-	// Current scenario tag — adapters read atomically on each event.
 	var scenario atomic.Value
 	scenario.Store("unknown")
 
@@ -49,7 +46,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// Fan-out goroutine: updates lastSeen map, then forwards to writer channel.
 	go func() {
 		for rec := range adapterCh {
 			lastSeen.mu.Lock()
@@ -63,17 +59,15 @@ func main() {
 		}
 	}()
 
-	// Writer goroutine.
 	go func() {
 		if err := collector.RunWriter(ctx, *output, records); err != nil {
 			log.Printf("collector: writer error: %v", err)
 		}
 	}()
 
-	// Kaptanto SSE adapter goroutine.
 	go adapters.RunKaptanto(ctx, *kaptantoURL, &scenario, adapterCh)
+	go adapters.RunKaptantoRust(ctx, *kaptantoRustURL, &scenario, adapterCh)
 
-	// Debezium HTTP server.
 	debeziumMux := http.NewServeMux()
 	debeziumMux.HandleFunc("/ingest/debezium", adapters.DebeziumHandler(&scenario, adapterCh))
 	debeziumSrv := &http.Server{
@@ -86,7 +80,6 @@ func main() {
 		}
 	}()
 
-	// Sequin HTTP server.
 	sequinMux := http.NewServeMux()
 	sequinMux.HandleFunc("/ingest/sequin", adapters.SequinHandler(&scenario, adapterCh))
 	sequinSrv := &http.Server{
@@ -99,11 +92,9 @@ func main() {
 		}
 	}()
 
-	// PeerDB Kafka adapter goroutine.
 	brokerList := strings.Split(*kafkaBrokers, ",")
 	go adapters.RunPeerDB(ctx, brokerList, *kafkaTopic, &scenario, adapterCh)
 
-	// Management API server.
 	mgmtMux := http.NewServeMux()
 
 	// POST /scenario?name=X — sets scenario tag.

@@ -33,6 +33,19 @@ type Consumer interface {
 	Deliver(ctx context.Context, entry eventlog.LogEntry) error
 }
 
+// BatchFlusher is an optional interface that Consumers may implement to
+// coalesce network flushes. If a Consumer implements BatchFlusher, the Router
+// calls FlushBatch once after dispatching each ReadPartition batch instead of
+// relying on per-event flushes inside Deliver. This amortises flush latency
+// (e.g. http.Flusher) over an entire batch, significantly increasing SSE
+// delivery throughput on high-latency transports.
+type BatchFlusher interface {
+	// FlushBatch flushes any buffered writes to the underlying transport.
+	// Called by runPartition after processing each batch of entries.
+	// Errors are logged but do not block future delivery.
+	FlushBatch(ctx context.Context) error
+}
+
 // ConsumerCursorStore persists per-consumer, per-partition delivery cursors so
 // consumers resume from the correct position after a restart.
 type ConsumerCursorStore interface {
@@ -210,6 +223,26 @@ func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
 			}
 			r.dispatch(ctx, partitionID, entry)
 		}
+
+		// Fix E: flush once per batch for consumers that implement BatchFlusher.
+		// Acquiring RLock to snapshot consumer list is safe here; the flush
+		// itself happens outside the lock.
+		r.mu.RLock()
+		flushers := make([]BatchFlusher, 0, len(r.consumers))
+		for _, cs := range r.consumers {
+			if bf, ok := cs.consumer.(BatchFlusher); ok {
+				flushers = append(flushers, bf)
+			}
+		}
+		r.mu.RUnlock()
+		for _, bf := range flushers {
+			if ctx.Err() != nil {
+				return
+			}
+			if err := bf.FlushBatch(ctx); err != nil {
+				slog.Warn("router: batch flush error", "partition", partitionID, "err", err)
+			}
+		}
 	}
 }
 
@@ -237,25 +270,65 @@ func (r *Router) minCursorForPartition(partitionID uint32) uint64 {
 // blocking. If a consumer has a blocked group for entry's key, that consumer
 // skips the entry. On delivery error the entry's key is added to blockedGroups
 // for that consumer. On success the consumer's cursor is advanced and saved.
+//
+// Fix C: Deliver is called outside r.mu to decouple SSE I/O (JSON encode +
+// HTTP write + Flush) from the partition read loop. This prevents all 64
+// partition goroutines from serialising through one synchronous network write.
+// The lock is held only for the consumer snapshot (RLock) and cursor updates
+// (Lock), both of which are fast in-memory operations.
 func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlog.LogEntry) {
 	groupKey := string(entry.Event.Key)
 
+	// Phase 1: snapshot consumer list and blocked state under RLock.
+	// r.consumers only grows (no Unregister), so indices captured here
+	// remain valid for Phase 3's write lock.
+	r.mu.RLock()
+	type consumerSnap struct {
+		consumer Consumer
+		blocked  bool
+	}
+	snaps := make([]consumerSnap, len(r.consumers))
+	for i, cs := range r.consumers {
+		snaps[i] = consumerSnap{
+			consumer: cs.consumer,
+			// IsBlocked acquires its own mutex — safe to call under RLock.
+			blocked: r.rs.IsBlocked(cs.consumer.ID(), groupKey),
+		}
+	}
+	r.mu.RUnlock()
+
+	// Phase 2: deliver outside the lock. Concurrent partitions can deliver
+	// independently; SSE flush latency no longer serialises all goroutines.
+	deliveryErrs := make([]error, len(snaps))
+	for i, snap := range snaps {
+		if snap.blocked || ctx.Err() != nil {
+			continue
+		}
+		deliveryErrs[i] = snap.consumer.Deliver(ctx, entry)
+	}
+
+	if ctx.Err() != nil {
+		return
+	}
+
+	// Phase 3: update in-memory cursors and persist them under write lock.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for i := range r.consumers {
+	for i, snap := range snaps {
+		if i >= len(r.consumers) {
+			break // guard against consumers added between Phase 1 and Phase 3
+		}
 		cs := &r.consumers[i]
 
-		// Skip entry if this consumer has a blocked group for this key.
-		// Blocked state is owned by RetryScheduler (RTR-05).
-		if r.rs.IsBlocked(cs.consumer.ID(), groupKey) {
+		if snap.blocked {
 			if r.metrics != nil {
 				r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
 			}
 			continue
 		}
 
-		if err := cs.consumer.Deliver(ctx, entry); err != nil {
+		if err := deliveryErrs[i]; err != nil {
 			slog.Warn("router: delivery failed, blocking message group",
 				"consumer", cs.consumer.ID(),
 				"key", groupKey,

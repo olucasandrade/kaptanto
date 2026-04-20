@@ -114,6 +114,9 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().Bool("ha", false, "enable high-availability mode (uses Postgres advisory locks; requires --source to point to a shared Postgres instance)")
 	root.PersistentFlags().String("node-id", "", "unique node identifier for HA mode")
 
+	// CFG-01: Source identity (used for replication slot and publication naming).
+	root.PersistentFlags().String("source-id", "default", "logical source identifier; determines slot name (kaptanto_<id>) and publication name (kaptanto_pub_<id>)")
+
 	// OBS-03: Observability flags.
 	root.PersistentFlags().String("log-level", "info", "log verbosity: debug | info | warn | error")
 
@@ -445,10 +448,14 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	for t := range cfg.Tables {
 		tables = append(tables, t)
 	}
+	sourceID := cfg.SourceID
+	if sourceID == "" {
+		sourceID = "default"
+	}
 	connCfg := postgres.Config{
 		DSN:      cfg.Source,
 		Tables:   tables,
-		SourceID: "default",
+		SourceID: sourceID,
 	}
 	connCfg.ApplyDefaults()
 	idGen := event.NewIDGenerator()

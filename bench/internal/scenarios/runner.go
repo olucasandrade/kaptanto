@@ -55,6 +55,7 @@ type Runner struct {
 	LoadgenBin   string // path to compiled loadgen binary
 	DSN          string // Postgres DSN passed to loadgen
 	OutputDir    string // directory for metrics.jsonl output
+	ComposeDir   string // directory containing docker-compose.yml; if set, crash-recovery uses docker compose
 }
 
 // Init creates PeerDB peer/mirror via psql and registers the Sequin push
@@ -72,6 +73,7 @@ func (r *Runner) Init(ctx context.Context) error {
 			"-d", "peerdb",
 			"-c", sql,
 		)
+		cmd.Env = append(os.Environ(), "PGPASSWORD=peerdb")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			log.Printf("scenarios: init peerdb (ignored): %v: %s", err, out)
 		}
@@ -82,7 +84,7 @@ func (r *Runner) Init(ctx context.Context) error {
 	curlCmd := exec.CommandContext(ctx, "curl", "-s", "-X", "POST",
 		"http://localhost:7376/api/http_push_consumers",
 		"-H", "Content-Type: application/json",
-		"-d", `{"stream_name":"bench_events","http_endpoint":"http://collector:8082/ingest/sequin"}`,
+		"-d", `{"stream_name":"bench_events","http_endpoint":"http://host.docker.internal:8082/ingest/sequin"}`,
 	)
 	if out, err := curlCmd.CombinedOutput(); err != nil {
 		log.Printf("scenarios: init sequin (ignored): %v: %s", err, out)
@@ -158,17 +160,25 @@ func (r *Runner) runCrashRecovery(ctx context.Context, s ScenarioDef) error {
 		return ctx.Err()
 	}
 
-	containers := []string{"kaptanto", "debezium", "sequin", "peerdb"}
+	containers := []string{"kaptanto", "kaptanto-rust", "debezium", "sequin", "peerdb"}
 	for _, container := range containers {
 		killTime := time.Now()
 
 		log.Printf("scenarios: crash-recovery: killing %s", container)
-		killCmd := exec.CommandContext(ctx, "docker", "kill", "--signal", "SIGKILL", container)
+		var killCmd, startCmd *exec.Cmd
+		if r.ComposeDir != "" {
+			killCmd = exec.CommandContext(ctx, "docker", "compose", "kill", container)
+			killCmd.Dir = r.ComposeDir
+			startCmd = exec.CommandContext(ctx, "docker", "compose", "start", container)
+			startCmd.Dir = r.ComposeDir
+		} else {
+			killCmd = exec.CommandContext(ctx, "docker", "kill", "--signal", "SIGKILL", container)
+			startCmd = exec.CommandContext(ctx, "docker", "start", container)
+		}
 		if out, err := killCmd.CombinedOutput(); err != nil {
 			log.Printf("scenarios: crash-recovery: kill %s (ignored): %v: %s", container, err, out)
 		}
 
-		startCmd := exec.CommandContext(ctx, "docker", "start", container)
 		if out, err := startCmd.CombinedOutput(); err != nil {
 			log.Printf("scenarios: crash-recovery: start %s (ignored): %v: %s", container, err, out)
 		}
@@ -187,7 +197,6 @@ func (r *Runner) runCrashRecovery(ctx context.Context, s ScenarioDef) error {
 		}
 	}
 
-	// Wait for loadgen to finish.
 	if err := cmd.Wait(); err != nil {
 		log.Printf("scenarios: crash-recovery: loadgen wait (ignored): %v", err)
 	}
@@ -288,6 +297,80 @@ func (r *Runner) appendJSONLine(rec interface{}) error {
 
 	enc := json.NewEncoder(f)
 	return enc.Encode(rec)
+}
+
+// DrainWait blocks until every tool in tools has been idle (no new events
+// received by the collector) for idleSecs consecutive seconds, or until
+// timeoutSecs elapses. It sets the collector scenario tag to "drain" so that
+// any backlog events written to metrics.jsonl are excluded from the report
+// (not a canonical scenario name). If a tool never sends any event it is
+// treated as already idle from t=0.
+func (r *Runner) DrainWait(ctx context.Context, tools []string, idleSecs, timeoutSecs int) {
+	if err := r.setScenarioTag(ctx, "drain"); err != nil {
+		log.Printf("scenarios: drain-wait: setScenarioTag: %v (ignored)", err)
+	}
+
+	deadline := time.Now().Add(time.Duration(timeoutSecs) * time.Second)
+	lastSeen := make(map[string]time.Time)   // last known receive_ts per tool
+	lastAdvance := make(map[string]time.Time) // wall time of last advancement
+	now := time.Now()
+	for _, t := range tools {
+		lastAdvance[t] = now // treat "never heard from" as idle from t=0
+	}
+
+	log.Printf("scenarios: drain-wait: waiting for %v to go idle (idle=%ds timeout=%ds)",
+		tools, idleSecs, timeoutSecs)
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		if time.Now().After(deadline) {
+			log.Printf("scenarios: drain-wait: timeout after %ds — proceeding anyway", timeoutSecs)
+			return
+		}
+
+		allIdle := true
+		for _, tool := range tools {
+			url := r.CollectorURL + "/scenario/last-event?tool=" + tool
+			resp, err := client.Get(url)
+			if err == nil {
+				var body struct {
+					LastReceiveTS string `json:"last_receive_ts"`
+				}
+				_ = json.NewDecoder(resp.Body).Decode(&body)
+				resp.Body.Close()
+
+				if body.LastReceiveTS != "" {
+					ts, parseErr := time.Parse(time.RFC3339Nano, body.LastReceiveTS)
+					if parseErr == nil {
+						if prev, seen := lastSeen[tool]; !seen || ts.After(prev) {
+							lastSeen[tool] = ts
+							lastAdvance[tool] = time.Now()
+						}
+					}
+				}
+			}
+
+			idle := time.Since(lastAdvance[tool])
+			log.Printf("scenarios: drain-wait: %s idle for %.1fs", tool, idle.Seconds())
+			if idle < time.Duration(idleSecs)*time.Second {
+				allIdle = false
+			}
+		}
+
+		if allIdle {
+			log.Printf("scenarios: drain-wait: all tools idle — proceeding")
+			return
+		}
+	}
 }
 
 // buildLoadgenCmd constructs the exec.Cmd for loadgen with DSN and scenario args.

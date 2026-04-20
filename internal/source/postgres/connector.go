@@ -376,12 +376,49 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 // receiveLoop runs the core WAL message receive loop using pgconn.ReceiveMessage
 // and pglogrepl parsers. It sends standby status updates on heartbeat timeout
 // and when PrimaryKeepalive.ReplyRequested is set.
+//
+// Fix B: WAL events are buffered in walBuf and flushed via AppendBatch in a
+// single Badger transaction per commit (or per 256 events). This amortises the
+// virtiofs fsync overhead that was capping sustained throughput at ~2–3k eps.
+// CHK-01 is preserved: flushWALBuf is always called before sendStandbyStatus
+// on the commit path, ensuring events are durable before the LSN advances.
 func (c *PostgresConnector) receiveLoop(
 	ctx context.Context,
 	replConn *pgconn.PgConn,
 ) error {
 	var clientXLogPos pglogrepl.LSN
 	nextHeartbeat := time.Now().Add(c.cfg.StandbyTimeout)
+
+	// walBuf accumulates events within a Postgres transaction for batch writes.
+	var walBuf []*event.ChangeEvent
+
+	// flushWALBuf writes all buffered events to the event log in a single
+	// Badger transaction (Fix B: batch writes). Must be called before
+	// advancing the LSN checkpoint to Postgres (CHK-01). After a successful
+	// flush, each event is forwarded to the events channel (best-effort; drop
+	// is safe because the router reads from eventlog.ReadPartition).
+	flushWALBuf := func() error {
+		if len(walBuf) == 0 {
+			return nil
+		}
+		if c.eventLog != nil {
+			c.appendMu.Lock()
+			_, err := c.eventLog.AppendBatch(walBuf)
+			c.appendMu.Unlock()
+			if err != nil {
+				return fmt.Errorf("eventlog: append batch: %w", err)
+			}
+		}
+		for _, ev := range walBuf {
+			select {
+			case c.events <- ev:
+			default:
+				// Router reads from eventLog.ReadPartition; drop is safe.
+			}
+		}
+		walBuf = walBuf[:0]
+		return nil
+	}
 
 	for {
 		// Set receive deadline to next heartbeat.
@@ -447,9 +484,17 @@ func (c *PostgresConnector) receiveLoop(
 				break
 			}
 			if ev != nil {
-				// LOG-01: event written durably before checkpoint is advanced (CHK-01 ordering).
-				if err := c.AppendAndQueue(ctx, ev); err != nil {
-					return err
+				// Buffer event; flush when batch is full (Fix B).
+				// Threshold 1024 > default loadgen batch-size 500, so each
+				// CopyFrom call produces exactly one Badger transaction.
+				walBuf = append(walBuf, ev)
+				if len(walBuf) >= 1024 {
+					// Mid-transaction flush: durably write the batch but do NOT
+					// advance clientXLogPos — CHK-01 requires all events for a
+					// transaction to be durable before acknowledging the Commit LSN.
+					if err := flushWALBuf(); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -463,6 +508,10 @@ func (c *PostgresConnector) receiveLoop(
 			// When the parser emits nil (Commit message), we persist the LSN.
 			// We detect "commit" by checking if WALData[0] == 'C' (CommitMessage).
 			if len(xld.WALData) > 0 && xld.WALData[0] == 'C' {
+				// CHK-01: flush all buffered events before acknowledging commit LSN.
+				if err := flushWALBuf(); err != nil {
+					return err
+				}
 				lsnStr := clientXLogPos.String()
 				if saveErr := c.store.Save(ctx, c.cfg.SourceID, lsnStr); saveErr != nil {
 					return fmt.Errorf("postgres: save checkpoint: %w", saveErr)

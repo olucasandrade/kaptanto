@@ -1,0 +1,2 @@
+# Temporal dynamic config for bench environment (SQL persistence)
+# This file intentionally minimal — all values use Temporal defaults.

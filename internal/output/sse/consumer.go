@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/kaptanto/kaptanto/internal/eventlog"
 	"github.com/kaptanto/kaptanto/internal/observability"
@@ -21,6 +22,10 @@ import (
 // Lifecycle: Register with router -> Deliver events until client disconnects
 // -> Deliver returns a write error -> RetryScheduler dead-letters the consumer
 // (isPermanentError path). No explicit Deregister needed.
+//
+// Concurrency: Deliver and Close are mutually exclusive via mu.
+// ServeHTTP calls Close before returning so that any in-flight Deliver
+// completes before the ResponseWriter is invalidated by net/http.
 type SSEConsumer struct {
 	id         string // stable: "sse:<consumerID>"
 	w          http.ResponseWriter
@@ -30,6 +35,9 @@ type SSEConsumer struct {
 	m          *observability.KaptantoMetrics
 	rowFilters map[string]*output.RowFilter // CFG-06: per-table WHERE-expression filter; nil map = pass-through
 	colFilters map[string][]string          // CFG-05: per-table column allow-list; nil map = pass-through
+
+	mu     sync.Mutex
+	closed bool // set by Close; Deliver returns error immediately when true
 }
 
 // Compile-time assertion: SSEConsumer implements router.Consumer.
@@ -62,6 +70,15 @@ func NewSSEConsumer(
 // ID returns the stable consumer identifier used for cursor persistence.
 func (c *SSEConsumer) ID() string { return c.id }
 
+// Close marks the consumer as closed. Any subsequent or concurrent Deliver
+// call returns an error immediately. Close blocks until any in-flight Deliver
+// has completed, ensuring the ResponseWriter is not used after ServeHTTP returns.
+func (c *SSEConsumer) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+}
+
 // Deliver writes an event to the SSE stream in the wire format:
 //
 //	id: <ULID>\n
@@ -72,6 +89,13 @@ func (c *SSEConsumer) ID() string { return c.id }
 // Any write error is returned directly; a broken pipe / closed connection
 // error is classified as permanent by the RetryScheduler (dead-letter path).
 func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return fmt.Errorf("sse: connection closed")
+	}
+
 	// Filtered events: advance cursor silently, no write to wire.
 	if !c.filter.Allow(entry.Event) {
 		return c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq)
@@ -123,20 +147,37 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 		}
 		return err
 	}
-	if err := c.rc.Flush(); err != nil {
-		if c.m != nil {
-			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
-		}
-		return err
-	}
+	// NOTE: Flush is intentionally NOT called here. FlushBatch (called once per
+	// router ReadPartition batch) flushes all events written in the batch with a
+	// single rc.Flush(), amortising the flush latency over many events (Fix E).
 
-	// Persist cursor after successful delivery (seq+1 = resume from next event).
+	// Persist cursor after successful write (seq+1 = resume from next event).
 	if err := c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq+1); err != nil {
 		return err
 	}
 
 	if c.m != nil {
 		c.m.EventsDelivered.WithLabelValues(c.id, entry.Event.Table, string(entry.Event.Operation)).Inc()
+	}
+	return nil
+}
+
+// FlushBatch implements router.BatchFlusher. It flushes all events written
+// since the last FlushBatch call to the underlying HTTP transport in a single
+// system call. Called by the Router after each ReadPartition batch.
+func (c *SSEConsumer) FlushBatch(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil // connection already gone; nothing to flush
+	}
+
+	if err := c.rc.Flush(); err != nil {
+		if c.m != nil {
+			c.m.ErrorsTotal.WithLabelValues(c.id, "flush").Inc()
+		}
+		return err
 	}
 	return nil
 }
