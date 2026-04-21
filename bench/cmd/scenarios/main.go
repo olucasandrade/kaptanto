@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kaptanto/kaptanto/bench/internal/scenarios"
+	"github.com/olucasandrade/kaptanto/bench/internal/scenarios"
 )
 
 func main() {

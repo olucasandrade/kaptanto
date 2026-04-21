@@ -3,7 +3,7 @@
 // all consumer types to restrict which events are delivered.
 package output
 
-import "github.com/kaptanto/kaptanto/internal/event"
+import "github.com/olucasandrade/kaptanto/internal/event"
 
 // EventFilter restricts which events a consumer receives based on configured
 // table and operation allow-lists.

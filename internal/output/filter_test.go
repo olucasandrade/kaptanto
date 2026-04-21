@@ -3,7 +3,7 @@ package output
 import (
 	"testing"
 
-	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/event"
 )
 
 // makeEvent is a helper that constructs a minimal ChangeEvent for filter tests.

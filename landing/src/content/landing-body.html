@@ -7,7 +7,7 @@
 <a href="#features" onclick="go('landing')">Features</a>
 <a href="#compare" onclick="go('landing')">Compare</a>
 <a href="/docs/docs-benchmarks" onclick="return go('docs-benchmarks')" data-p="docs">Benchmarks</a>
-<a href="https://github.com/kaptanto/kaptanto" class="ng"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>GitHub</a>
+<a href="https://github.com/olucasandrade/kaptanto" class="ng"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>GitHub</a>
 </div>
 <button class="nmob" onclick="document.getElementById('navL').style.display=document.getElementById('navL').style.display==='flex'?'none':'flex'" aria-label="Menu"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h18M3 11h18M3 17h18"/></svg></button>
 </div></nav>
@@ -67,9 +67,9 @@
 <div style="max-width:540px" class="sr">
 <div class="its"><button class="it a" data-t="curl">curl</button><button class="it" data-t="docker">Docker</button><button class="it" data-t="brew">Homebrew</button><button class="it" data-t="src">Source</button></div>
 <div class="ic" id="ic-curl"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
-<div class="ic" id="ic-docker" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> docker run kaptanto/kaptanto \<br>&nbsp;&nbsp;<span class="tbl">--source</span> <span class="ty">postgres://localhost:5432/mydb</span> \<br>&nbsp;&nbsp;<span class="tbl">--tables</span> <span class="ty">orders</span> <span class="tbl">--output</span> <span class="ty">stdout</span></div>
+<div class="ic" id="ic-docker" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> docker run olucasandrade/kaptanto \<br>&nbsp;&nbsp;<span class="tbl">--source</span> <span class="ty">postgres://localhost:5432/mydb</span> \<br>&nbsp;&nbsp;<span class="tbl">--tables</span> <span class="ty">orders</span> <span class="tbl">--output</span> <span class="ty">stdout</span></div>
 <div class="ic" id="ic-brew" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> brew install kaptanto/tap/kaptanto</div>
-<div class="ic" id="ic-src" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> git clone https://github.com/kaptanto/kaptanto<br><span class="tg">$</span> cd kaptanto && go build -o kaptanto .</div>
+<div class="ic" id="ic-src" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto<br><span class="tg">$</span> cd kaptanto && go build -o kaptanto .</div>
 </div></div></div>
 
 <section class="sec" id="compare">
@@ -92,8 +92,8 @@
 <div><div class="fb"><img src="/logo.png" alt="Kaptanto logo" class="flg">kaptanto</div><p class="fdesc">Lightweight CDC for Postgres and MongoDB. Open source, Apache 2.0.</p><p class="fesp">"kaptanto" — who captures (Esperanto)</p></div>
 <div class="fcol"><h4>Product</h4><a href="#features">Features</a><a href="#sources">Sources</a><a href="#install">Install</a><a href="#compare">Compare</a></div>
 <div class="fcol"><h4>Resources</h4><a href="/docs/docs-intro" onclick="return go('docs-intro')">Docs</a><a href="/docs/docs-quickstart" onclick="return go('docs-quickstart')">Quick Start</a><a href="/docs/docs-config" onclick="return go('docs-config')">Config</a><a href="#">Blog</a></div>
-<div class="fcol"><h4>Community</h4><a href="https://github.com/kaptanto/kaptanto">GitHub</a><a href="#">Discord</a><a href="#">X</a><a href="#">Contributing</a></div>
-</div><div class="fbot"><span>&copy; 2026 Kaptanto. Apache 2.0 License.</span><span>Made in Brazil &middot; <a href="https://github.com/kaptanto/kaptanto">Source</a></span></div></div></footer>
+<div class="fcol"><h4>Community</h4><a href="https://github.com/olucasandrade/kaptanto">GitHub</a><a href="#">Discord</a><a href="#">X</a><a href="#">Contributing</a></div>
+</div><div class="fbot"><span>&copy; 2026 Kaptanto. Apache 2.0 License.</span><span>Made in Brazil &middot; <a href="https://github.com/olucasandrade/kaptanto">Source</a></span></div></div></footer>
 </div>
 
 <!-- ═══ DOCS ═══ -->
@@ -147,7 +147,7 @@ var docs = {
 <h2 class="dh2">1. Install</h2>
 <div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <p class="dp">Or with Docker:</p>
-<div class="dcode"><span class="tg">$</span> docker pull kaptanto/kaptanto:latest</div>
+<div class="dcode"><span class="tg">$</span> docker pull olucasandrade/kaptanto:latest</div>
 
 <h2 class="dh2">2. Configure Postgres</h2>
 <p class="dp">Ensure your Postgres has logical replication enabled:</p>
@@ -185,15 +185,15 @@ max_wal_senders = 4</div>
 <p class="dp">Downloads a statically-linked binary for your platform. No runtime dependencies.</p>
 
 <h2 class="dh2">Docker</h2>
-<div class="dcode"><span class="tg">$</span> docker pull kaptanto/kaptanto:latest
-<span class="tg">$</span> docker run kaptanto/kaptanto --source postgres://host.docker.internal:5432/mydb --output stdout</div>
+<div class="dcode"><span class="tg">$</span> docker pull olucasandrade/kaptanto:latest
+<span class="tg">$</span> docker run olucasandrade/kaptanto --source postgres://host.docker.internal:5432/mydb --output stdout</div>
 
 <h2 class="dh2">Homebrew</h2>
 <div class="dcode"><span class="tg">$</span> brew install kaptanto/tap/kaptanto</div>
 
 <h2 class="dh2">From source</h2>
 <p class="dp">Requires Go 1.22+:</p>
-<div class="dcode"><span class="tg">$</span> git clone https://github.com/kaptanto/kaptanto
+<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
 <span class="tg">$</span> cd kaptanto && go build -o kaptanto ./cmd/kaptanto</div>
 
 <h2 class="dh2">With Rust acceleration</h2>
@@ -541,7 +541,7 @@ await db.query(
 <div class="dcode"><span class="tc"># task definition (simplified)</span>
 {
   "name": "kaptanto",
-  "image": "kaptanto/kaptanto:latest",
+  "image": "olucasandrade/kaptanto:latest",
   "command": [
     "--source", "postgres://api_user:pass@rds-host:5432/orders",
     "--tables", "orders,payments",
@@ -570,7 +570,7 @@ es.onmessage = (e) =&gt; {
 
 <h2 class="dh2">Option 2 — kaptanto-rust on ECS Fargate</h2>
 <p class="dp">Identical setup to kaptanto. Change only the image tag:</p>
-<div class="dcode">"image": "kaptanto/kaptanto:latest-rust"</div>
+<div class="dcode">"image": "olucasandrade/kaptanto:latest-rust"</div>
 <p class="dp">Same cost, same operational model. The difference is behavioral: the Rust FFI WAL parser drains post-crash backlogs ~4x faster. Choose this over plain kaptanto when your consumers have SLAs on event freshness after a restart — for example, a financial reconciliation service that must be fully caught up within 60 seconds.</p>
 
 <h2 class="dh2">Option 3 — Debezium on ECS + Amazon MSK</h2>

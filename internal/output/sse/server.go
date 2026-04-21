@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/observability"
-	"github.com/kaptanto/kaptanto/internal/output"
-	"github.com/kaptanto/kaptanto/internal/router"
+	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/output"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 // SSEServer is an http.Handler that manages SSE connections.

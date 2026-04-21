@@ -26,7 +26,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/event"
 )
 
 // ---------------------------------------------------------------------------

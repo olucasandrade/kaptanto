@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kaptanto/kaptanto/bench/internal/collector"
-	"github.com/kaptanto/kaptanto/bench/internal/collector/adapters"
+	"github.com/olucasandrade/kaptanto/bench/internal/collector"
+	"github.com/olucasandrade/kaptanto/bench/internal/collector/adapters"
 )
 
 func main() {

@@ -9,10 +9,10 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
-	"github.com/kaptanto/kaptanto/internal/observability"
-	"github.com/kaptanto/kaptanto/internal/output"
-	"github.com/kaptanto/kaptanto/internal/output/grpc/proto"
-	"github.com/kaptanto/kaptanto/internal/router"
+	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/output"
+	"github.com/olucasandrade/kaptanto/internal/output/grpc/proto"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 // GRPCServer implements proto.CdcStreamServer.

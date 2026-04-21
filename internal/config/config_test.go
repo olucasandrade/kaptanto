@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

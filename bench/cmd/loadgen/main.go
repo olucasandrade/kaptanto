@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kaptanto/kaptanto/bench/internal/loadgen"
+	"github.com/olucasandrade/kaptanto/bench/internal/loadgen"
 	"golang.org/x/time/rate"
 )
 

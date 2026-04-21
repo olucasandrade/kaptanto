@@ -19,10 +19,10 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/kaptanto/kaptanto/internal/checkpoint"
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/eventlog"
-	mongoparser "github.com/kaptanto/kaptanto/internal/parser/mongodb"
+	"github.com/olucasandrade/kaptanto/internal/checkpoint"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	mongoparser "github.com/olucasandrade/kaptanto/internal/parser/mongodb"
 )
 
 const (

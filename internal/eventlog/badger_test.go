@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/kaptanto/kaptanto/internal/checkpoint"
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/eventlog"
-	"github.com/kaptanto/kaptanto/internal/source/postgres"
+	"github.com/olucasandrade/kaptanto/internal/checkpoint"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/source/postgres"
 )
 
 // --- Mock EventLog ---

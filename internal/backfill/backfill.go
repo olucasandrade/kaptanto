@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
 )
 
 // BackfillConfig configures a single table's backfill strategy.

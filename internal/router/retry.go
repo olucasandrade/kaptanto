@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
 )
 
 // retryDelays defines the exponential backoff schedule for delivery retries.

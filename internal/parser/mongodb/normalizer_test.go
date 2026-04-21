@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/event"
-	mongodb "github.com/kaptanto/kaptanto/internal/parser/mongodb"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	mongodb "github.com/olucasandrade/kaptanto/internal/parser/mongodb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"

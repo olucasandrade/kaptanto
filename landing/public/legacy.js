@@ -32,7 +32,7 @@ var docs = {
 <h2 class="dh2">1. Install</h2>
 <div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh</div>
 <p class="dp">Or with Docker:</p>
-<div class="dcode"><span class="tg">$</span> docker pull kaptanto/kaptanto:latest</div>
+<div class="dcode"><span class="tg">$</span> docker pull olucasandrade/kaptanto:latest</div>
 
 <h2 class="dh2">2. Configure Postgres</h2>
 <p class="dp">Ensure your Postgres has logical replication enabled:</p>
@@ -64,15 +64,15 @@ max_wal_senders = 4</div>
 <p class="dp">Downloads a statically-linked binary for your platform. No runtime dependencies.</p>
 
 <h2 class="dh2">Docker</h2>
-<div class="dcode"><span class="tg">$</span> docker pull kaptanto/kaptanto:latest
-<span class="tg">$</span> docker run kaptanto/kaptanto --source postgres://host.docker.internal:5432/mydb --output stdout</div>
+<div class="dcode"><span class="tg">$</span> docker pull olucasandrade/kaptanto:latest
+<span class="tg">$</span> docker run olucasandrade/kaptanto --source postgres://host.docker.internal:5432/mydb --output stdout</div>
 
 <h2 class="dh2">Homebrew</h2>
 <div class="dcode"><span class="tg">$</span> brew install kaptanto/tap/kaptanto</div>
 
 <h2 class="dh2">From source</h2>
 <p class="dp">Requires Go 1.22+:</p>
-<div class="dcode"><span class="tg">$</span> git clone https://github.com/kaptanto/kaptanto
+<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
 <span class="tg">$</span> cd kaptanto && go build -o kaptanto ./cmd/kaptanto</div>
 
 <h2 class="dh2">With Rust acceleration</h2>
@@ -397,24 +397,6 @@ metrics:
 <h2 class="dh2">Consumer falling behind</h2>
 <p class="dp">Check <code>kaptanto_consumer_lag_events</code>. Configure <code>slow_consumer_policy</code> to <code>disconnect</code> if a consumer exceeds <code>max_lag_before_disconnect</code>.</p>`},
 
-'docs-guides': {title:'Language Guides',sub:'Code examples for consuming kaptanto events in every language.',body:`
-<div class="dcards">
-<div class="dcard" onclick="window.open('https://github.com/kaptanto/kaptanto/tree/main/examples/python','_blank')"><div class="lgc-h"><img src="/logo.png" alt="Kaptanto logo"><h4>Python</h4></div><p>subprocess + stdout for ML fraud detection pipelines.</p></div>
-<div class="dcard" onclick="window.open('https://github.com/kaptanto/kaptanto/tree/main/examples/node','_blank')"><div class="lgc-h"><img src="/logo.png" alt="Kaptanto logo"><h4>Node.js / TypeScript</h4></div><p>EventSource SSE for Elasticsearch index sync.</p></div>
-<div class="dcard" onclick="window.open('https://github.com/kaptanto/kaptanto/tree/main/examples/go','_blank')"><div class="lgc-h"><img src="/logo.png" alt="Kaptanto logo"><h4>Go</h4></div><p>gRPC streaming for real-time balance materialization.</p></div>
-<div class="dcard" onclick="window.open('https://github.com/kaptanto/kaptanto/tree/main/examples/java','_blank')"><div class="lgc-h"><img src="/logo.png" alt="Kaptanto logo"><h4>Java / Spring</h4></div><p>WebClient SSE for order notification services.</p></div>
-<div class="dcard" onclick="window.open('https://github.com/kaptanto/kaptanto/tree/main/examples/rust','_blank')"><div class="lgc-h"><img src="/logo.png" alt="Kaptanto logo"><h4>Rust</h4></div><p>tonic gRPC for high-throughput analytics aggregation.</p></div>
-<div class="dcard" onclick="window.open('https://github.com/kaptanto/kaptanto/tree/main/examples/ruby','_blank')"><div class="lgc-h"><img src="/logo.png" alt="Kaptanto logo"><h4>Ruby / Rails</h4></div><p>Open3 stdout for HIPAA audit trail logging.</p></div>
-<div class="dcard" onclick="window.open('https://github.com/kaptanto/kaptanto/tree/main/examples/elixir','_blank')"><div class="lgc-h"><img src="/logo.png" alt="Kaptanto logo"><h4>Elixir / Phoenix</h4></div><p>GenServer SSE for live dashboard via PubSub.</p></div>
-<div class="dcard" onclick="window.open('https://github.com/kaptanto/kaptanto/tree/main/examples/dotnet','_blank')"><div class="lgc-h"><img src="/logo.png" alt="Kaptanto logo"><h4>C# / .NET</h4></div><p>BackgroundService gRPC for event sourcing projections.</p></div>
-</div>
-<p class="dp">All examples use the same kaptanto binary. The output mode (stdout, SSE, gRPC) determines how you connect. No SDK required.</p>
-<h2 class="dh2">Deployment Guides</h2>
-<div class="dcards">
-<div class="dcard" onclick="go('docs-aws-setup')"><h4>AWS Deployment Guide</h4><p>Run kaptanto on ECS Fargate + RDS. Cost and infra compared to Debezium and Sequin.</p></div>
-<div class="dcard" onclick="go('docs-benchmarks')"><h4>Benchmarks</h4><p>Throughput and latency results vs. Debezium and Sequin.</p></div>
-</div>`},
-
 
 'docs-aws-setup': {title:'AWS Deployment Guide',sub:'How to run kaptanto, Debezium, and Sequin alongside an API on AWS — and what each setup actually costs you.',body:`
 <div class="dcall"><p><strong>Scenario:</strong> An order management API (Node.js / Python / any language) running on ECS Fargate, backed by RDS Postgres. Every row written via the API must be streamed to downstream consumers in real time.</p></div>
@@ -438,7 +420,7 @@ await db.query(
 <div class="dcode"><span class="tc"># task definition (simplified)</span>
 {
   "name": "kaptanto",
-  "image": "kaptanto/kaptanto:latest",
+  "image": "olucasandrade/kaptanto:latest",
   "command": [
     "--source", "postgres://api_user:pass@rds-host:5432/orders",
     "--tables", "orders,payments",
@@ -467,7 +449,7 @@ es.onmessage = (e) =&gt; {
 
 <h2 class="dh2">Option 2 — kaptanto-rust on ECS Fargate</h2>
 <p class="dp">Identical setup to kaptanto. Change only the image tag:</p>
-<div class="dcode">"image": "kaptanto/kaptanto:latest-rust"</div>
+<div class="dcode">"image": "olucasandrade/kaptanto:latest-rust"</div>
 <p class="dp">Same cost, same operational model. The difference is behavioral: the Rust FFI WAL parser drains post-crash backlogs ~4x faster. Choose this over plain kaptanto when your consumers have SLAs on event freshness after a restart — for example, a financial reconciliation service that must be fully caught up within 60 seconds.</p>
 
 <h2 class="dh2">Option 3 — Debezium on ECS + Amazon MSK</h2>
@@ -572,7 +554,6 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dcards">
 <div class="dcard" onclick="go('docs-consistency')"><h4>Consistency Model</h4><p>Delivery guarantees, durability, and what happens on crash.</p></div>
 <div class="dcard" onclick="go('docs-ha')"><h4>High Availability</h4><p>Leader election and multi-AZ failover.</p></div>
-<div class="dcard" onclick="go('docs-guides')"><h4>Language Guides</h4><p>Full consumer examples in Node.js, Python, Go, and more.</p></div>
 </div>`},
 
 'docs-benchmarks': {title:'Benchmarks',sub:'Independent throughput and latency results vs. Debezium and Sequin.',body:`
@@ -653,7 +634,7 @@ var sidebar = [
 {label:'Output Modes',items:[['docs-stdout','stdout'],['docs-sse','Server-Sent Events'],['docs-grpc','gRPC']]},
 {label:'Configuration',items:[['docs-config','CLI & YAML'],['docs-filtering','Filtering'],['docs-grouping','Message Grouping']]},
 {label:'Production',items:[['docs-ha','High Availability'],['docs-metrics','Metrics & Monitoring'],['docs-api','Management API'],['docs-troubleshooting','Troubleshooting']]},
-{label:'Guides',items:[['docs-guides','Language Guides'],['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
+{label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
 ];
 
 function buildSidebar(active){
@@ -665,7 +646,7 @@ h+='</div>';
 document.getElementById('docSidebar').innerHTML=h;
 }
 
-var docFlow=['docs-intro','docs-quickstart','docs-install','docs-postgres','docs-mongo','docs-schema','docs-backfills','docs-consistency','docs-ordering','docs-stdout','docs-sse','docs-grpc','docs-config','docs-filtering','docs-grouping','docs-ha','docs-metrics','docs-api','docs-troubleshooting','docs-guides','docs-aws-setup','docs-benchmarks'];
+var docFlow=['docs-intro','docs-quickstart','docs-install','docs-postgres','docs-mongo','docs-schema','docs-backfills','docs-consistency','docs-ordering','docs-stdout','docs-sse','docs-grpc','docs-config','docs-filtering','docs-grouping','docs-ha','docs-metrics','docs-api','docs-troubleshooting','docs-aws-setup','docs-benchmarks'];
 
 function docLabel(id){
 for(var si=0;si<sidebar.length;si++){
@@ -734,7 +715,7 @@ return 'landing';
 
 // ── INIT ──
 // Stream
-!function(){var e=[['si','INSERT','orders #4821'],['su','UPDATE','users #119'],['si','INSERT','payments #7703'],['sd','DELETE','sessions #3321'],['su','UPDATE','orders #4822'],['si','INSERT','invoices #902'],['su','UPDATE','inventory #445'],['sd','DELETE','tokens #8812'],['si','INSERT','audit_log #15590'],['su','UPDATE','accounts #77'],['si','INSERT','transfers #3320'],['su','UPDATE','shipments #663']];var h='';for(var r=0;r<2;r++)e.forEach(function(v){h+='<span class="se"><span class="'+v[0]+'">'+v[1]+'</span>'+v[2]+'</span>'});document.getElementById('stk').innerHTML=h}();
+!function(){var e=[['si','INSERT','orders #4821'],['su','UPDATE','users #119'],['si','INSERT','payments #7703'],['sd','DELETE','sessions #3321'],['su','UPDATE','orders #4822'],['si','INSERT','invoices #902'],['su','UPDATE','inventory #445'],['sd','DELETE','tokens #8812'],['si','INSERT','audit_log #15590'],['su','UPDATE','accounts #77'],['si','INSERT','transfers #3320'],['su','UPDATE','shipments #663']];var h='';for(var r=0;r<2;r++)e.forEach(function(v){h+='<span class="se'+(v[0]==='sd'?' se-d':'')+'"><span class="'+v[0]+'">'+v[1]+'</span><span class="sn">'+v[2]+'</span></span>'});document.getElementById('stk').innerHTML=h}();
 
 // Tabs
 document.querySelectorAll('.it').forEach(function(t){t.addEventListener('click',function(){document.querySelectorAll('.it').forEach(function(x){x.classList.remove('a')});document.querySelectorAll('.ic').forEach(function(c){c.style.display='none'});t.classList.add('a');document.getElementById('ic-'+t.dataset.t).style.display='block'})});

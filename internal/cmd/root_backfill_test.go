@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/kaptanto/kaptanto/internal/backfill"
-	"github.com/kaptanto/kaptanto/internal/config"
-	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/backfill"
+	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

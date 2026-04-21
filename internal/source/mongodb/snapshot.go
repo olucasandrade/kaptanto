@@ -17,8 +17,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/kaptanto/kaptanto/internal/event"
-	mongoparser "github.com/kaptanto/kaptanto/internal/parser/mongodb"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	mongoparser "github.com/olucasandrade/kaptanto/internal/parser/mongodb"
 )
 
 // WatermarkChecker is the interface for watermark deduplication during snapshot.

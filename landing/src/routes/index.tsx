@@ -16,7 +16,7 @@ const jsonLd = {
       name: "Kaptanto",
       url: "https://kaptanto.dev",
       logo: "https://kaptanto.dev/logo.png",
-      sameAs: ["https://github.com/kaptanto/kaptanto"],
+      sameAs: ["https://github.com/olucasandrade/kaptanto"],
     },
     {
       "@type": "SoftwareApplication",

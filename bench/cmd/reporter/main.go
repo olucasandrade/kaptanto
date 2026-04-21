@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kaptanto/kaptanto/bench/internal/reporter"
+	"github.com/olucasandrade/kaptanto/bench/internal/reporter"
 )
 
 func main() {

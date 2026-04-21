@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/eventlog"
-	"github.com/kaptanto/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
 )
 
 const pollInterval = 10 * time.Millisecond

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pglogrepl"
-	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/event"
 )
 
 // Parser converts raw pgoutput WAL bytes into *event.ChangeEvent values.

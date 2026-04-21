@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/kaptanto/kaptanto/bench/internal/collector"
+	"github.com/olucasandrade/kaptanto/bench/internal/collector"
 )
 
 // RunKaptantoRust connects to the Rust-FFI Kaptanto SSE endpoint.

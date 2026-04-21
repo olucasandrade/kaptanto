@@ -1,4 +1,4 @@
-module github.com/kaptanto/kaptanto/bench
+module github.com/olucasandrade/kaptanto/bench
 
 go 1.25.0
 

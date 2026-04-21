@@ -12,12 +12,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
-	"github.com/kaptanto/kaptanto/internal/backfill"
-	"github.com/kaptanto/kaptanto/internal/checkpoint"
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/eventlog"
-	"github.com/kaptanto/kaptanto/internal/observability"
-	"github.com/kaptanto/kaptanto/internal/parser/pgoutput"
+	"github.com/olucasandrade/kaptanto/internal/backfill"
+	"github.com/olucasandrade/kaptanto/internal/checkpoint"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/parser/pgoutput"
 )
 
 const (
