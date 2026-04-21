@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/kaptanto/kaptanto/internal/version"
+	"github.com/olucasandrade/kaptanto/internal/version"
 	"github.com/spf13/cobra"
 )
 

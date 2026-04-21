@@ -1,4 +1,4 @@
-module github.com/kaptanto/kaptanto
+module github.com/olucasandrade/kaptanto
 
 go 1.25.0
 

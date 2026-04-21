@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/kaptanto/kaptanto/bench/internal/collector"
+	"github.com/olucasandrade/kaptanto/bench/internal/collector"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 

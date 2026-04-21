@@ -12,11 +12,11 @@ import (
 	"github.com/oklog/ulid/v2"
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/eventlog"
-	"github.com/kaptanto/kaptanto/internal/observability"
-	"github.com/kaptanto/kaptanto/internal/output/stdout"
-	"github.com/kaptanto/kaptanto/internal/router"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/output/stdout"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 // TestStdoutWriterID verifies that StdoutWriter.ID() returns "stdout".

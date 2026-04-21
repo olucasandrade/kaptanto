@@ -1,6 +1,6 @@
 syntax = "proto3";
 package kaptanto.v1;
-option go_package = "github.com/kaptanto/kaptanto/internal/output/grpc/proto";
+option go_package = "github.com/olucasandrade/kaptanto/internal/output/grpc/proto";
 
 // CdcStream is the gRPC service for streaming Change Data Capture events.
 service CdcStream {

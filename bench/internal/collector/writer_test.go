@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaptanto/kaptanto/bench/internal/collector"
+	"github.com/olucasandrade/kaptanto/bench/internal/collector"
 )
 
 // Test 1: RunWriter writes exactly one JSON line per EventRecord sent on the channel.

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kaptanto/kaptanto/internal/checkpoint"
+	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

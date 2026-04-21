@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kaptanto/kaptanto/internal/cmd"
+	"github.com/olucasandrade/kaptanto/internal/cmd"
 )
 
 func main() {

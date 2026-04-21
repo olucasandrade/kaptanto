@@ -21,8 +21,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pglogrepl"
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/parser/pgoutput"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/parser/pgoutput"
 )
 
 // assertJSONField parses jsonBytes into a map and checks that key has the expected value.

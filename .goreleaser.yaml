@@ -26,9 +26,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X 'github.com/kaptanto/kaptanto/internal/version.Version={{ .Version }}'
-      - -X 'github.com/kaptanto/kaptanto/internal/version.Commit={{ .Commit }}'
-      - -X 'github.com/kaptanto/kaptanto/internal/version.BuildDate={{ .Date }}'
+      - -X 'github.com/olucasandrade/kaptanto/internal/version.Version={{ .Version }}'
+      - -X 'github.com/olucasandrade/kaptanto/internal/version.Commit={{ .Commit }}'
+      - -X 'github.com/olucasandrade/kaptanto/internal/version.BuildDate={{ .Date }}'
 
 archives:
   - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"

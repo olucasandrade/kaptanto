@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/kaptanto/kaptanto/internal/output"
+	"github.com/olucasandrade/kaptanto/internal/output"
 )
 
 // TestApplyColumnFilter_NilInput verifies that a nil raw JSON input passes through unchanged.

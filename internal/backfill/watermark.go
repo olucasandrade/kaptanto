@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pglogrepl"
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
 )
 
 // WatermarkChecker determines whether a snapshot row should be emitted by

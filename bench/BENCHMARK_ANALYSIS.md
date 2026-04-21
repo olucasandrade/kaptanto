@@ -161,7 +161,7 @@ At 10k rows/sec load, this creates a ~3.5k row/sec backlog. Events inserted earl
 
 # Kaptanto:
 # Step 1: Install
-curl -L https://github.com/kaptanto/kaptanto/releases/latest/download/kaptanto-darwin-arm64 -o kaptanto && chmod +x kaptanto
+curl -L https://github.com/olucasandrade/kaptanto/releases/latest/download/kaptanto-darwin-arm64 -o kaptanto && chmod +x kaptanto
 
 # Step 2: Start
 ./kaptanto --source postgres://user:pass@localhost/mydb --output sse

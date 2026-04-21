@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kaptanto/kaptanto/bench/internal/statsd"
+	"github.com/olucasandrade/kaptanto/bench/internal/statsd"
 )
 
 func main() {

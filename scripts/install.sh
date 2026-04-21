@@ -6,7 +6,7 @@
 
 set -eu
 
-REPO="kaptanto/kaptanto"
+REPO="olucasandrade/kaptanto"
 BINARY="kaptanto"
 INSTALL_DIR="/usr/local/bin"
 

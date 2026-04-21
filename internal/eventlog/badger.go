@@ -8,7 +8,7 @@ import (
 	"time"
 
 	badger "github.com/dgraph-io/badger/v4"
-	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/event"
 )
 
 // BadgerEventLog is the BadgerDB-backed implementation of EventLog.

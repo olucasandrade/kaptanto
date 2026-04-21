@@ -18,7 +18,7 @@ package eventlog
 import (
 	"context"
 
-	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/event"
 )
 
 // EventLog is the append-only durable event store interface.

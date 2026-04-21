@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/ha"
+	"github.com/olucasandrade/kaptanto/internal/ha"
 )
 
 func skipIfNoDSN(t *testing.T) string {

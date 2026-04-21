@@ -11,8 +11,8 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/kaptanto/kaptanto/internal/eventlog"
-	"github.com/kaptanto/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
 )
 
 // StdoutWriter implements router.Consumer and writes events as NDJSON.

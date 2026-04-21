@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kaptanto/kaptanto/internal/checkpoint"
+	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 )
 
 // TestPostgresStore runs integration tests for PostgresStore.

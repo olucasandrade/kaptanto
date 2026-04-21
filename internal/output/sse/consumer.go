@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/kaptanto/kaptanto/internal/eventlog"
-	"github.com/kaptanto/kaptanto/internal/observability"
-	"github.com/kaptanto/kaptanto/internal/output"
-	"github.com/kaptanto/kaptanto/internal/router"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/output"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 // SSEConsumer implements router.Consumer for a single SSE connection.

@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pglogrepl"
-	"github.com/kaptanto/kaptanto/internal/event"
-	"github.com/kaptanto/kaptanto/internal/parser/pgoutput"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/parser/pgoutput"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

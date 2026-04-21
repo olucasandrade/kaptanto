@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/event"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 

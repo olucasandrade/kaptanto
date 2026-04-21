@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kaptanto/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/observability"
 )
 
 const createCursorTableSQL = `
