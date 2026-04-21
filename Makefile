@@ -2,13 +2,23 @@
 
 .PHONY: build test test-race verify-no-cgo clean build-rust
 
+# Version injection — reads from git tag if available, falls back to "dev".
+VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+LDFLAGS := -s -w \
+  -X 'github.com/kaptanto/kaptanto/internal/version.Version=$(VERSION)' \
+  -X 'github.com/kaptanto/kaptanto/internal/version.Commit=$(COMMIT)' \
+  -X 'github.com/kaptanto/kaptanto/internal/version.BuildDate=$(BUILD_DATE)'
+
 # Rust FFI acceleration build variables.
 RUST_DIR := rust/kaptanto-ffi
 RUST_LIB := $(RUST_DIR)/target/release/libkaptanto_ffi.a
 
 # build produces a static binary with no CGO, stripped symbols and debug info.
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o kaptanto ./cmd/kaptanto
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o kaptanto ./cmd/kaptanto
 
 # test runs all tests with CGO disabled to enforce the pure-Go build constraint.
 # -race requires CGO on some platforms; use test-race for that mode.
@@ -41,7 +51,7 @@ clean:
 #       for cross-compilation.
 build-rust: $(RUST_LIB)
 	@echo "[kaptanto] Building Rust-accelerated Go binary (CGO_ENABLED=1)..."
-	CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" --tags rust -o kaptanto ./cmd/kaptanto
+	CGO_ENABLED=1 go build -trimpath -ldflags="$(LDFLAGS)" --tags rust -o kaptanto ./cmd/kaptanto
 	@echo "[kaptanto] Built: Rust-accelerated binary -> ./kaptanto"
 
 $(RUST_LIB):

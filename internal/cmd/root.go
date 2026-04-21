@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kaptanto/kaptanto/internal/backfill"
+	"github.com/kaptanto/kaptanto/internal/version"
 	"github.com/kaptanto/kaptanto/internal/checkpoint"
 	"github.com/kaptanto/kaptanto/internal/config"
 	"github.com/kaptanto/kaptanto/internal/event"
@@ -119,6 +120,9 @@ The name means "who captures" in Esperanto.`,
 
 	// OBS-03: Observability flags.
 	root.PersistentFlags().String("log-level", "info", "log verbosity: debug | info | warn | error")
+
+	root.Version = version.Version
+	root.AddCommand(newVersionCmd())
 
 	// PersistentPreRunE initializes structured JSON logging before any subcommand runs.
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: CGO_ENABLED=0 go vet ./...
+
+      - name: go test
+        run: CGO_ENABLED=0 go test ./... -v -count=1 -timeout 120s
+
+  verify-no-cgo:
+    name: Verify pure-Go cross-compilation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: linux/amd64
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./...
+
+      - name: darwin/arm64
+        run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
+
+      - name: windows/amd64
+        run: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...
