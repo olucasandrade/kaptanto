@@ -48,14 +48,14 @@ func buildChangeStreamDoc(t *testing.T, opts map[string]interface{}) bson.Raw {
 	clusterTime := bson.Timestamp{T: uint32(time.Now().Unix()), I: 1}
 
 	// resume token (_id)
-	resumeToken := bson.D{{"_data", "82AABBCC"}}
+	resumeToken := bson.D{{Key: "_data", Value: "82AABBCC"}}
 
 	doc := bson.D{
-		{"_id", resumeToken},
-		{"operationType", opType},
-		{"clusterTime", clusterTime},
-		{"ns", bson.D{{"db", db}, {"coll", coll}}},
-		{"documentKey", bson.D{{"_id", oid}}},
+		{Key: "_id", Value: resumeToken},
+		{Key: "operationType", Value: opType},
+		{Key: "clusterTime", Value: clusterTime},
+		{Key: "ns", Value: bson.D{{Key: "db", Value: db}, {Key: "coll", Value: coll}}},
+		{Key: "documentKey", Value: bson.D{{Key: "_id", Value: oid}}},
 	}
 
 	if v, ok := opts["fullDocument"]; ok {
@@ -70,7 +70,7 @@ func buildChangeStreamDoc(t *testing.T, opts map[string]interface{}) bson.Raw {
 
 func TestNormalize_Insert(t *testing.T) {
 	oid := bson.NewObjectID()
-	fullDoc := bson.D{{"_id", oid}, {"amount", 100.0}, {"status", "pending"}}
+	fullDoc := bson.D{{Key: "_id", Value: oid}, {Key: "amount", Value: 100.0}, {Key: "status", Value: "pending"}}
 
 	raw := buildChangeStreamDoc(t, map[string]interface{}{
 		"operationType": "insert",
@@ -110,8 +110,8 @@ func TestNormalize_Insert(t *testing.T) {
 
 func TestNormalize_Update_WithBefore(t *testing.T) {
 	oid := bson.NewObjectID()
-	fullDoc := bson.D{{"_id", oid}, {"amount", 200.0}}
-	beforeDoc := bson.D{{"_id", oid}, {"amount", 100.0}}
+	fullDoc := bson.D{{Key: "_id", Value: oid}, {Key: "amount", Value: 200.0}}
+	beforeDoc := bson.D{{Key: "_id", Value: oid}, {Key: "amount", Value: 100.0}}
 
 	raw := buildChangeStreamDoc(t, map[string]interface{}{
 		"operationType":            "update",
@@ -136,7 +136,7 @@ func TestNormalize_Update_WithBefore(t *testing.T) {
 
 func TestNormalize_Update_NoBefore(t *testing.T) {
 	oid := bson.NewObjectID()
-	fullDoc := bson.D{{"_id", oid}, {"amount", 200.0}}
+	fullDoc := bson.D{{Key: "_id", Value: oid}, {Key: "amount", Value: 200.0}}
 
 	raw := buildChangeStreamDoc(t, map[string]interface{}{
 		"operationType": "update",
@@ -175,7 +175,7 @@ func TestNormalize_Delete(t *testing.T) {
 
 func TestNormalize_Replace(t *testing.T) {
 	oid := bson.NewObjectID()
-	fullDoc := bson.D{{"_id", oid}, {"amount", 300.0}}
+	fullDoc := bson.D{{Key: "_id", Value: oid}, {Key: "amount", Value: 300.0}}
 
 	raw := buildChangeStreamDoc(t, map[string]interface{}{
 		"operationType": "replace",
@@ -224,7 +224,7 @@ func TestNormalize_InsertMissingFullDocument(t *testing.T) {
 
 func TestNormalize_MetadataResumeToken(t *testing.T) {
 	oid := bson.NewObjectID()
-	fullDoc := bson.D{{"_id", oid}, {"x", 1}}
+	fullDoc := bson.D{{Key: "_id", Value: oid}, {Key: "x", Value: 1}}
 
 	raw := buildChangeStreamDoc(t, map[string]interface{}{
 		"operationType": "insert",
@@ -243,7 +243,7 @@ func TestNormalize_MetadataResumeToken(t *testing.T) {
 
 func TestNormalize_IdempotencyKey(t *testing.T) {
 	oid := bson.NewObjectID()
-	fullDoc := bson.D{{"_id", oid}, {"x", 1}}
+	fullDoc := bson.D{{Key: "_id", Value: oid}, {Key: "x", Value: 1}}
 
 	raw := buildChangeStreamDoc(t, map[string]interface{}{
 		"operationType": "insert",
