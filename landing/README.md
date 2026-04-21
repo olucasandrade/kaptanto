@@ -80,7 +80,13 @@ Then visit [http://localhost:8787/](http://localhost:8787/)
 
 If you don't already have an account, then [create a Cloudflare account here](https://dash.cloudflare.com/sign-up/pages). Next go to your dashboard and follow the [Cloudflare Pages deployment guide](https://developers.cloudflare.com/pages/framework-guides/deploy-anything/).
 
-Within the projects "Settings" for "Build and deployments", the "Build command" should be `bun build`, and the "Build output directory" should be set to `dist`.
+Within the projects "Settings" for "Build and deployments", configure Cloudflare Pages to use the app directory as the root:
+
+- Root directory: `landing`
+- Build command: `npm run build`
+- Build output directory: `dist`
+
+This repository is a monorepo. If Pages is pointed at the repository root and the build command is set to `cd landing && npm run build`, dependency installation happens in the wrong directory, and the build can fail with `qwik: not found`.
 
 ### Function Invocation Routes
 
