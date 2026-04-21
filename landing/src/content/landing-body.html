@@ -66,7 +66,7 @@
 <div class="stt sr">From install to streaming in 90 seconds.</div>
 <div style="max-width:540px" class="sr">
 <div class="its"><button class="it a" data-t="curl">curl</button><button class="it" data-t="docker">Docker</button><button class="it" data-t="brew">Homebrew</button><button class="it" data-t="src">Source</button></div>
-<div class="ic" id="ic-curl"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh</div>
+<div class="ic" id="ic-curl"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <div class="ic" id="ic-docker" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> docker run kaptanto/kaptanto \<br>&nbsp;&nbsp;<span class="tbl">--source</span> <span class="ty">postgres://localhost:5432/mydb</span> \<br>&nbsp;&nbsp;<span class="tbl">--tables</span> <span class="ty">orders</span> <span class="tbl">--output</span> <span class="ty">stdout</span></div>
 <div class="ic" id="ic-brew" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> brew install kaptanto/tap/kaptanto</div>
 <div class="ic" id="ic-src" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> git clone https://github.com/kaptanto/kaptanto<br><span class="tg">$</span> cd kaptanto && go build -o kaptanto .</div>
@@ -145,7 +145,7 @@ var docs = {
 
 'docs-quickstart': {title:'Quick Start',sub:'Install kaptanto and stream your first events in under 2 minutes.',body:`
 <h2 class="dh2">1. Install</h2>
-<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh</div>
+<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <p class="dp">Or with Docker:</p>
 <div class="dcode"><span class="tg">$</span> docker pull kaptanto/kaptanto:latest</div>
 
@@ -181,7 +181,7 @@ max_wal_senders = 4</div>
 
 'docs-install': {title:'Installation',sub:'Install kaptanto on Linux, macOS, or Windows.',body:`
 <h2 class="dh2">Binary (recommended)</h2>
-<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh</div>
+<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <p class="dp">Downloads a statically-linked binary for your platform. No runtime dependencies.</p>
 
 <h2 class="dh2">Docker</h2>
@@ -790,7 +790,7 @@ window.scrollTo(0,0);return false;
 
 // ── INIT ──
 // Stream
-!function(){var e=[['si','INSERT','orders #4821'],['su','UPDATE','users #119'],['si','INSERT','payments #7703'],['sd','DELETE','sessions #3321'],['su','UPDATE','orders #4822'],['si','INSERT','invoices #902'],['su','UPDATE','inventory #445'],['sd','DELETE','tokens #8812'],['si','INSERT','audit_log #15590'],['su','UPDATE','accounts #77'],['si','INSERT','transfers #3320'],['su','UPDATE','shipments #663']];var h='';for(var r=0;r<2;r++)e.forEach(function(v){h+='<span class="se"><span class="'+v[0]+'">'+v[1]+'</span>'+v[2]+'</span>'});document.getElementById('stk').innerHTML=h}();
+!function(){var e=[['si','INSERT','orders #4821'],['su','UPDATE','users #119'],['si','INSERT','payments #7703'],['sd','DELETE','sessions #3321'],['su','UPDATE','orders #4822'],['si','INSERT','invoices #902'],['su','UPDATE','inventory #445'],['sd','DELETE','tokens #8812'],['si','INSERT','audit_log #15590'],['su','UPDATE','accounts #77'],['si','INSERT','transfers #3320'],['su','UPDATE','shipments #663']];var h='';for(var r=0;r<2;r++)e.forEach(function(v){h+='<span class="se'+(v[0]==='sd'?' se-d':'')+'"><span class="'+v[0]+'">'+v[1]+'</span><span class="sn">'+v[2]+'</span></span>'});document.getElementById('stk').innerHTML=h}();
 
 // Tabs
 document.querySelectorAll('.it').forEach(function(t){t.addEventListener('click',function(){document.querySelectorAll('.it').forEach(function(x){x.classList.remove('a')});document.querySelectorAll('.ic').forEach(function(c){c.style.display='none'});t.classList.add('a');document.getElementById('ic-'+t.dataset.t).style.display='block'})});

@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: Build and release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-landing:
+    name: Bump landing page version
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # RELEASE_PAT is only required if main has branch protection that
+          # blocks the default GITHUB_TOKEN from pushing.
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Update version strings
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+
+          # Version badge in landing-body.html  (e.g. "Apache 2.0 — v0.1.0")
+          sed -i "s/Apache 2\.0 — v[0-9][^ <]*/Apache 2.0 — ${TAG}/" \
+            landing/src/content/landing-body.html
+
+          # softwareVersion in JSON-LD schema (index.tsx)
+          sed -i "s/softwareVersion: \"[^\"]*\"/softwareVersion: \"${VERSION}\"/" \
+            landing/src/routes/index.tsx
+
+      - name: Commit and push
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add landing/src/content/landing-body.html landing/src/routes/index.tsx
+          git diff --staged --quiet || git commit -m "chore: bump landing to ${TAG}"
+          git push origin HEAD:main
+
+  deploy-landing:
+    name: Deploy landing to Cloudflare Pages
+    needs: update-landing
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: landing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: landing/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ./dist --project-name=kaptanto
+          workingDirectory: landing
