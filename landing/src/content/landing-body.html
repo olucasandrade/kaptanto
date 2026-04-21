@@ -141,7 +141,6 @@ var docs = {
 <div class="dcard" onclick="go('docs-aws-setup')"><h4>AWS Deployment Guide</h4><p>Deploy on ECS Fargate + RDS with cost breakdown.</p></div>
 <div class="dcard" onclick="go('docs-benchmarks')"><h4>Benchmarks</h4><p>100× throughput vs. Debezium and Sequin.</p></div>
 <div class="dcard" onclick="go('docs-consistency')"><h4>Consistency Model</h4><p>Backfill coordination and guarantees.</p></div>
-<div class="dcard" onclick="go('docs-guides')"><h4>Language Guides</h4><p>Python, Node, Go, Java, Rust, more.</p></div>
 </div>`},
 
 'docs-quickstart': {title:'Quick Start',sub:'Install kaptanto and stream your first events in under 2 minutes.',body:`
@@ -519,23 +518,6 @@ metrics:
 <h2 class="dh2">Consumer falling behind</h2>
 <p class="dp">Check <code>kaptanto_consumer_lag_events</code>. Configure <code>slow_consumer_policy</code> to <code>disconnect</code> if a consumer exceeds <code>max_lag_before_disconnect</code>.</p>`},
 
-'docs-guides': {title:'Language Guides',sub:'Code examples for consuming kaptanto events in every language.',body:`
-<div class="dcards">
-<div class="dcard"><h4>Python</h4><p>subprocess + stdout for ML fraud detection pipelines.</p></div>
-<div class="dcard"><h4>Node.js / TypeScript</h4><p>EventSource SSE for Elasticsearch index sync.</p></div>
-<div class="dcard"><h4>Go</h4><p>gRPC streaming for real-time balance materialization.</p></div>
-<div class="dcard"><h4>Java / Spring</h4><p>WebClient SSE for order notification services.</p></div>
-<div class="dcard"><h4>Rust</h4><p>tonic gRPC for high-throughput analytics aggregation.</p></div>
-<div class="dcard"><h4>Ruby / Rails</h4><p>Open3 stdout for HIPAA audit trail logging.</p></div>
-<div class="dcard"><h4>Elixir / Phoenix</h4><p>GenServer SSE for live dashboard via PubSub.</p></div>
-<div class="dcard"><h4>C# / .NET</h4><p>BackgroundService gRPC for event sourcing projections.</p></div>
-</div>
-<p class="dp">All examples use the same kaptanto binary. The output mode (stdout, SSE, gRPC) determines how you connect. No SDK required.</p>
-<h2 class="dh2">Deployment Guides</h2>
-<div class="dcards">
-<div class="dcard" onclick="go('docs-aws-setup')"><h4>AWS Deployment Guide</h4><p>Run kaptanto on ECS Fargate + RDS. Cost and infra compared to Debezium and Sequin.</p></div>
-<div class="dcard" onclick="go('docs-benchmarks')"><h4>Benchmarks</h4><p>Throughput and latency results vs. Debezium and Sequin.</p></div>
-</div>`},
 
 'docs-aws-setup': {title:'AWS Deployment Guide',sub:'How to run kaptanto, Debezium, and Sequin alongside an API on AWS — and what each setup actually costs you.',body:`
 <div class="dcall"><p><strong>Scenario:</strong> An order management API (Node.js / Python / any language) running on ECS Fargate, backed by RDS Postgres. Every row written via the API must be streamed to downstream consumers in real time.</p></div>
@@ -693,7 +675,6 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dcards">
 <div class="dcard" onclick="go('docs-consistency')"><h4>Consistency Model</h4><p>Delivery guarantees, durability, and what happens on crash.</p></div>
 <div class="dcard" onclick="go('docs-ha')"><h4>High Availability</h4><p>Leader election and multi-AZ failover.</p></div>
-<div class="dcard" onclick="go('docs-guides')"><h4>Language Guides</h4><p>Full consumer examples in Node.js, Python, Go, and more.</p></div>
 </div>`},
 
 'docs-benchmarks': {title:'Benchmarks',sub:'Independent throughput and latency results vs. Debezium and Sequin.',body:`
@@ -774,7 +755,7 @@ var sidebar = [
 {label:'Output Modes',items:[['docs-stdout','stdout'],['docs-sse','Server-Sent Events'],['docs-grpc','gRPC']]},
 {label:'Configuration',items:[['docs-config','CLI & YAML'],['docs-filtering','Filtering'],['docs-grouping','Message Grouping']]},
 {label:'Production',items:[['docs-ha','High Availability'],['docs-metrics','Metrics & Monitoring'],['docs-api','Management API'],['docs-troubleshooting','Troubleshooting']]},
-{label:'Guides',items:[['docs-guides','Language Guides'],['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
+{label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
 ];
 
 function buildSidebar(active){
