@@ -7,7 +7,7 @@
 <a href="#features" onclick="go('landing')">Features</a>
 <a href="#compare" onclick="go('landing')">Compare</a>
 <a href="/docs/docs-benchmarks" onclick="return go('docs-benchmarks')" data-p="docs">Benchmarks</a>
-<a href="https://github.com/olucasandrade/kaptanto" class="ng"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>GitHub</a>
+<a href="https://github.com/olucasandrade/kaptanto" class="ng" target="_blank" rel="noopener"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>GitHub<span class="ns" id="ghStars"></span></a>
 </div>
 <button class="nmob" onclick="document.getElementById('navL').style.display=document.getElementById('navL').style.display==='flex'?'none':'flex'" aria-label="Menu"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h18M3 11h18M3 17h18"/></svg></button>
 </div></nav>
@@ -745,7 +745,48 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <li><strong>Large Batch</strong> — single bulk insert of 100k+ rows</li>
 <li><strong>Crash Recovery</strong> — SIGKILL mid-stream, then restart and measure time to caught-up</li>
 </ul>
-<p class="dp">Throughput is measured as events-per-second at the consumer. Latency is end-to-end: row committed in Postgres to event received by consumer. Each tool ran in Docker with equivalent resource limits. Database state was reset between tools to eliminate cross-run contamination.</p>`}
+<p class="dp">Throughput is measured as events-per-second at the consumer. Latency is end-to-end: row committed in Postgres to event received by consumer. Each tool ran in Docker with equivalent resource limits. Database state was reset between tools to eliminate cross-run contamination.</p>`},
+
+'docs-contributing': {title:'How to Contribute',sub:'Everything you need to open a PR, report a bug, or propose a feature.',body:`
+<h2 class="dh2">Getting started</h2>
+<p class="dp">Kaptanto is open source under the Apache 2.0 license. All contributions — bug fixes, features, docs, benchmarks — are welcome.</p>
+<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto<br><span class="tg">$</span> cd kaptanto && go build -o kaptanto ./cmd/kaptanto<br><span class="tg">$</span> go test ./... -count=1</div>
+
+<h2 class="dh2">Ways to contribute</h2>
+<ul class="dlist">
+<li><strong>Bug reports</strong> — open an issue with steps to reproduce, your OS, Go version, and database version.</li>
+<li><strong>Bug fixes</strong> — link the issue in your PR description. Add or update a test that fails before the fix.</li>
+<li><strong>New features</strong> — open an issue first to discuss the approach before writing code. Large changes without prior discussion may not be merged.</li>
+<li><strong>Docs</strong> — typo fixes and clarity improvements can go straight to a PR, no issue needed.</li>
+<li><strong>Benchmarks</strong> — improvements to the <code>bench/</code> harness are very welcome. See <a class="dl" href="#" onclick="return go('docs-benchmarks')">Benchmarks</a> for the clean-run procedure.</li>
+</ul>
+
+<h2 class="dh2">Development workflow</h2>
+<p class="dp">The pure-Go build (<code>CGO_ENABLED=0</code>) is required for all PRs. The Rust FFI path is optional and must not break the standard build.</p>
+<div class="dcode"><span class="tg">$</span> make build          <span class="tc"># CGO_ENABLED=0 static binary</span><br><span class="tg">$</span> make test           <span class="tc"># all tests, CGO_ENABLED=0</span><br><span class="tg">$</span> make test-race      <span class="tc"># race detector (requires CGO)</span><br><span class="tg">$</span> make verify-no-cgo  <span class="tc"># cross-compile linux + darwin</span></div>
+<p class="dp">CI runs <code>go vet ./...</code> and all tests on every push. Your PR must pass both before review.</p>
+
+<h2 class="dh2">Code conventions</h2>
+<ul class="dlist">
+<li>No CGO in the main build path. Cross-platform static binary is a hard requirement.</li>
+<li>Tests use fake implementations (<code>fakeConsumer</code>, <code>fakeEventLog</code>), not mocks.</li>
+<li>Each test creates its own <code>prometheus.Registry</code> — no shared global state.</li>
+<li>CLI tests call <code>cmd.ExecuteWithArgs(args, out)</code> — no shared cobra command.</li>
+<li>Do not advance the source checkpoint before <code>EventLog.Append()</code> returns (CHK-01).</li>
+<li>EventLog and WatermarkChecker must use the same partition count (64) — BKF-02.</li>
+</ul>
+
+<h2 class="dh2">Submitting a PR</h2>
+<ul class="dlist">
+<li>Keep PRs focused — one concern per PR.</li>
+<li>Write a clear description: what changed, why, and how to test it.</li>
+<li>If your change affects the data flow or critical invariants, update <code>kaptanto-technical-specification.md</code>.</li>
+<li>All PRs are reviewed by a maintainer. Expect feedback within a few days.</li>
+</ul>
+
+<h2 class="dh2">Community</h2>
+<p class="dp">Questions, ideas, and discussion live in <a class="dl" href="https://github.com/olucasandrade/kaptanto/issues" target="_blank">GitHub Issues</a>. For real-time chat, join the community on <a class="dl" href="https://github.com/olucasandrade/kaptanto" target="_blank">GitHub</a>.</p>
+`}
 };
 
 // ── SIDEBAR ──
@@ -755,7 +796,7 @@ var sidebar = [
 {label:'Output Modes',items:[['docs-stdout','stdout'],['docs-sse','Server-Sent Events'],['docs-grpc','gRPC']]},
 {label:'Configuration',items:[['docs-config','CLI & YAML'],['docs-filtering','Filtering'],['docs-grouping','Message Grouping']]},
 {label:'Production',items:[['docs-ha','High Availability'],['docs-metrics','Metrics & Monitoring'],['docs-api','Management API'],['docs-troubleshooting','Troubleshooting']]},
-{label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
+{label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks'],['docs-contributing','How to Contribute']]}
 ];
 
 function buildSidebar(active){
@@ -772,6 +813,9 @@ var d=docs[id];if(!d)return;
 document.getElementById('docContent').innerHTML='<h1>'+d.title+'</h1><p class="dsub">'+d.sub+'</p>'+d.body;
 buildSidebar(id);
 }
+
+// ── GITHUB STARS ──
+!function(){fetch('https://api.github.com/repos/olucasandrade/kaptanto').then(function(r){return r.json()}).then(function(d){var n=d.stargazers_count;if(!n)return;var el=document.getElementById('ghStars');if(el)el.textContent=n>=1000?(n/1000).toFixed(1)+'k':n})['catch'](function(){})}();
 
 // ── ROUTING ──
 function go(p){
