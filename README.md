@@ -20,6 +20,20 @@ kaptanto connects to the Postgres WAL (logical replication) or MongoDB Change St
 
 It handles the hard parts automatically: initial snapshots, watermark-coordinated backfills, per-key ordering, consumer cursor tracking, and high-availability failover.
 
+## Architecture
+
+### What is CDC?
+
+CDC (Change Data Capture) reads your database's transaction log instead of querying tables. Every write is recorded in the log (Postgres WAL, MongoDB Oplog) — Kaptanto tails that log, parses it into structured events, and streams them to any number of consumers without touching the source tables.
+
+![CDC Architecture](docs/cdc-architecture.png)
+
+### How Kaptanto works internally
+
+Events flow from the source through a durable embedded log before any checkpoint advances, so a crash can never lose an event. The backfill engine runs concurrently with live streaming; a watermark check discards snapshot rows that a later WAL event already covers.
+
+![Internal Architecture](docs/internal-architecture.png)
+
 ## Features
 
 - **Zero runtime dependencies** — static binary, no sidecars, no agents, no brokers
