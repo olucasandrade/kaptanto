@@ -25,6 +25,7 @@ code,.ic{font-family:var(--mono);font-size:.85em;color:var(--g);background:var(-
 .nl a:hover,.nl a.a{color:var(--w)}
 .ng{display:inline-flex;align-items:center;gap:.35rem;margin-left:.4rem;padding:.35rem .8rem;border:1px solid var(--b1);border-radius:5px;font-size:.75rem;font-family:var(--mono);color:var(--t3);transition:all .12s}
 .ng:hover{border-color:var(--b2);color:var(--t2)}
+.ns{display:inline-flex;align-items:center;gap:.2rem;padding:.1rem .35rem;background:var(--b1);border-radius:3px;font-size:.65rem;color:var(--t3);margin-left:.1rem}.ns::before{content:'★';font-size:.6rem;color:#e3b341}
 .nmob{display:none;background:none;border:none;color:var(--t2);cursor:pointer}
 
 /* PAGES */
