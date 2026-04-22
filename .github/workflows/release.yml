@@ -102,6 +102,7 @@ jobs:
     name: Publish to Docker Hub
     needs: goreleaser
     runs-on: ubuntu-latest
+    environment: kaptanto
     steps:
       - uses: actions/checkout@v4
 
