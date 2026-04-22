@@ -11,13 +11,15 @@ Single-command reproducible CDC benchmark comparing Kaptanto against Debezium Se
 
 ## Quickstart
 
+> **Required:** Always run `docker compose down -v` before starting a new benchmark run. Skipping this step causes cross-run state contamination (stale replication slots, Debezium offsets, Sequin cursors) that silently inflates results for subsequent runs.
+
 ```bash
-# From repo root
 cd bench
-docker compose up --build
+docker compose down -v          # mandatory clean slate
+docker compose up --build -d    # rebuild kaptanto from source
 ```
 
-All services reach healthy state within ~2 minutes. The `--build` flag builds the Kaptanto binary from source.
+All services reach healthy state within ~2 minutes.
 
 To confirm all services are healthy:
 
@@ -26,6 +28,20 @@ docker compose ps
 ```
 
 All entries should show `(healthy)` status.
+
+## Running Scenarios
+
+```bash
+go run ./cmd/scenarios -- --scenario steady
+```
+
+Available scenarios: `steady`, `burst`, `large-batch`, `crash-recovery`, `idle`.
+
+Results are written to `bench/results/`. After the run:
+
+```bash
+docker compose down -v          # always clean up after
+```
 
 ## Services
 
@@ -103,6 +119,21 @@ CREATE PEER bench_postgres FROM POSTGRES WITH (
   database = 'bench'
 );
 ```
+
+## Results
+
+Latest benchmark results (2026-04-07, clean run — Mac ARM64, Docker Desktop, Postgres 16):
+
+| Tool | Steady (eps) | Peak (eps) | p50 Latency (steady) | Recovery |
+|------|-------------|------------|----------------------|----------|
+| **kaptanto** | **4,805** | **36,267** | **1,147 ms** | 4.3 s |
+| kaptanto-rust | 3,559 | 31,883 | 993 ms | 3.1 s |
+| debezium | 128 | 351 | 34,617 ms | 2.7 s |
+| sequin | 220 | 357 | 23,638 ms | 81.8 s |
+
+kaptanto delivers **37× more throughput** than Debezium and **30× lower p50 latency** in steady-state load. Peak throughput in large-batch scenario reaches 36k eps.
+
+See [`results/REPORT.md`](./results/REPORT.md) for full per-scenario breakdown and [`BENCHMARK_ANALYSIS.md`](./BENCHMARK_ANALYSIS.md) for methodology and competitive analysis.
 
 ## Teardown
 
