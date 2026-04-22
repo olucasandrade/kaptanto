@@ -66,38 +66,6 @@ jobs:
           git diff --staged --quiet || git commit -m "chore: bump landing to ${TAG}"
           git push origin HEAD:main
 
-  deploy-landing:
-    name: Deploy landing to Cloudflare Pages
-    needs: update-landing
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: landing
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: landing/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ./dist --project-name=kaptanto
-          workingDirectory: landing
-
   publish-docker:
     name: Publish to Docker Hub
     needs: goreleaser
