@@ -46,7 +46,7 @@ checksum:
 
 release:
   github:
-    owner: kaptanto
+    owner: olucasandrade
     name: kaptanto
   prerelease: auto
 
