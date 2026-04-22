@@ -65,7 +65,7 @@ code,.ic{font-family:var(--mono);font-size:.85em;color:var(--g);background:var(-
 .sb{overflow:hidden;padding:.65rem 0;border-top:1px solid var(--b1);border-bottom:1px solid var(--b1)}
 .st{display:flex;gap:2rem;width:max-content;animation:sc 28s linear infinite}
 .se{font-family:var(--mono);font-size:.65rem;color:var(--t4);white-space:nowrap;display:flex;align-items:center;gap:.3rem}
-.se .si{color:var(--g);display:inline-block;min-width:3.6rem}.se .su{color:var(--am);display:inline-block;min-width:3.6rem}.se .sd{color:var(--ro);display:inline-block;min-width:3.6rem}
+.se .si{color:var(--g);display:inline-block;min-width:3.6rem}.se .su{color:var(--am);display:inline-block;min-width:3.6rem}.se .sd{color:var(--ro);display:inline-block;min-width:3.6rem;font-size:.65rem;margin-bottom:0;line-height:inherit;max-width:none}
 .sn{color:var(--t4)}.se-d .sn{color:rgba(255,92,138,.45)}
 @keyframes sc{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 
