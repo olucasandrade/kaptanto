@@ -31,41 +31,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  update-landing:
-    name: Bump landing page version
-    needs: goreleaser
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # RELEASE_PAT is only required if main has branch protection that
-          # blocks the default GITHUB_TOKEN from pushing.
-          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
-
-      - name: Update version strings
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          VERSION="${TAG#v}"
-
-          # Version badge in landing-body.html  (e.g. "Apache 2.0 — v0.1.0")
-          sed -i "s/Apache 2\.0 — v[0-9][^ <]*/Apache 2.0 — ${TAG}/" \
-            landing/src/content/landing-body.html
-
-          # softwareVersion in JSON-LD schema (index.tsx)
-          sed -i "s/softwareVersion: \"[^\"]*\"/softwareVersion: \"${VERSION}\"/" \
-            landing/src/routes/index.tsx
-
-      - name: Commit and push
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add landing/src/content/landing-body.html landing/src/routes/index.tsx
-          git diff --staged --quiet || git commit -m "chore: bump landing to ${TAG}"
-          git push origin HEAD:main
-
   publish-docker:
     name: Publish to Docker Hub
     needs: goreleaser
