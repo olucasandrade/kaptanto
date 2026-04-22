@@ -64,13 +64,49 @@
 <div class="ib" id="install"><div class="ii">
 <div class="sl sr">Get started</div>
 <div class="stt sr">From install to streaming in 90 seconds.</div>
-<div style="max-width:540px" class="sr">
+
+<div class="qs sr">
+
+<div class="qs-step">
+<div class="qs-num">1</div>
+<div class="qs-body">
+<div class="qs-label">Install</div>
+<div style="max-width:540px">
 <div class="its"><button class="it a" data-t="curl">curl</button><button class="it" data-t="docker">Docker</button><button class="it" data-t="brew">Homebrew</button><button class="it" data-t="src">Source</button></div>
 <div class="ic" id="ic-curl"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <div class="ic" id="ic-docker" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> docker run olucasandrade/kaptanto \<br>&nbsp;&nbsp;<span class="tbl">--source</span> <span class="ty">postgres://localhost:5432/mydb</span> \<br>&nbsp;&nbsp;<span class="tbl">--tables</span> <span class="ty">orders</span> <span class="tbl">--output</span> <span class="ty">stdout</span></div>
 <div class="ic" id="ic-brew" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> brew install kaptanto/tap/kaptanto</div>
 <div class="ic" id="ic-src" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto<br><span class="tg">$</span> cd kaptanto && go build -o kaptanto .</div>
-</div></div></div>
+</div>
+</div>
+</div>
+
+<div class="qs-step">
+<div class="qs-num">2</div>
+<div class="qs-body">
+<div class="qs-label">Run — point at your database</div>
+<div class="ic" style="max-width:540px;position:relative"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> kaptanto \<br>&nbsp;&nbsp;<span class="tbl">--source</span> <span class="ty">postgres://localhost:5432/mydb</span> \<br>&nbsp;&nbsp;<span class="tbl">--tables</span> <span class="ty">orders,payments</span> \<br>&nbsp;&nbsp;<span class="tbl">--output</span> <span class="ty">stdout</span></div>
+<p class="qs-hint">Use <code>--output sse</code> or <code>--output grpc</code> for multi-consumer setups.</p>
+</div>
+</div>
+
+<div class="qs-step qs-step-last">
+<div class="qs-num">3</div>
+<div class="qs-body">
+<div class="qs-label">Events stream out — one JSON line per change</div>
+<div class="ic qs-out" style="max-width:540px"><span class="to">{"op":"insert","table":"orders","after":{"id":1,"status":"pending","amount":49.99}}</span><br><span class="to">{"op":"update","table":"orders","before":{"status":"pending"},"after":{"status":"shipped"}}</span><br><span class="to">{"op":"delete","table":"payments","key":{"id":88}}</span></div>
+<p class="qs-hint">Pipe to <code>jq</code>, a webhook, a queue, or anything that reads stdin.</p>
+</div>
+</div>
+
+</div>
+
+<div class="qs-links sr">
+<a href="/docs/docs-quickstart" onclick="return go('docs-quickstart')" class="bo">Full quick start →</a>
+<a href="/docs/docs-config" onclick="return go('docs-config')" class="qs-cfg">Config reference</a>
+</div>
+
+</div></div>
 
 <section class="sec" id="compare">
 <div class="sl sr">Why kaptanto</div>

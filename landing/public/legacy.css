@@ -222,3 +222,20 @@ animation:bgFloat 18s ease-in-out infinite alternate;pointer-events:none}
 @media (prefers-reduced-motion: reduce){
 *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
+
+/* quick start steps */
+.qs{margin-top:2.2rem;display:flex;flex-direction:column}
+.qs-step{display:flex;gap:1.2rem;position:relative;padding-bottom:1.8rem}
+.qs-step::before{content:'';position:absolute;left:15px;top:34px;bottom:0;width:1px;background:var(--b1)}
+.qs-step-last::before{display:none}
+.qs-num{flex-shrink:0;width:30px;height:30px;border-radius:50%;border:1px solid var(--b2);background:var(--s2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.72rem;color:var(--g)}
+.qs-body{flex:1;min-width:0}
+.qs-label{font-family:var(--mono);font-size:.78rem;color:var(--t2);margin-bottom:.65rem}
+.qs-hint{font-size:.75rem;color:var(--t4);margin-top:.5rem;font-family:var(--mono);line-height:1.6}
+.qs-hint code{font-family:var(--mono);font-size:.75em;color:var(--g);background:var(--s2);padding:.1em .3em;border-radius:3px}
+.qs-step:nth-child(n+2) .ic{border-top:1px solid var(--b1);border-radius:6px}
+.qs-out.ic{border-left:2px solid var(--b3)}
+.qs-links{display:flex;align-items:center;gap:1rem;margin-top:2rem;flex-wrap:wrap}
+.qs-cfg{font-family:var(--mono);font-size:.82rem;color:var(--t4);padding:.6rem 1.3rem;transition:color .12s}
+.qs-cfg:hover{color:var(--t2)}
+@media(max-width:480px){.qs-step{gap:.8rem}.qs-num{width:26px;height:26px;font-size:.65rem}}
