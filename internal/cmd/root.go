@@ -22,8 +22,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/olucasandrade/kaptanto/internal/backfill"
-	"github.com/olucasandrade/kaptanto/internal/version"
 	"github.com/olucasandrade/kaptanto/internal/checkpoint"
+	"github.com/olucasandrade/kaptanto/internal/cluster"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
@@ -37,6 +37,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/router"
 	mongodb "github.com/olucasandrade/kaptanto/internal/source/mongodb"
 	postgres "github.com/olucasandrade/kaptanto/internal/source/postgres"
+	"github.com/olucasandrade/kaptanto/internal/version"
 	"github.com/spf13/cobra"
 
 	_ "modernc.org/sqlite" // register "sqlite" driver
@@ -117,6 +118,11 @@ The name means "who captures" in Esperanto.`,
 
 	// CFG-01: Source identity (used for replication slot and publication naming).
 	root.PersistentFlags().String("source-id", "default", "logical source identifier; determines slot name (kaptanto_<id>) and publication name (kaptanto_pub_<id>)")
+
+	// CFG-01: Cluster flags (Phase 14: shared Postgres state for cursor positions,
+	// backfill progress, and node membership across replicas).
+	root.PersistentFlags().Bool("cluster", false, "enable cluster mode with shared Postgres state")
+	root.PersistentFlags().String("cluster-dsn", "", "Postgres DSN for cluster coordination tables (required when --cluster is set)")
 
 	// OBS-03: Observability flags.
 	root.PersistentFlags().String("log-level", "info", "log verbosity: debug | info | warn | error")
@@ -230,6 +236,12 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("ha: --ha requires a Postgres source DSN; MongoDB source detected (%s)", cfg.Source)
 	}
 
+	// Guard: --cluster requires --cluster-dsn. Fail before any connection is
+	// attempted so the user gets a clear error rather than a pgx connection failure.
+	if cfg.Cluster && cfg.ClusterDSN == "" {
+		return fmt.Errorf("--cluster-dsn is required when --cluster is set")
+	}
+
 	// HA election — must complete before any pipeline components start so that
 	// only the leader opens the replication slot and writes checkpoints.
 	var pgStore *checkpoint.PostgresStore
@@ -297,26 +309,49 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		ckProbe = sqliteStore.Ping
 	}
 
-	// 5. Open SQLite cursor store (consumer resume cursors).
-	// Separate file from checkpoint.db to avoid coupling the two store implementations.
-	// Pragmas are applied explicitly after open — URI pragma encoding is unreliable
-	// with modernc.org/sqlite and triggers "out of memory" errors.
-	cursorDB, err := sql.Open("sqlite", filepath.Join(cfg.DataDir, "cursors.db"))
-	if err != nil {
-		return fmt.Errorf("open cursor db: %w", err)
-	}
-	defer cursorDB.Close()
-	for _, pragma := range []string{
-		"PRAGMA journal_mode=WAL;",
-		"PRAGMA synchronous=NORMAL;",
-	} {
-		if _, err := cursorDB.Exec(pragma); err != nil {
-			return fmt.Errorf("cursor db pragma %q: %w", pragma, err)
+	// 5. Open cursor store (consumer resume cursors).
+	// Cluster mode: use PostgresCursorStore backed by the shared Postgres instance.
+	// Non-cluster mode: use SQLiteCursorStore backed by a local file — existing
+	// behaviour is byte-for-byte identical to pre-Phase-14 (else branch unchanged).
+	var cursorStore router.ConsumerCursorStore
+	var cursorPing func() error
+	var cursorSetMetrics func(*observability.KaptantoMetrics)
+	var cursorRun func(ctx context.Context)
+	if cfg.Cluster {
+		pgCursorStore, err := checkpoint.OpenPostgresCursorStore(ctx, cfg.ClusterDSN, 5*time.Second)
+		if err != nil {
+			return fmt.Errorf("open postgres cursor store: %w", err)
 		}
-	}
-	cursorStore, err := checkpoint.NewSQLiteCursorStore(cursorDB, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("create cursor store: %w", err)
+		defer pgCursorStore.Close()
+		cursorStore = pgCursorStore
+		cursorPing = func() error { return pgCursorStore.Ping(context.Background()) }
+		cursorSetMetrics = pgCursorStore.SetMetrics
+		cursorRun = pgCursorStore.Run
+	} else {
+		// Separate file from checkpoint.db to avoid coupling the two store implementations.
+		// Pragmas are applied explicitly after open — URI pragma encoding is unreliable
+		// with modernc.org/sqlite and triggers "out of memory" errors.
+		cursorDB, err := sql.Open("sqlite", filepath.Join(cfg.DataDir, "cursors.db"))
+		if err != nil {
+			return fmt.Errorf("open cursor db: %w", err)
+		}
+		defer cursorDB.Close()
+		for _, pragma := range []string{
+			"PRAGMA journal_mode=WAL;",
+			"PRAGMA synchronous=NORMAL;",
+		} {
+			if _, err := cursorDB.Exec(pragma); err != nil {
+				return fmt.Errorf("cursor db pragma %q: %w", pragma, err)
+			}
+		}
+		sqliteCursorStore, err := checkpoint.NewSQLiteCursorStore(cursorDB, 5*time.Second)
+		if err != nil {
+			return fmt.Errorf("create cursor store: %w", err)
+		}
+		cursorStore = sqliteCursorStore
+		cursorPing = sqliteCursorStore.Ping
+		cursorSetMetrics = sqliteCursorStore.SetMetrics
+		cursorRun = sqliteCursorStore.Run
 	}
 
 	// 6. Pre-parse per-table filters (CFG-05, CFG-06). Fail fast on invalid WHERE.
@@ -343,7 +378,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		},
 		{
 			Name:  "cursors",
-			Check: cursorStore.Ping,
+			Check: cursorPing,
 		},
 		{
 			Name: "postgres",
@@ -369,7 +404,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 
 	// Thread metrics into components that write Prometheus gauges/counters.
 	rtr.SetMetrics(metrics)
-	cursorStore.SetMetrics(metrics)
+	cursorSetMetrics(metrics)
 
 	// 9. Wire output — register consumer(s) BEFORE starting the router.
 	var outputServer func(ctx context.Context) error
@@ -440,7 +475,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	// Auto-detection from DSN prefix: "mongodb://" or "mongodb+srv://" → MongoDB;
 	// everything else → Postgres (existing pipeline unchanged).
 	if cfg.SourceType() == "mongodb" {
-		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, outputServer, metrics)
+		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, cursorRun, outputServer, metrics)
 	}
 
 	// 10. Build Postgres connector and BackfillEngine.
@@ -469,11 +504,25 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	connector.SetMetrics(metrics)
 
 	// 10b. BackfillStore — cursor persistence on every batch (BKF-03).
-	bkStore, err := backfill.OpenSQLiteBackfillStore(filepath.Join(cfg.DataDir, "backfill.db"))
-	if err != nil {
-		return fmt.Errorf("open backfill store: %w", err)
+	// Cluster mode: use PostgresBackfillStore backed by the shared Postgres instance
+	// so backfill can resume on a different node from the last keyset cursor (STATE-03).
+	// Non-cluster mode: use SQLiteBackfillStore backed by a local file — unchanged.
+	var bkStore backfill.BackfillStore
+	if cfg.Cluster {
+		pgBkStore, err := backfill.OpenPostgresBackfillStore(ctx, cfg.ClusterDSN)
+		if err != nil {
+			return fmt.Errorf("open postgres backfill store: %w", err)
+		}
+		defer pgBkStore.Close()
+		bkStore = pgBkStore
+	} else {
+		sqliteBkStore, err := backfill.OpenSQLiteBackfillStore(filepath.Join(cfg.DataDir, "backfill.db"))
+		if err != nil {
+			return fmt.Errorf("open backfill store: %w", err)
+		}
+		defer sqliteBkStore.Close()
+		bkStore = sqliteBkStore
 	}
-	defer bkStore.Close()
 
 	// 10c. BackfillConfigs — one per configured table.
 	bkConfigs := buildBackfillConfigs(cfg.Tables, connCfg.SourceID)
@@ -495,10 +544,21 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 
 	// 11. Run all components under errgroup — first error cancels the group context.
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { cursorStore.Run(gctx); return nil })
+	g.Go(func() error { cursorRun(gctx); return nil })
 	g.Go(func() error { return connector.Run(gctx) })
 	g.Go(func() error { return rtr.Run(gctx) })
 	g.Go(func() error { return outputServer(gctx) })
+	if cfg.Cluster {
+		hostname, _ := os.Hostname()
+		nodeAddr := fmt.Sprintf("%s:%d", hostname, cfg.Port)
+		nodeID := cfg.NodeID
+		heartbeater, err := cluster.OpenNodeHeartbeater(ctx, cfg.ClusterDSN, nodeID, nodeAddr, 5*time.Second, 30)
+		if err != nil {
+			return fmt.Errorf("open node heartbeater: %w", err)
+		}
+		defer heartbeater.Close(context.Background())
+		g.Go(func() error { heartbeater.Run(gctx); return nil })
+	}
 
 	if err := g.Wait(); err != nil && err != context.Canceled {
 		return err
@@ -520,7 +580,8 @@ func runMongoPipeline(
 	ckStore checkpoint.CheckpointStore,
 	el eventlog.EventLog,
 	rtr *router.Router,
-	cursorStore *checkpoint.SQLiteCursorStore,
+	cursorStore router.ConsumerCursorStore,
+	cursorRun func(ctx context.Context),
 	outputServer func(ctx context.Context) error,
 	metrics *observability.KaptantoMetrics,
 ) error {
@@ -555,7 +616,7 @@ func runMongoPipeline(
 
 	// Run first connector pass.
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { cursorStore.Run(gctx); return nil })
+	g.Go(func() error { cursorRun(gctx); return nil })
 	g.Go(func() error { return connector.Run(gctx) })
 	g.Go(func() error { return rtr.Run(gctx) })
 	g.Go(func() error { return outputServer(gctx) })
@@ -585,7 +646,7 @@ func runMongoPipeline(
 			return fmt.Errorf("mongodb: create connector after snapshot: %w", err)
 		}
 		g2, gctx2 := errgroup.WithContext(ctx)
-		g2.Go(func() error { cursorStore.Run(gctx2); return nil })
+		g2.Go(func() error { cursorRun(gctx2); return nil })
 		g2.Go(func() error { return connector2.Run(gctx2) })
 		g2.Go(func() error { return rtr.Run(gctx2) })
 		g2.Go(func() error { return outputServer(gctx2) })

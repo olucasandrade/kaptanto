@@ -248,3 +248,31 @@ func TestHAFlagSkipsWithoutDSN(t *testing.T) {
 	require.Error(t, err, "HA mode with unreachable DB must return an error")
 	assert.NotContains(t, err.Error(), "not yet implemented", "old slog.Warn stub must be gone")
 }
+
+// TestClusterFlagRegistered verifies that --cluster and --cluster-dsn flags are
+// registered with the correct types and default values.
+func TestClusterFlagRegistered(t *testing.T) {
+	root := cmd.NewRootCmd()
+
+	clusterFlag := root.PersistentFlags().Lookup("cluster")
+	require.NotNil(t, clusterFlag, "flag 'cluster' must exist")
+	assert.Equal(t, "bool", clusterFlag.Value.Type())
+	assert.Equal(t, "false", clusterFlag.DefValue)
+
+	clusterDSNFlag := root.PersistentFlags().Lookup("cluster-dsn")
+	require.NotNil(t, clusterDSNFlag, "flag 'cluster-dsn' must exist")
+	assert.Equal(t, "string", clusterDSNFlag.Value.Type())
+	assert.Equal(t, "", clusterDSNFlag.DefValue)
+}
+
+// TestClusterWithoutDSNReturnsError verifies that --cluster without --cluster-dsn
+// returns a clear error before any connection is attempted.
+func TestClusterWithoutDSNReturnsError(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--cluster",
+	}, &buf)
+	require.Error(t, err, "--cluster without --cluster-dsn must return an error")
+	assert.Contains(t, err.Error(), "--cluster-dsn is required when --cluster is set")
+}

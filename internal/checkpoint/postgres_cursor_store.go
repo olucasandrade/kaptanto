@@ -204,6 +204,12 @@ func (s *PostgresCursorStore) flush(ctx context.Context) {
 	}
 }
 
+// Ping checks Postgres connectivity by issuing a lightweight ping.
+// Used by the /healthz endpoint to confirm the cluster cursor store is reachable.
+func (s *PostgresCursorStore) Ping(ctx context.Context) error {
+	return s.conn.Ping(ctx)
+}
+
 // Close releases the pgx connection. It must be called on graceful shutdown.
 func (s *PostgresCursorStore) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
