@@ -37,7 +37,9 @@ type Config struct {
 	Retention string                 `yaml:"retention"` // stored as string; "" means use runtime default (1h)
 	HA        bool                   `yaml:"ha"`        // CFG-01: --ha flag; Phase 8 leader election
 	NodeID    string                 `yaml:"node-id"`   // CFG-01: --node-id flag; Phase 8 node identity
-	SourceID  string                 `yaml:"source-id"` // logical name used for slot/publication naming (default: "default")
+	SourceID   string                 `yaml:"source-id"`   // logical name used for slot/publication naming (default: "default")
+	Cluster    bool                   `yaml:"cluster"`     // --cluster flag; Phase 14 shared cursor state (PostgresCursorStore)
+	ClusterDSN string                 `yaml:"cluster-dsn"` // --cluster-dsn flag; Postgres DSN for shared cursor store
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
@@ -164,6 +166,22 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 			return fmt.Errorf("config: merge source-id: %w", err)
 		}
 		cfg.SourceID = v
+	}
+
+	if flags.Changed("cluster") {
+		v, err := flags.GetBool("cluster")
+		if err != nil {
+			return fmt.Errorf("config: merge cluster: %w", err)
+		}
+		cfg.Cluster = v
+	}
+
+	if flags.Changed("cluster-dsn") {
+		v, err := flags.GetString("cluster-dsn")
+		if err != nil {
+			return fmt.Errorf("config: merge cluster-dsn: %w", err)
+		}
+		cfg.ClusterDSN = v
 	}
 
 	return nil
