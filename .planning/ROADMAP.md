@@ -139,7 +139,11 @@ Plans:
   2. The source LSN does not advance (confirmed_flush_lsn is not updated) until a quorum of NATS JetStream nodes confirms the append is durable — CHK-01 holds cluster-wide
   3. `make build` and `make test` succeed with CGO_ENABLED=0 — the Kaptanto binary remains pure Go; NATS runs as a co-located sidecar process started by `kaptanto start --cluster`
   4. A 3-node cluster can be started with a single `kaptanto start --cluster` invocation on each node — no separate NATS configuration steps required
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 15-01-PLAN.md — NatsEventLog implementation, embedded server helper, unit tests (EVLOG-01, EVLOG-02)
+- [ ] 15-02-PLAN.md — Config fields (ClusterPeers, NatsClusterPort), CLI flags, root.go wiring (EVLOG-03)
 
 ### Phase 16: Partition Ownership and Active/Active Delivery
 **Goal**: Multiple active Kaptanto nodes each own a non-overlapping set of partitions and serve consumers concurrently, with per-key ordering preserved across all node join and leave events
@@ -181,7 +185,7 @@ Plans:
 | 11. Harness and Load Generator | v1.2 | 3/3 | ✓ Complete | 2026-03-21 |
 | 12. Metrics Collector and Scenarios | v1.2 | 3/3 | ✓ Complete | 2026-03-21 |
 | 13. Report Generator | v1.2 | 2/2 | ✓ Complete | 2026-03-21 |
-| 14. Shared State Foundation | 3/3 | Complete   | 2026-04-27 | - |
-| 15. Distributed Event Log | v2.0 | 0/TBD | Not started | - |
+| 14. Shared State Foundation | v2.0 | 3/3 | ✓ Complete | 2026-04-28 |
+| 15. Distributed Event Log | v2.0 | 0/2 | Not started | - |
 | 16. Partition Ownership and Active/Active Delivery | v2.0 | 0/TBD | Not started | - |
 | 17. Distributed Source Coordination | v2.0 | 0/TBD | Not started | - |
