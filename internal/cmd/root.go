@@ -124,6 +124,10 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().Bool("cluster", false, "enable cluster mode with shared Postgres state")
 	root.PersistentFlags().String("cluster-dsn", "", "Postgres DSN for cluster coordination tables (required when --cluster is set)")
 
+	// EVLOG-03: NATS JetStream cluster flags (Phase 15: distributed event log).
+	root.PersistentFlags().StringSlice("cluster-peers", nil, "NATS JetStream cluster peer addresses (e.g. node2:6222,node3:6222); required when --cluster is set for 3-node Raft")
+	root.PersistentFlags().Int("nats-cluster-port", 6222, "NATS JetStream cluster route port for this node (default 6222)")
+
 	// OBS-03: Observability flags.
 	root.PersistentFlags().String("log-level", "info", "log verbosity: debug | info | warn | error")
 
@@ -284,12 +288,51 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		retention = d
 	}
 
-	// 3. Open Badger event log.
-	el, err := eventlog.Open(filepath.Join(cfg.DataDir, "events"), numEventLogPartitions, retention)
-	if err != nil {
-		return fmt.Errorf("open event log: %w", err)
+	// 3. Open event log.
+	// Cluster mode: NatsEventLog (Raft-replicated JetStream, SyncAlways=true, EVLOG-01/02).
+	// Non-cluster mode: BadgerEventLog (local Badger, unchanged pre-Phase-15 behaviour).
+	hostname, _ := os.Hostname()
+	var el eventlog.EventLog
+	var elPing func() error
+	if cfg.Cluster {
+		natsClusterPort := cfg.NatsClusterPort
+		if natsClusterPort == 0 {
+			natsClusterPort = 6222
+		}
+		nodeID := cfg.NodeID
+		if nodeID == "" {
+			// Hostname is a safe default; cluster mode should always set --node-id explicitly
+			// for NATS ServerName uniqueness across nodes.
+			nodeID = hostname
+		}
+		natsCfg := eventlog.NatsEventLogConfig{
+			Server: eventlog.NatsServerConfig{
+				NodeID:      nodeID,
+				ClusterPort: natsClusterPort,
+				Advertise:   fmt.Sprintf("%s:%d", hostname, natsClusterPort),
+				Peers:       cfg.ClusterPeers,
+				StoreDir:    filepath.Join(cfg.DataDir, "nats"),
+				SyncAlways:  true, // CHK-01: fsync before ack (EVLOG-02)
+			},
+			NumPartitions: numEventLogPartitions,
+			Retention:     retention,
+		}
+		natsEl, err := eventlog.OpenNats(natsCfg)
+		if err != nil {
+			return fmt.Errorf("open nats event log: %w", err)
+		}
+		defer natsEl.Close()
+		el = natsEl
+		elPing = natsEl.Ping
+	} else {
+		badgerEl, err := eventlog.Open(filepath.Join(cfg.DataDir, "events"), numEventLogPartitions, retention)
+		if err != nil {
+			return fmt.Errorf("open event log: %w", err)
+		}
+		defer badgerEl.Close()
+		el = badgerEl
+		elPing = badgerEl.Ping
 	}
-	defer el.Close() // closed AFTER g.Wait() returns (deferred after all components stop)
 
 	// 4. Open checkpoint store (source LSN persistence).
 	// HA mode: use the shared PostgresStore opened above (already deferred Close).
@@ -369,8 +412,8 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	metrics := observability.NewKaptantoMetrics()
 	healthProbes := []observability.HealthProbe{
 		{
-			Name:  "badger",
-			Check: el.Ping,
+			Name:  "eventlog",
+			Check: elPing,
 		},
 		{
 			Name:  "checkpoint",
@@ -549,7 +592,6 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	g.Go(func() error { return rtr.Run(gctx) })
 	g.Go(func() error { return outputServer(gctx) })
 	if cfg.Cluster {
-		hostname, _ := os.Hostname()
 		nodeAddr := fmt.Sprintf("%s:%d", hostname, cfg.Port)
 		nodeID := cfg.NodeID
 		heartbeater, err := cluster.OpenNodeHeartbeater(ctx, cfg.ClusterDSN, nodeID, nodeAddr, 5*time.Second, 30)
