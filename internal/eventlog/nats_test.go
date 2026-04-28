@@ -96,8 +96,11 @@ func TestNatsEventLogReadPartition(t *testing.T) {
 	el := openTestNatsEventLog(t)
 
 	// Write several events that should land on one partition (deterministic key).
-	// Key `{"id": 1}` hashes to a fixed partition via FNV-1a.
+	// Key `{"id": 1}` hashes to a fixed partition via FNV-1a — use PartitionOf to
+	// identify the exact partition rather than scanning all 64 (which would take
+	// up to 64 × FetchMaxWait = ~128s and exceed the test timeout).
 	key := `{"id": 1}`
+	partition := eventlog.PartitionOf(json.RawMessage(key), 64)
 
 	var written []struct {
 		ev  *event.ChangeEvent
@@ -114,25 +117,19 @@ func TestNatsEventLogReadPartition(t *testing.T) {
 		}{ev, seq})
 	}
 
-	// Determine which partition key `{"id": 1}` hashes to.
-	// We'll scan all 64 partitions to find our events.
+	// Read only the correct partition — no scanning needed.
 	ctx := context.Background()
-	foundCount := 0
-	for p := uint32(0); p < 64; p++ {
-		entries, err := el.ReadPartition(ctx, p, 1, 10)
-		require.NoError(t, err)
-		for _, entry := range entries {
-			for _, w := range written {
-				if entry.Event.IdempotencyKey == w.ev.IdempotencyKey {
-					require.Equal(t, w.seq, entry.Seq,
-						"LogEntry.Seq must match the seq returned by Append")
-					foundCount++
-				}
-			}
-		}
+	entries, err := el.ReadPartition(ctx, partition, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, entries, len(written),
+		"ReadPartition must return all written events for the partition")
+
+	for i, entry := range entries {
+		require.Equal(t, written[i].seq, entry.Seq,
+			"LogEntry.Seq must match the seq returned by Append (in order)")
+		require.Equal(t, written[i].ev.IdempotencyKey, entry.Event.IdempotencyKey,
+			"events must be returned in write order")
 	}
-	require.Equal(t, len(written), foundCount,
-		"all written events must be returned by ReadPartition")
 }
 
 // TestNatsEventLogAppendBatch verifies:
@@ -180,17 +177,30 @@ func TestNatsEventLogClose(t *testing.T) {
 // TestNatsEventLogPartitionIsolation verifies:
 //   - Events written to partition A are not returned by ReadPartition for partition B.
 //
-// We achieve this by writing events to two deterministic keys that hash to different partitions,
-// confirming that reading one partition does not leak events from the other.
+// We use PartitionOf to identify two keys that hash to different partitions, then
+// verify cross-partition reads return no events from the other partition.
 func TestNatsEventLogPartitionIsolation(t *testing.T) {
 	el := openTestNatsEventLog(t)
 
-	// Find two keys that hash to different partitions.
-	// Key1: `{"id": 1}` — use FNV-1a equivalent check via known partitioning.
-	// We just write events with two different keys and confirm they don't appear
-	// in each other's partition reads.
+	// Pick two keys that definitely hash to different partitions.
+	// Scan through IDs until we find a pair that diverges.
 	keyA := `{"id": 1}`
-	keyB := `{"id": 2}`
+	partA := eventlog.PartitionOf(json.RawMessage(keyA), 64)
+
+	var keyB string
+	var partB uint32
+	for i := 2; i <= 1000; i++ {
+		candidate := fmt.Sprintf(`{"id": %d}`, i)
+		p := eventlog.PartitionOf(json.RawMessage(candidate), 64)
+		if p != partA {
+			keyB = candidate
+			partB = p
+			break
+		}
+	}
+	if keyB == "" {
+		t.Skip("could not find two keys in different partitions — extremely unlikely with 64 partitions")
+	}
 
 	evA := makeNatsEvent("nats:isolation:A:insert:0/1", keyA)
 	evB := makeNatsEvent("nats:isolation:B:insert:0/1", keyB)
@@ -202,17 +212,6 @@ func TestNatsEventLogPartitionIsolation(t *testing.T) {
 	seqB, err := el.Append(evB)
 	require.NoError(t, err)
 	require.Greater(t, seqB, uint64(0))
-
-	// Find partition for keyA and keyB.
-	partA := eventlog.PartitionOf(json.RawMessage(keyA), 64)
-	partB := eventlog.PartitionOf(json.RawMessage(keyB), 64)
-
-	// If they hash to the same partition, just verify the test premise is met.
-	// With keys 1 and 2 over 64 partitions this is exceedingly unlikely, but we skip
-	// the isolation assertion if they collide rather than making the test flaky.
-	if partA == partB {
-		t.Skipf("keyA and keyB both hash to partition %d; skipping isolation check", partA)
-	}
 
 	ctx := context.Background()
 
