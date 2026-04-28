@@ -38,8 +38,10 @@ type Config struct {
 	HA        bool                   `yaml:"ha"`        // CFG-01: --ha flag; Phase 8 leader election
 	NodeID    string                 `yaml:"node-id"`   // CFG-01: --node-id flag; Phase 8 node identity
 	SourceID   string                 `yaml:"source-id"`   // logical name used for slot/publication naming (default: "default")
-	Cluster    bool                   `yaml:"cluster"`     // --cluster flag; Phase 14 shared cursor state (PostgresCursorStore)
-	ClusterDSN string                 `yaml:"cluster-dsn"` // --cluster-dsn flag; Postgres DSN for shared cursor store
+	Cluster         bool                   `yaml:"cluster"`          // --cluster flag; Phase 14 shared cursor state (PostgresCursorStore)
+	ClusterDSN      string                 `yaml:"cluster-dsn"`      // --cluster-dsn flag; Postgres DSN for shared cursor store
+	ClusterPeers    []string               `yaml:"cluster-peers"`    // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
+	NatsClusterPort int                    `yaml:"nats-cluster-port"` // NATS cluster route port; 0 → 6222 applied at runtime
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
@@ -182,6 +184,22 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 			return fmt.Errorf("config: merge cluster-dsn: %w", err)
 		}
 		cfg.ClusterDSN = v
+	}
+
+	if flags.Changed("cluster-peers") {
+		v, err := flags.GetStringSlice("cluster-peers")
+		if err != nil {
+			return fmt.Errorf("config: merge cluster-peers: %w", err)
+		}
+		cfg.ClusterPeers = v
+	}
+
+	if flags.Changed("nats-cluster-port") {
+		v, err := flags.GetInt("nats-cluster-port")
+		if err != nil {
+			return fmt.Errorf("config: merge nats-cluster-port: %w", err)
+		}
+		cfg.NatsClusterPort = v
 	}
 
 	return nil
