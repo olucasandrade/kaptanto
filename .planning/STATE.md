@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Distributed Architecture
 status: unknown
-last_updated: "2026-04-27T19:30:00.000Z"
+last_updated: "2026-04-28T18:03:21.631Z"
 progress:
-  total_phases: 22
-  completed_phases: 21
-  total_plans: 53
-  completed_plans: 53
+  total_phases: 23
+  completed_phases: 22
+  total_plans: 55
+  completed_plans: 54
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 
 ## Current Position
 
-Phase: 14 of 17 (Shared State Foundation)
-Plan: 03 complete — Phase 14 DONE
+Phase: 15 of 17 (Distributed Event Log)
+Plan: 01 complete — Phase 15 In Progress
 Status: In Progress
-Last activity: 2026-04-27 — Completed 14-03 (root.go cluster wiring)
+Last activity: 2026-04-28 — Completed 15-01 (NatsEventLog implementation)
 
-Progress: [███░░░░░░░] 30% (3/3 plans complete in Phase 14)
+Progress: [████░░░░░░] 40% (1/2 plans complete in Phase 15)
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [███░░░░░░░] 30% (3/3 plans complete in Phase 14)
 | Phase 14 P02 | 196 | 2 tasks | 4 files |
 | Phase 14-shared-state-foundation P01 | 4 | 2 tasks | 3 files |
 | Phase 14-shared-state-foundation P03 | 5 | 2 tasks | 3 files |
+| Phase 15 P01 | 8 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,10 @@ Recent decisions affecting current work:
 - [Phase 14-shared-state-foundation]: cursorRun/cursorPing/cursorSetMetrics closures abstract concrete method dispatch through interface variable — avoids type assertions at each call site
 - [Phase 14-shared-state-foundation]: runMongoPipeline signature updated to router.ConsumerCursorStore interface + cursorRun func — MongoDB path cluster-mode compatible
 - [Phase 14-shared-state-foundation]: Ping(ctx) added to PostgresCursorStore for /healthz probe (not on original store, added as Rule 2 auto-fix)
+- [Phase 15]: NatsEventLog.Append returns seq=0 for duplicates (PubAck.Duplicate=true) matching BadgerEventLog LOG-03 sentinel
+- [Phase 15]: Stream Replicas=max(1, len(peers)+1) avoids single-node stream creation failure while supporting 3-node cluster R=3
+- [Phase 15]: StreamConfig.Duplicates=retention (not default 2m) to prevent WAL re-delivery after crash creating duplicates
+- [Phase 15]: AppendBatch is sequential loop over Append (no native NATS batch tx) — CHK-01 safe, each Append blocks until PubAck
 
 ### Pending Todos
 
@@ -73,11 +78,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- Path A vs Path B decision must be made before Phase 15 planning. Recommend a 1-day spike: attempt hashicorp/raft + bsm/raft-badger with Badger v4. If cluster forms, Path B is viable; otherwise commit to Path A (NATS sidecar).
+- Path A (NATS JetStream) confirmed: NatsEventLog implemented and tested (Phase 15-01 complete). Path B no longer needed.
 - etcd embed CGO impact must be verified before Phase 17 planning — `make verify-no-cgo` must pass with etcd embed included.
 
 ## Session Continuity
 
-Last session: 2026-04-27T19:30:00Z
-Stopped at: Completed 14-03-PLAN.md (root.go cluster wiring — Phase 14 complete)
+Last session: 2026-04-28T00:21:51Z
+Stopped at: Completed 15-01-PLAN.md (NatsEventLog implementation — Phase 15 Plan 01 complete)
 Resume file: None

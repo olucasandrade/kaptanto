@@ -186,6 +186,6 @@ Plans:
 | 12. Metrics Collector and Scenarios | v1.2 | 3/3 | ✓ Complete | 2026-03-21 |
 | 13. Report Generator | v1.2 | 2/2 | ✓ Complete | 2026-03-21 |
 | 14. Shared State Foundation | v2.0 | 3/3 | ✓ Complete | 2026-04-28 |
-| 15. Distributed Event Log | v2.0 | 0/2 | Not started | - |
+| 15. Distributed Event Log | 1/2 | In Progress|  | - |
 | 16. Partition Ownership and Active/Active Delivery | v2.0 | 0/TBD | Not started | - |
 | 17. Distributed Source Coordination | v2.0 | 0/TBD | Not started | - |
