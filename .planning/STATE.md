@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 ## Current Position
 
 Phase: 15 of 17 (Distributed Event Log)
-Plan: 01 complete — Phase 15 In Progress
+Plan: 02 complete — Phase 15 Complete
 Status: In Progress
-Last activity: 2026-04-28 — Completed 15-01 (NatsEventLog implementation)
+Last activity: 2026-04-28 — Completed 15-02 (NatsEventLog CLI wiring)
 
-Progress: [████░░░░░░] 40% (1/2 plans complete in Phase 15)
+Progress: [████████░░] 80% (2/2 plans complete in Phase 15)
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress: [████░░░░░░] 40% (1/2 plans complete in Phase 15)
 | Phase 14-shared-state-foundation P01 | 4 | 2 tasks | 3 files |
 | Phase 14-shared-state-foundation P03 | 5 | 2 tasks | 3 files |
 | Phase 15 P01 | 8 | 2 tasks | 5 files |
+| Phase 15 P02 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Recent decisions affecting current work:
 - [Phase 15]: Stream Replicas=max(1, len(peers)+1) avoids single-node stream creation failure while supporting 3-node cluster R=3
 - [Phase 15]: StreamConfig.Duplicates=retention (not default 2m) to prevent WAL re-delivery after crash creating duplicates
 - [Phase 15]: AppendBatch is sequential loop over Append (no native NATS batch tx) — CHK-01 safe, each Append blocks until PubAck
+- [Phase 15-02]: elPing func variable captures Ping from concrete type before upcasting to EventLog interface — avoids type assertions in health probe
+- [Phase 15-02]: /healthz probe renamed from 'badger' to 'eventlog' — neutral label works for both BadgerEventLog and NatsEventLog
+- [Phase 15-02]: NatsClusterPort=0 in Defaults() preserves "not set" distinction; 0 → 6222 applied at pipeline start in runPipeline
 
 ### Pending Todos
 
@@ -83,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-28T00:21:51Z
-Stopped at: Completed 15-01-PLAN.md (NatsEventLog implementation — Phase 15 Plan 01 complete)
+Last session: 2026-04-28T18:17:40Z
+Stopped at: Completed 15-02-PLAN.md (NatsEventLog CLI wiring — Phase 15 complete)
 Resume file: None

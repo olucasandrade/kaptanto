@@ -59,7 +59,7 @@ Full archive: `.planning/milestones/v1.2-ROADMAP.md`
 **Milestone Goal:** Transform Kaptanto from an active/standby single-node system into a truly distributed CDC platform that scales horizontally, tolerates node loss, and does not depend on node-local storage for durability.
 
 - [x] **Phase 14: Shared State Foundation** — Migrate consumer cursors and backfill progress to shared Postgres store; establish cluster membership table with heartbeat-based node liveness (completed 2026-04-27)
-- [ ] **Phase 15: Distributed Event Log** — Replace node-local Badger with Raft-replicated event log (NATS JetStream sidecar); preserve CHK-01 cluster-wide; preserve pure Go default binary
+- [x] **Phase 15: Distributed Event Log** — Replace node-local Badger with Raft-replicated event log (NATS JetStream sidecar); preserve CHK-01 cluster-wide; preserve pure Go default binary (completed 2026-04-28)
 - [ ] **Phase 16: Partition Ownership and Active/Active Delivery** — Partition-to-node assignment layer above Router; two-phase handoff with epoch fencing; N-node active consumer delivery via SSE and gRPC
 - [ ] **Phase 17: Distributed Source Coordination** — etcd-backed leader election; epoch fencing on WAL slot access; MongoDB resume tokens written to shared store before acknowledgment
 
@@ -186,6 +186,6 @@ Plans:
 | 12. Metrics Collector and Scenarios | v1.2 | 3/3 | ✓ Complete | 2026-03-21 |
 | 13. Report Generator | v1.2 | 2/2 | ✓ Complete | 2026-03-21 |
 | 14. Shared State Foundation | v2.0 | 3/3 | ✓ Complete | 2026-04-28 |
-| 15. Distributed Event Log | 1/2 | In Progress|  | - |
+| 15. Distributed Event Log | 2/2 | Complete   | 2026-04-28 | - |
 | 16. Partition Ownership and Active/Active Delivery | v2.0 | 0/TBD | Not started | - |
 | 17. Distributed Source Coordination | v2.0 | 0/TBD | Not started | - |

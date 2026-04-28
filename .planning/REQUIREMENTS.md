@@ -15,9 +15,9 @@ Requirements for v2.0 Distributed Architecture milestone. Each maps to roadmap p
 
 ### Event Log (EVLOG)
 
-- [ ] **EVLOG-01**: Any single node failure does not lose events that were successfully appended — the event log is Raft-replicated across NATS JetStream nodes with quorum-based durability
-- [ ] **EVLOG-02**: CHK-01 holds cluster-wide — source LSN/resume token does not advance until a quorum of NATS JetStream nodes confirms the append is durable
-- [ ] **EVLOG-03**: The Kaptanto binary remains pure Go (CGO_ENABLED=0 preserved) — NATS JetStream runs as a co-located sidecar process; the cluster can be started with a single `kaptanto start --cluster` command that also starts the NATS sidecar
+- [x] **EVLOG-01**: Any single node failure does not lose events that were successfully appended — the event log is Raft-replicated across NATS JetStream nodes with quorum-based durability
+- [x] **EVLOG-02**: CHK-01 holds cluster-wide — source LSN/resume token does not advance until a quorum of NATS JetStream nodes confirms the append is durable
+- [x] **EVLOG-03**: The Kaptanto binary remains pure Go (CGO_ENABLED=0 preserved) — NATS JetStream runs as a co-located sidecar process; the cluster can be started with a single `kaptanto start --cluster` command that also starts the NATS sidecar
 
 ### Delivery (DLVR)
 
@@ -76,9 +76,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STATE-01 | Phase 14 | Complete |
 | STATE-02 | Phase 14 | Complete |
 | STATE-03 | Phase 14 | Complete |
-| EVLOG-01 | Phase 15 | Pending |
-| EVLOG-02 | Phase 15 | Pending |
-| EVLOG-03 | Phase 15 | Pending |
+| EVLOG-01 | Phase 15 | Complete |
+| EVLOG-02 | Phase 15 | Complete |
+| EVLOG-03 | Phase 15 | Complete |
 | DLVR-01 | Phase 16 | Pending |
 | DLVR-02 | Phase 16 | Pending |
 | DLVR-03 | Phase 16 | Pending |
