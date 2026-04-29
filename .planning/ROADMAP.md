@@ -154,7 +154,12 @@ Plans:
   2. When a node leaves gracefully or is killed, its partitions are reassigned to surviving nodes; the old node drains all in-flight events before the new node begins consuming, and a zombie node that reconnects after being replaced cannot write events or advance cursors
   3. N Kaptanto nodes simultaneously serve SSE and gRPC consumers, each node serving only its owned partitions — consumers connected to any node receive events without gaps or duplicates
   4. Events for any given primary key arrive at downstream consumers in LSN order across node join, graceful leave, and crash-leave events — RTR-04 is not violated during partition reassignment
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 16-01-PLAN.md — PartitionStore: kaptanto_partitions schema, atomic claim/steal/release operations (DLVR-01, DLVR-02)
+- [ ] 16-02-PLAN.md — PartitionManager loop, epochCursorStore adapter, Router.SetOwnedPartitions patch (DLVR-01, DLVR-02, DLVR-03, DLVR-04)
+- [ ] 16-03-PLAN.md — root.go wiring: PartitionManager + epochCursorStore behind --cluster, correct shutdown ordering (DLVR-01, DLVR-02, DLVR-03, DLVR-04)
 
 ### Phase 17: Distributed Source Coordination
 **Goal**: The WAL leader is protected by etcd-backed election with epoch fencing so no zombie node can corrupt the replication slot, and MongoDB resume token progress survives node loss
@@ -186,6 +191,6 @@ Plans:
 | 12. Metrics Collector and Scenarios | v1.2 | 3/3 | ✓ Complete | 2026-03-21 |
 | 13. Report Generator | v1.2 | 2/2 | ✓ Complete | 2026-03-21 |
 | 14. Shared State Foundation | v2.0 | 3/3 | ✓ Complete | 2026-04-28 |
-| 15. Distributed Event Log | 2/2 | Complete   | 2026-04-28 | - |
-| 16. Partition Ownership and Active/Active Delivery | v2.0 | 0/TBD | Not started | - |
+| 15. Distributed Event Log | v2.0 | 2/2 | ✓ Complete | 2026-04-28 |
+| 16. Partition Ownership and Active/Active Delivery | v2.0 | 0/3 | Not started | - |
 | 17. Distributed Source Coordination | v2.0 | 0/TBD | Not started | - |
