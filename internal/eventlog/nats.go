@@ -276,6 +276,12 @@ func (n *NatsEventLog) Close() error {
 	return nil
 }
 
+// Conn returns the underlying *nats.Conn for reuse by cluster components.
+// The connection is owned by NatsEventLog and must not be closed by the caller.
+func (n *NatsEventLog) Conn() *nats.Conn {
+	return n.nc
+}
+
 // Ping checks that the JetStream stream is available.
 // It fetches the stream info with a 1-second timeout. Returns nil if healthy,
 // error otherwise. This matches the BadgerEventLog.Ping() signature used by /healthz.
