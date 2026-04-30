@@ -2,15 +2,32 @@ package cmd_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/olucasandrade/kaptanto/internal/cmd"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// fakeEventLogForCmd is a minimal eventlog.EventLog implementation used as a
+// compile guard in TestRouterSetOwnedPartitions.
+type fakeEventLogForCmd struct{}
+
+func (f *fakeEventLogForCmd) Append(_ *event.ChangeEvent) (uint64, error) { return 0, nil }
+func (f *fakeEventLogForCmd) AppendBatch(_ []*event.ChangeEvent) ([]uint64, error) {
+	return nil, nil
+}
+func (f *fakeEventLogForCmd) ReadPartition(_ context.Context, _ uint32, _ uint64, _ int) ([]eventlog.LogEntry, error) {
+	return nil, nil
+}
+func (f *fakeEventLogForCmd) Close() error { return nil }
 
 func TestHelpContainsKaptanto(t *testing.T) {
 	buf := &bytes.Buffer{}
@@ -275,4 +292,15 @@ func TestClusterWithoutDSNReturnsError(t *testing.T) {
 	}, &buf)
 	require.Error(t, err, "--cluster without --cluster-dsn must return an error")
 	assert.Contains(t, err.Error(), "--cluster-dsn is required when --cluster is set")
+}
+
+// TestRouterSetOwnedPartitions is a compile guard: if SetOwnedPartitions is
+// removed or its signature changes, this test will fail to compile.
+// Uses the same fakeEventLog pattern as internal/router/router_test.go.
+func TestRouterSetOwnedPartitions(t *testing.T) {
+	el := &fakeEventLogForCmd{}
+	rtr := router.NewRouter(el, 64, nil)
+	rtr.SetOwnedPartitions([]uint32{0, 1, 2})
+	rtr.SetOwnedPartitions(nil)
+	_ = rtr
 }
