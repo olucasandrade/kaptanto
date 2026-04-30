@@ -403,8 +403,41 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
+	// Phase 16: Open cluster partition components before Router so cursorStore
+	// can be epoch-fenced before being passed to NewRouter (DLVR-02).
+	var pm *cluster.PartitionManager
+	var heartbeater *cluster.NodeHeartbeater
+	if cfg.Cluster {
+		nodeAddr := fmt.Sprintf("%s:%d", hostname, cfg.Port)
+		nodeID := cfg.NodeID
+		if nodeID == "" {
+			nodeID = hostname
+		}
+		var hbErr error
+		heartbeater, hbErr = cluster.OpenNodeHeartbeater(ctx, cfg.ClusterDSN, nodeID, nodeAddr, 5*time.Second, 30)
+		if hbErr != nil {
+			return fmt.Errorf("open node heartbeater: %w", hbErr)
+		}
+		defer heartbeater.Close(context.Background())
+
+		partStore, psErr := cluster.OpenPartitionStore(ctx, cfg.ClusterDSN, heartbeater.NodeID())
+		if psErr != nil {
+			return fmt.Errorf("open partition store: %w", psErr)
+		}
+		defer partStore.Close(context.Background())
+
+		// rtr=nil here; injected via SetRouter after NewRouter below.
+		pm = cluster.NewPartitionManager(partStore, heartbeater, nil, 5*time.Second)
+
+		// Wrap cursorStore with epoch fencing before passing to Router.
+		cursorStore = cluster.NewEpochCursorStore(cursorStore, pm)
+	}
+
 	// 7. Create router.
 	rtr := router.NewRouter(el, numEventLogPartitions, cursorStore)
+	if cfg.Cluster {
+		pm.SetRouter(rtr)
+	}
 
 	// 8. Create observability (metrics + health).
 	// Health probes are built incrementally so the ha_lock probe can be
@@ -592,18 +625,20 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	g.Go(func() error { return rtr.Run(gctx) })
 	g.Go(func() error { return outputServer(gctx) })
 	if cfg.Cluster {
-		nodeAddr := fmt.Sprintf("%s:%d", hostname, cfg.Port)
-		nodeID := cfg.NodeID
-		heartbeater, err := cluster.OpenNodeHeartbeater(ctx, cfg.ClusterDSN, nodeID, nodeAddr, 5*time.Second, 30)
-		if err != nil {
-			return fmt.Errorf("open node heartbeater: %w", err)
-		}
-		defer heartbeater.Close(context.Background())
 		g.Go(func() error { heartbeater.Run(gctx); return nil })
+		g.Go(func() error { return pm.Run(gctx) })
 	}
 
-	if err := g.Wait(); err != nil && err != context.Canceled {
-		return err
+	waitErr := g.Wait()
+	// Phase 16: Release partition ownership after all goroutines drain.
+	// PostgresCursorStore.Run flushes cursors on ctx cancel before g.Wait returns.
+	if pm != nil {
+		if releaseErr := pm.ReleaseAll(context.Background()); releaseErr != nil {
+			slog.Warn("cluster: release partitions on shutdown failed", "err", releaseErr)
+		}
+	}
+	if waitErr != nil && waitErr != context.Canceled {
+		return waitErr
 	}
 	slog.Info("kaptanto shut down cleanly")
 	return nil
