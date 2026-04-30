@@ -294,6 +294,9 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	hostname, _ := os.Hostname()
 	var el eventlog.EventLog
 	var elPing func() error
+	// SRCC-02: walElector is non-nil only in cluster+Postgres mode. Declared here so it
+	// is in scope for SetEpochGetter (Insertion B) and errgroup.Go (Insertion C) below.
+	var walElector *cluster.WalLeaderElector
 	if cfg.Cluster {
 		natsClusterPort := cfg.NatsClusterPort
 		if natsClusterPort == 0 {
@@ -324,6 +327,15 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		defer natsEl.Close()
 		el = natsEl
 		elPing = natsEl.Ping
+
+		// SRCC-02: Create WAL leader elector using the existing NATS connection.
+		// Wired into the connector only if source is Postgres (MongoDB pipeline is
+		// dispatched before the connector is constructed below — walElector stays nil
+		// for MongoDB callers, which is the correct non-fenced behaviour).
+		walElector, err = cluster.NewWalLeaderElector(ctx, natsEl.Conn(), nodeID)
+		if err != nil {
+			return fmt.Errorf("cluster: open wal leader elector: %w", err)
+		}
 	} else {
 		badgerEl, err := eventlog.Open(filepath.Join(cfg.DataDir, "events"), numEventLogPartitions, retention)
 		if err != nil {
@@ -579,6 +591,13 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	connector := postgres.NewWithBackfill(connCfg, ckStore, idGen, el, nil)
 	connector.SetMetrics(metrics)
 
+	// SRCC-01: Inject epoch fencing into the Postgres connector.
+	// The connector drops sendStandbyStatus calls whenever EpochGetter returns isLeader=false.
+	// walElector is nil in non-cluster mode — SetEpochGetter is a no-op for nil getter.
+	if walElector != nil {
+		connector.SetEpochGetter(walElector.EpochGetter)
+	}
+
 	// 10b. BackfillStore — cursor persistence on every batch (BKF-03).
 	// Cluster mode: use PostgresBackfillStore backed by the shared Postgres instance
 	// so backfill can resume on a different node from the last keyset cursor (STATE-03).
@@ -627,6 +646,9 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	if cfg.Cluster {
 		g.Go(func() error { heartbeater.Run(gctx); return nil })
 		g.Go(func() error { return pm.Run(gctx) })
+		if walElector != nil {
+			g.Go(func() error { return walElector.Run(gctx) })
+		}
 	}
 
 	waitErr := g.Wait()
