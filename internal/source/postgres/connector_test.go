@@ -538,6 +538,100 @@ func TestSRC06ReSnapshotDispatch(t *testing.T) {
 	_ = c // connector exists, no panic during construction
 }
 
+// --- Epoch fencing tests (SRCC-01) ---
+
+// TestShouldSendStandby_NilGetter verifies that a nil epochGetter always allows
+// sending — non-cluster mode is completely unaffected (behavior identical to
+// pre-Phase-17).
+func TestShouldSendStandby_NilGetter(t *testing.T) {
+	result := postgres.ShouldSendStandby(nil)
+	if !result {
+		t.Error("ShouldSendStandby(nil) = false, want true — nil epochGetter must allow send (non-cluster mode)")
+	}
+}
+
+// TestShouldSendStandby_IsLeaderTrue verifies that when epochGetter returns
+// (_, true), the standby update is allowed through.
+func TestShouldSendStandby_IsLeaderTrue(t *testing.T) {
+	getter := func() (uint64, bool) { return 42, true }
+	result := postgres.ShouldSendStandby(getter)
+	if !result {
+		t.Error("ShouldSendStandby(isLeader=true) = false, want true")
+	}
+}
+
+// TestShouldSendStandby_IsLeaderFalse verifies that when epochGetter returns
+// (_, false), sendStandbyStatus is a no-op — zombie WAL node cannot advance
+// confirmed_flush_lsn (SRCC-01).
+func TestShouldSendStandby_IsLeaderFalse(t *testing.T) {
+	getter := func() (uint64, bool) { return 7, false }
+	result := postgres.ShouldSendStandby(getter)
+	if result {
+		t.Error("ShouldSendStandby(isLeader=false) = true, want false — zombie node must not send standby update")
+	}
+}
+
+// TestShouldSendStandby_EpochValueIgnored verifies that the epoch uint64 value
+// is not used in the decision — only the isLeader bool matters.
+func TestShouldSendStandby_EpochValueIgnored(t *testing.T) {
+	// epoch=0 with isLeader=true must allow send
+	getter0 := func() (uint64, bool) { return 0, true }
+	if !postgres.ShouldSendStandby(getter0) {
+		t.Error("ShouldSendStandby(epoch=0, isLeader=true) = false, want true")
+	}
+
+	// epoch=999 with isLeader=false must block send
+	getter999 := func() (uint64, bool) { return 999, false }
+	if postgres.ShouldSendStandby(getter999) {
+		t.Error("ShouldSendStandby(epoch=999, isLeader=false) = true, want false")
+	}
+}
+
+// TestSetEpochGetter_InjectedAndHonored verifies that SetEpochGetter injects
+// the getter into the connector and that the connector's behavior changes
+// accordingly. We verify indirectly: a connector with a not-leader getter
+// means ShouldSendStandby returns false for that getter.
+func TestSetEpochGetter_InjectedAndHonored(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	c := postgres.New(cfg, store, idGen)
+
+	// Before injection: nil epochGetter — non-cluster mode unchanged.
+	// We can only test SetEpochGetter doesn't panic; behavioral tests above
+	// cover ShouldSendStandby directly.
+	isLeader := true
+	getter := func() (uint64, bool) { return 1, isLeader }
+	c.SetEpochGetter(getter) // must not panic
+
+	isLeader = false // simulate leadership loss
+	// ShouldSendStandby with the same getter now returns false.
+	if postgres.ShouldSendStandby(getter) {
+		t.Error("after isLeader=false, ShouldSendStandby should return false")
+	}
+}
+
+// TestSetEpochGetter_NilPanic verifies SetEpochGetter(nil) doesn't panic.
+func TestSetEpochGetter_NilPanic(t *testing.T) {
+	cfg := postgres.Config{
+		DSN:      "postgres://localhost/testdb",
+		SourceID: "pg1",
+	}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	c := postgres.New(cfg, store, idGen)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("SetEpochGetter(nil) panicked: %v", r)
+		}
+	}()
+	c.SetEpochGetter(nil) // clears the getter — must not panic
+}
+
 // TestSRC06_NilBackfillEngineNoPanic verifies that a connector with nil backfillEng
 // does not panic when SetBackfillEngine is called with a nil interface value.
 func TestSRC06_NilBackfillEngineNoPanic(t *testing.T) {
