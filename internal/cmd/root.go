@@ -684,6 +684,19 @@ func runMongoPipeline(
 	outputServer func(ctx context.Context) error,
 	metrics *observability.KaptantoMetrics,
 ) error {
+	// SRCC-03: In cluster mode, MongoDB resume tokens must be written to the shared
+	// Postgres store (cfg.ClusterDSN) so a replacement node can resume from the correct
+	// position. Override the passed ckStore with a PostgresStore backed by ClusterDSN.
+	// Non-cluster mode: ckStore is the SQLite store passed from runPipeline (unchanged).
+	if cfg.Cluster {
+		pgStore, err := checkpoint.OpenPostgres(ctx, cfg.ClusterDSN)
+		if err != nil {
+			return fmt.Errorf("cluster: open mongo checkpoint store: %w", err)
+		}
+		defer pgStore.Close()
+		ckStore = pgStore
+	}
+
 	idGen := event.NewIDGenerator()
 
 	// Build collection list from cfg.Tables keys (or empty for all).
