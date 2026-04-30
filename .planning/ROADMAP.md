@@ -198,4 +198,4 @@ Plans:
 | 14. Shared State Foundation | v2.0 | 3/3 | ✓ Complete | 2026-04-28 |
 | 15. Distributed Event Log | v2.0 | 2/2 | ✓ Complete | 2026-04-28 |
 | 16. Partition Ownership and Active/Active Delivery | v2.0 | 3/3 | ✓ Complete | 2026-04-30 |
-| 17. Distributed Source Coordination | 1/3 | In Progress|  | - |
+| 17. Distributed Source Coordination | 2/3 | In Progress|  | - |

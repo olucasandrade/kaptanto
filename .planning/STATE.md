@@ -51,6 +51,7 @@ Progress: [███████░░░] 67% (2/3 plans complete in Phase 17)
 | Phase 16 P01 | 3 | 2 tasks | 2 files |
 | Phase 16 P02 | 4 | 2 tasks | 5 files |
 | Phase 16 P03 | 4 | 2 tasks | 2 files |
+| Phase 17 P01 | 18 | 2 tasks (TDD) | 3 files |
 | Phase 17 P02 | 4 | 1 task (TDD) | 2 files |
 
 ## Accumulated Context
@@ -91,6 +92,11 @@ Recent decisions affecting current work:
 - [Phase 16]: Cluster setup moved entirely before NewRouter — DLVR-02 requires epochCursorStore to be ready before Router is constructed
 - [Phase 16]: pm.ReleaseAll called in root.go after g.Wait() — canonical shutdown path; pm.Run does NOT call ReleaseAll internally
 - [Phase 16]: fakeEventLogForCmd in cmd_test package satisfies eventlog.EventLog interface for compile-guard test without cross-package test helper imports
+- [Phase 17-01]: WalLeaderElector uses kv.Create for atomic acquisition and kv.Update CAS for renewal — never kv.Get to verify own lease (avoids stale read pitfall)
+- [Phase 17-01]: leaseTTL=15s is 2x renewEvery=7s — one missed renewal heartbeat does not evict the leader prematurely
+- [Phase 17-01]: epoch and isLeader stored in atomic.Uint64/Bool — no mutex on hot EpochGetter read path
+- [Phase 17-01]: Connector context never cancelled from WalLeaderElector — only isLeader=false set; WAL replication connection continues cleanly
+- [Phase 17-01]: openOrCreateLeaderBucket: try KeyValue first (fast path for restarts), CreateKeyValue only on miss, retry open on race condition
 - [Phase 17-02]: ShouldSendStandby exported (not unexported) so postgres_test package can test epoch guard logic without reflection or build tags
 - [Phase 17-02]: epochGetter func pointer set once before Run starts, never mutated during Run — no mutex needed in connector (WalLeaderElector reads its own atomic.Bool internally)
 - [Phase 17-02]: Zombie node drops standby update (returns nil) rather than cancelling ctx — ctx cancellation closes replication slot which can corrupt in-flight events; wal_receiver_timeout is the correct fence
@@ -107,6 +113,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-30T16:57:51Z
-Stopped at: Completed 17-02-PLAN.md (epoch-fenced sendStandbyStatus: SetEpochGetter + ShouldSendStandby, SRCC-01)
+Last session: 2026-04-30T16:58:33Z
+Stopped at: Completed 17-01-PLAN.md (WalLeaderElector with NATS JetStream KV TTL lease and NatsEventLog.Conn() accessor, SRCC-02)
 Resume file: None
