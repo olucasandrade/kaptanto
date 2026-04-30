@@ -192,5 +192,5 @@ Plans:
 | 13. Report Generator | v1.2 | 2/2 | ✓ Complete | 2026-03-21 |
 | 14. Shared State Foundation | v2.0 | 3/3 | ✓ Complete | 2026-04-28 |
 | 15. Distributed Event Log | v2.0 | 2/2 | ✓ Complete | 2026-04-28 |
-| 16. Partition Ownership and Active/Active Delivery | v2.0 | 0/3 | Not started | - |
+| 16. Partition Ownership and Active/Active Delivery | 1/3 | In Progress|  | - |
 | 17. Distributed Source Coordination | v2.0 | 0/TBD | Not started | - |

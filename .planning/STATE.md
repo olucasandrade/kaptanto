@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Distributed Architecture
 status: unknown
-last_updated: "2026-04-28T18:03:21.631Z"
+last_updated: "2026-04-28T18:21:52.209Z"
 progress:
   total_phases: 23
-  completed_phases: 22
+  completed_phases: 23
   total_plans: 55
-  completed_plans: 54
+  completed_plans: 55
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 
 ## Current Position
 
-Phase: 15 of 17 (Distributed Event Log)
-Plan: 02 complete — Phase 15 Complete
+Phase: 16 of 17 (Partition Ownership and Active-Active Delivery)
+Plan: 01 complete — 2/3 plans remaining
 Status: In Progress
-Last activity: 2026-04-28 — Completed 15-02 (NatsEventLog CLI wiring)
+Last activity: 2026-04-30 — Completed 16-01 (PartitionStore atomic claim/steal/release)
 
-Progress: [████████░░] 80% (2/2 plans complete in Phase 15)
+Progress: [████████░░] 82% (1/3 plans complete in Phase 16)
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [████████░░] 80% (2/2 plans complete in Phase 15)
 | Phase 14-shared-state-foundation P03 | 5 | 2 tasks | 3 files |
 | Phase 15 P01 | 8 | 2 tasks | 5 files |
 | Phase 15 P02 | 3 | 2 tasks | 2 files |
+| Phase 16 P01 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,10 @@ Recent decisions affecting current work:
 - [Phase 15-02]: elPing func variable captures Ping from concrete type before upcasting to EventLog interface — avoids type assertions in health probe
 - [Phase 15-02]: /healthz probe renamed from 'badger' to 'eventlog' — neutral label works for both BadgerEventLog and NatsEventLog
 - [Phase 15-02]: NatsClusterPort=0 in Defaults() preserves "not set" distinction; 0 → 6222 applied at pipeline start in runPipeline
+- [Phase 16-01]: pgx.ErrNoRows from ClaimUnclaimed UPDATE RETURNING is a normal race loss — silently skipped, not surfaced as error
+- [Phase 16-01]: Non-nil empty slice invariant applied to ClaimUnclaimed, StealStalePartitions, and ListOwned — matches StaleNodes contract
+- [Phase 16-01]: EpochFor reads in-memory epochs map under RLock — avoids DB round-trip for hot-path partition validation in Plan 03
+- [Phase 16-01]: OpenPartitionStore seeds 64 rows via INSERT ON CONFLICT DO NOTHING — idempotent across concurrent multi-node starts
 
 ### Pending Todos
 
@@ -87,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-28T18:17:40Z
-Stopped at: Completed 15-02-PLAN.md (NatsEventLog CLI wiring — Phase 15 complete)
+Last session: 2026-04-30T00:17:30Z
+Stopped at: Completed 16-01-PLAN.md (PartitionStore atomic claim/steal/release)
 Resume file: None
