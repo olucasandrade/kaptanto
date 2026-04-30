@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 
 ## Current Position
 
-Phase: 16 of 17 (Partition Ownership and Active-Active Delivery)
-Plan: 03 complete — Phase 16 COMPLETE (3/3 plans done)
-Status: Phase 16 Complete
-Last activity: 2026-04-30 — Completed 16-03 (root.go cluster wiring: PartitionManager + epochCursorStore + graceful shutdown)
+Phase: 17 of 17 (Distributed Source Coordination)
+Plan: 02 complete — Phase 17 in progress (2/3 plans done)
+Status: Phase 17 In Progress
+Last activity: 2026-04-30 — Completed 17-02 (epoch-fenced sendStandbyStatus: epochGetter field + SetEpochGetter + ShouldSendStandby guard, SRCC-01)
 
-Progress: [██████████] 100% (3/3 plans complete in Phase 16)
+Progress: [███████░░░] 67% (2/3 plans complete in Phase 17)
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [██████████] 100% (3/3 plans complete in Phase 16)
 | Phase 16 P01 | 3 | 2 tasks | 2 files |
 | Phase 16 P02 | 4 | 2 tasks | 5 files |
 | Phase 16 P03 | 4 | 2 tasks | 2 files |
+| Phase 17 P02 | 4 | 1 task (TDD) | 2 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,10 @@ Recent decisions affecting current work:
 - [Phase 16]: Cluster setup moved entirely before NewRouter — DLVR-02 requires epochCursorStore to be ready before Router is constructed
 - [Phase 16]: pm.ReleaseAll called in root.go after g.Wait() — canonical shutdown path; pm.Run does NOT call ReleaseAll internally
 - [Phase 16]: fakeEventLogForCmd in cmd_test package satisfies eventlog.EventLog interface for compile-guard test without cross-package test helper imports
+- [Phase 17-02]: ShouldSendStandby exported (not unexported) so postgres_test package can test epoch guard logic without reflection or build tags
+- [Phase 17-02]: epochGetter func pointer set once before Run starts, never mutated during Run — no mutex needed in connector (WalLeaderElector reads its own atomic.Bool internally)
+- [Phase 17-02]: Zombie node drops standby update (returns nil) rather than cancelling ctx — ctx cancellation closes replication slot which can corrupt in-flight events; wal_receiver_timeout is the correct fence
+- [Phase 17-02]: nil epochGetter path is byte-for-byte identical to pre-Phase-17 — ShouldSendStandby(nil) returns true unconditionally
 
 ### Pending Todos
 
@@ -102,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-30T00:30:05Z
-Stopped at: Completed 16-03-PLAN.md (root.go cluster wiring: PartitionManager + epochCursorStore + graceful shutdown)
+Last session: 2026-04-30T16:57:51Z
+Stopped at: Completed 17-02-PLAN.md (epoch-fenced sendStandbyStatus: SetEpochGetter + ShouldSendStandby, SRCC-01)
 Resume file: None
