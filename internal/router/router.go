@@ -106,13 +106,14 @@ type consumerState struct {
 // Consumers. One goroutine per partition is used; goroutines run for the
 // lifetime of the context passed to Run.
 type Router struct {
-	eventLog      eventlog.EventLog
-	numPartitions uint32
-	consumers     []consumerState
-	mu            sync.RWMutex
-	cursorStore   ConsumerCursorStore
-	rs            *RetryScheduler
-	metrics       *observability.KaptantoMetrics
+	eventLog        eventlog.EventLog
+	numPartitions   uint32
+	consumers       []consumerState
+	mu              sync.RWMutex
+	cursorStore     ConsumerCursorStore
+	rs              *RetryScheduler
+	metrics         *observability.KaptantoMetrics
+	ownedPartitions []uint32 // nil = all partitions (non-cluster default)
 }
 
 // NewRouter creates a new Router. If cs is nil, an in-memory noopCursorStore
@@ -133,6 +134,24 @@ func NewRouter(el eventlog.EventLog, numPartitions uint32, cs ConsumerCursorStor
 // Call after construction, before Run.
 func (r *Router) SetMetrics(m *observability.KaptantoMetrics) {
 	r.metrics = m
+}
+
+// SetOwnedPartitions configures which partitions this Router instance reads.
+// Must be called before Run. Passing nil (default) restores "all partitions"
+// behavior — non-cluster mode is byte-for-byte identical to pre-Phase-16.
+func (r *Router) SetOwnedPartitions(owned []uint32) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ownedPartitions = owned
+}
+
+// allPartitions returns a slice [0, 1, ..., n-1].
+func allPartitions(n uint32) []uint32 {
+	s := make([]uint32, n)
+	for i := uint32(0); i < n; i++ {
+		s[i] = i
+	}
+	return s
 }
 
 // Register adds a Consumer to the Router. Register must be called before Run.
@@ -160,14 +179,23 @@ func (r *Router) Register(c Consumer) {
 	r.consumers = append(r.consumers, cs)
 }
 
-// Run starts exactly numPartitions goroutines and blocks until ctx is
-// cancelled. Returns nil when ctx.Done() fires — it never returns a non-nil
-// error for transient ReadPartition failures.
+// Run starts one goroutine per owned partition and blocks until ctx is
+// cancelled. When ownedPartitions is nil (default), all numPartitions
+// partitions are started — behavior is identical to pre-Phase-16.
+// Returns nil when ctx.Done() fires — it never returns a non-nil error for
+// transient ReadPartition failures.
 func (r *Router) Run(ctx context.Context) error {
 	go r.rs.Run(ctx)
 
+	r.mu.RLock()
+	partitions := r.ownedPartitions
+	r.mu.RUnlock()
+	if partitions == nil {
+		partitions = allPartitions(r.numPartitions)
+	}
+
 	var wg sync.WaitGroup
-	for p := uint32(0); p < r.numPartitions; p++ {
+	for _, p := range partitions {
 		wg.Add(1)
 		go func(partitionID uint32) {
 			defer wg.Done()
