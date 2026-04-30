@@ -128,6 +128,10 @@ type PostgresConnector struct {
 	// mutex, concurrent Append calls to BadgerDB would race (Pitfall 2).
 	appendMu sync.Mutex
 	metrics  *observability.KaptantoMetrics
+	// epochGetter is injected in cluster mode by root.go after construction.
+	// When non-nil, sendStandbyStatus checks isLeader before advancing confirmed_flush_lsn.
+	// Nil in non-cluster mode (no-op guard — byte-for-byte identical to pre-Phase-17).
+	epochGetter func() (uint64, bool)
 }
 
 // New creates a PostgresConnector without an EventLog. Call Run(ctx) to start
@@ -191,6 +195,28 @@ func (c *PostgresConnector) SetBackfillEngine(eng backfill.BackfillEngine) {
 // Call after construction, before Run.
 func (c *PostgresConnector) SetMetrics(m *observability.KaptantoMetrics) {
 	c.metrics = m
+}
+
+// SetEpochGetter injects the epoch fencing function for cluster mode.
+// getter is WalLeaderElector.EpochGetter — returns (currentEpoch, isLeader).
+// Call after construction, before Run (same pattern as SetBackfillEngine).
+// Pass nil to clear (reverts to non-cluster mode — all sends are allowed).
+func (c *PostgresConnector) SetEpochGetter(getter func() (uint64, bool)) {
+	c.epochGetter = getter
+}
+
+// ShouldSendStandby returns true if the epoch fence allows sending a standby
+// status update. Always returns true when getter is nil (non-cluster mode).
+// This is the SRCC-01 guard: when getter returns isLeader=false, the node is
+// a zombie WAL leader and must not advance confirmed_flush_lsn.
+//
+// Exported for testing; internal callers use sendStandbyStatus which calls this.
+func ShouldSendStandby(getter func() (uint64, bool)) bool {
+	if getter == nil {
+		return true
+	}
+	_, isLeader := getter()
+	return isLeader
 }
 
 // AppendAndQueue durably appends ev to the event log (if configured) and then
@@ -528,7 +554,18 @@ func (c *PostgresConnector) receiveLoop(
 
 // sendStandbyStatus sends a StandbyStatusUpdate to the server.
 // CRITICAL: This must only be called AFTER store.Save() on commit (CHK-01).
+//
+// SRCC-01: Epoch fencing — drop standby update if this node is no longer WAL leader.
+// epochGetter is nil in non-cluster mode; guard is a strict no-op for non-cluster.
 func (c *PostgresConnector) sendStandbyStatus(ctx context.Context, conn *pgconn.PgConn, pos pglogrepl.LSN) error {
+	if !ShouldSendStandby(c.epochGetter) {
+		// This node is no longer the WAL leader. Silently drop the standby update.
+		// Postgres's wal_receiver_timeout (~60s default) will close the zombie
+		// replication connection when no standby messages arrive.
+		// Do NOT cancel ctx — context cancellation would close the slot, which can
+		// corrupt in-flight events. Timeout is the correct fence mechanism.
+		return nil
+	}
 	return pglogrepl.SendStandbyStatusUpdate(ctx, conn, pglogrepl.StandbyStatusUpdate{
 		WALWritePosition: pos,
 		ReplyRequested:   false,
