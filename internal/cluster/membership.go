@@ -12,15 +12,14 @@ import (
 
 const createNodesTableSQL = `
 CREATE TABLE IF NOT EXISTS kaptanto_nodes (
-    node_id               TEXT        PRIMARY KEY,
-    address               TEXT        NOT NULL,
-    last_seen             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    partition_assignments JSONB       NOT NULL DEFAULT '[]'::jsonb
+    node_id   TEXT        PRIMARY KEY,
+    address   TEXT        NOT NULL,
+    last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`
 
 const upsertNodeSQL = `
-INSERT INTO kaptanto_nodes (node_id, address, last_seen, partition_assignments)
-VALUES ($1, $2, NOW(), '[]'::jsonb)
+INSERT INTO kaptanto_nodes (node_id, address, last_seen)
+VALUES ($1, $2, NOW())
 ON CONFLICT (node_id) DO UPDATE
     SET address = EXCLUDED.address, last_seen = NOW();`
 
@@ -34,11 +33,10 @@ WHERE last_seen < NOW() - ($1 * INTERVAL '1 second');`
 // Postgres table. It upserts on start and on every interval tick. On graceful
 // shutdown (context cancellation) it deletes its own row to signal departure.
 type NodeHeartbeater struct {
-	conn           *pgx.Conn
-	nodeID         string
-	address        string
-	interval       time.Duration
-	staleThreshold int
+	conn     *pgx.Conn
+	nodeID   string
+	address  string
+	interval time.Duration
 }
 
 // OpenNodeHeartbeater connects to Postgres at dsn, auto-creates the
@@ -47,7 +45,7 @@ type NodeHeartbeater struct {
 // If nodeID is empty, it is derived from os.Hostname() with a fallback to
 // "node-unknown". The caller is responsible for passing a formatted address
 // (e.g., fmt.Sprintf("%s:%d", hostname, port)).
-func OpenNodeHeartbeater(ctx context.Context, dsn, nodeID, address string, interval time.Duration, staleThreshold int) (*NodeHeartbeater, error) {
+func OpenNodeHeartbeater(ctx context.Context, dsn, nodeID, address string, interval time.Duration) (*NodeHeartbeater, error) {
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("cluster: open postgres: %w", err)
@@ -61,11 +59,10 @@ func OpenNodeHeartbeater(ctx context.Context, dsn, nodeID, address string, inter
 	id := deriveNodeID(nodeID)
 
 	return &NodeHeartbeater{
-		conn:           conn,
-		nodeID:         id,
-		address:        address,
-		interval:       interval,
-		staleThreshold: staleThreshold,
+		conn:     conn,
+		nodeID:   id,
+		address:  address,
+		interval: interval,
 	}, nil
 }
 
