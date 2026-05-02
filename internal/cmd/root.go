@@ -699,6 +699,16 @@ func runMongoPipeline(
 		ckStore = pgStore
 	}
 
+	// Phase 18: Release partition ownership on any return path (DLVR-02).
+	// Uses context.Background() so the SQL UPDATE executes after main ctx cancellation.
+	if pm != nil {
+		defer func() {
+			if releaseErr := pm.ReleaseAll(context.Background()); releaseErr != nil {
+				slog.Warn("cluster: release partitions on shutdown failed", "err", releaseErr)
+			}
+		}()
+	}
+
 	idGen := event.NewIDGenerator()
 
 	// Build collection list from cfg.Tables keys (or empty for all).
@@ -734,6 +744,11 @@ func runMongoPipeline(
 	g.Go(func() error { return connector.Run(gctx) })
 	g.Go(func() error { return rtr.Run(gctx) })
 	g.Go(func() error { return outputServer(gctx) })
+	if cfg.Cluster {
+		g.Go(func() error { heartbeater.Run(gctx); return nil })
+		g.Go(func() error { return pm.Run(gctx) })
+		// walElector is NOT launched for MongoDB — no WAL source coordination needed
+	}
 
 	if err := g.Wait(); err != nil && err != context.Canceled {
 		return err
@@ -764,6 +779,11 @@ func runMongoPipeline(
 		g2.Go(func() error { return connector2.Run(gctx2) })
 		g2.Go(func() error { return rtr.Run(gctx2) })
 		g2.Go(func() error { return outputServer(gctx2) })
+		if cfg.Cluster {
+			g2.Go(func() error { heartbeater.Run(gctx2); return nil })
+			g2.Go(func() error { return pm.Run(gctx2) })
+			// walElector is NOT launched for MongoDB — no WAL source coordination needed
+		}
 		if err := g2.Wait(); err != nil && err != context.Canceled {
 			return err
 		}
