@@ -329,9 +329,10 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		elPing = natsEl.Ping
 
 		// SRCC-02: Create WAL leader elector using the existing NATS connection.
-		// Wired into the connector only if source is Postgres (MongoDB pipeline is
-		// dispatched before the connector is constructed below — walElector stays nil
-		// for MongoDB callers, which is the correct non-fenced behaviour).
+		// walElector is allocated for cluster mode regardless of source type.
+		// It is only Run for Postgres source (inside the Postgres errgroup block).
+		// For MongoDB+cluster, walElector is constructed but never Run — no WAL
+		// leader coordination is needed for Change Streams.
 		walElector, err = cluster.NewWalLeaderElector(ctx, natsEl.Conn(), nodeID)
 		if err != nil {
 			return fmt.Errorf("cluster: open wal leader elector: %w", err)
@@ -426,7 +427,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 			nodeID = hostname
 		}
 		var hbErr error
-		heartbeater, hbErr = cluster.OpenNodeHeartbeater(ctx, cfg.ClusterDSN, nodeID, nodeAddr, 5*time.Second, 30)
+		heartbeater, hbErr = cluster.OpenNodeHeartbeater(ctx, cfg.ClusterDSN, nodeID, nodeAddr, 5*time.Second)
 		if hbErr != nil {
 			return fmt.Errorf("open node heartbeater: %w", hbErr)
 		}

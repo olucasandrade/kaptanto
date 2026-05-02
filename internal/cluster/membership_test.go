@@ -19,7 +19,7 @@ func TestNodeHeartbeater(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("OpenNodeHeartbeater creates table and returns heartbeater", func(t *testing.T) {
-		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-open", "localhost:7654", 5*time.Second, 30)
+		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-open", "localhost:7654", 5*time.Second)
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
@@ -34,7 +34,7 @@ func TestNodeHeartbeater(t *testing.T) {
 	})
 
 	t.Run("Run upserts node immediately then ticker", func(t *testing.T) {
-		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-run", "localhost:7655", 100*time.Millisecond, 30)
+		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-run", "localhost:7655", 100*time.Millisecond)
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
@@ -73,7 +73,7 @@ func TestNodeHeartbeater(t *testing.T) {
 	})
 
 	t.Run("markOffline removes node row on graceful shutdown", func(t *testing.T) {
-		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-offline", "localhost:7656", 5*time.Second, 30)
+		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-offline", "localhost:7656", 5*time.Second)
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
@@ -102,7 +102,7 @@ func TestNodeHeartbeater(t *testing.T) {
 	})
 
 	t.Run("StaleNodes with threshold 0 returns all nodes", func(t *testing.T) {
-		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-stale", "localhost:7657", 5*time.Second, 30)
+		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-stale", "localhost:7657", 5*time.Second)
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
@@ -129,7 +129,7 @@ func TestNodeHeartbeater(t *testing.T) {
 	})
 
 	t.Run("StaleNodes returns empty slice not nil when no stale nodes", func(t *testing.T) {
-		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-fresh", "localhost:7658", 5*time.Second, 30)
+		hb, err := OpenNodeHeartbeater(ctx, dsn, "test-node-fresh", "localhost:7658", 5*time.Second)
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
@@ -152,12 +152,9 @@ func TestNodeHeartbeater(t *testing.T) {
 
 // TestNodeHeartbeatSQLConstants validates SQL constants without Postgres connection.
 func TestNodeHeartbeatSQLConstants(t *testing.T) {
-	// Table schema must use TIMESTAMPTZ and JSONB
+	// Table schema must use TIMESTAMPTZ for last_seen
 	if !strings.Contains(createNodesTableSQL, "TIMESTAMPTZ") {
 		t.Error("createNodesTableSQL must use TIMESTAMPTZ for last_seen")
-	}
-	if !strings.Contains(createNodesTableSQL, "JSONB") {
-		t.Error("createNodesTableSQL must use JSONB for partition_assignments")
 	}
 	if !strings.Contains(createNodesTableSQL, "kaptanto_nodes") {
 		t.Error("createNodesTableSQL must create kaptanto_nodes table")
