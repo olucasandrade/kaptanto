@@ -563,7 +563,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	// Auto-detection from DSN prefix: "mongodb://" or "mongodb+srv://" → MongoDB;
 	// everything else → Postgres (existing pipeline unchanged).
 	if cfg.SourceType() == "mongodb" {
-		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, cursorRun, outputServer, metrics)
+		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, cursorRun, heartbeater, pm, outputServer, metrics)
 	}
 
 	// 10. Build Postgres connector and BackfillEngine.
@@ -681,6 +681,8 @@ func runMongoPipeline(
 	rtr *router.Router,
 	cursorStore router.ConsumerCursorStore,
 	cursorRun func(ctx context.Context),
+	heartbeater *cluster.NodeHeartbeater,  // nil when !cfg.Cluster
+	pm *cluster.PartitionManager,          // nil when !cfg.Cluster
 	outputServer func(ctx context.Context) error,
 	metrics *observability.KaptantoMetrics,
 ) error {
