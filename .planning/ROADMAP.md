@@ -5,7 +5,7 @@
 - ✅ **v1.0 Postgres CDC Binary** — Phases 1–7.7 (shipped 2026-03-16)
 - ✅ **v1.1 Production Hardening** — Phases 8–10 (shipped 2026-03-20)
 - ✅ **v1.2 Benchmark Suite** — Phases 11–13 (shipped 2026-03-21)
-- 🚧 **v2.0 Distributed Architecture** — Phases 14–17 (in progress)
+- 🚧 **v2.0 Distributed Architecture** — Phases 14–18 (in progress)
 
 ## Phases
 
@@ -62,6 +62,7 @@ Full archive: `.planning/milestones/v1.2-ROADMAP.md`
 - [x] **Phase 15: Distributed Event Log** — Replace node-local Badger with Raft-replicated event log (NATS JetStream sidecar); preserve CHK-01 cluster-wide; preserve pure Go default binary (completed 2026-04-28)
 - [x] **Phase 16: Partition Ownership and Active/Active Delivery** — Partition-to-node assignment layer above Router; two-phase handoff with epoch fencing; N-node active consumer delivery via SSE and gRPC (completed 2026-04-30)
 - [x] **Phase 17: Distributed Source Coordination** — NATS KV-backed WAL leader election with epoch fencing; MongoDB resume tokens written to shared store before acknowledgment (completed 2026-04-30)
+- [ ] **Phase 18: MongoDB Cluster Infrastructure Wiring** [GAP-CLOSURE] — Pass heartbeater and pm into runMongoPipeline so MongoDB+cluster deployments start cluster goroutines; fix walElector nil guard and inaccurate comment; remove dead staleThreshold field and partition_assignments column
 
 ## Phase Details
 
@@ -176,6 +177,24 @@ Plans:
 - [ ] 17-02-PLAN.md — PostgresConnector epoch fencing: epochGetter field + SetEpochGetter + fenced sendStandbyStatus (SRCC-01)
 - [ ] 17-03-PLAN.md — root.go wiring: WalLeaderElector into Postgres pipeline + PostgresStore ckStore for MongoDB cluster mode (SRCC-01, SRCC-02, SRCC-03)
 
+### Phase 18: MongoDB Cluster Infrastructure Wiring [GAP-CLOSURE]
+**Goal**: MongoDB+cluster deployments start the same cluster infrastructure goroutines (heartbeater, pm) as Postgres+cluster, fully closing STATE-02 and DLVR-03
+**Depends on**: Phase 17
+**Requirements**: STATE-02, DLVR-01, DLVR-02, DLVR-03
+**Root cause:** `runMongoPipeline` is dispatched at root.go:566 before the errgroup block at 641–651, so `heartbeater.Run` and `pm.Run` are never started for MongoDB+cluster.
+**Success Criteria** (what must be TRUE):
+  1. In MongoDB+cluster mode, `heartbeater.Run` and `pm.Run` are started — `kaptanto_nodes` row is inserted and stale node detection fires
+  2. `epochCursorStore.SaveCursor` correctly persists cursor positions for MongoDB+cluster consumers — partition ownership is respected, no silent drops
+  3. `pm.ReleaseAll` is called on clean shutdown for MongoDB+cluster — partition rows are released and not left claimed
+  4. `walElector` is nil for MongoDB+cluster (no WAL leader needed); inaccurate root.go comment is corrected
+  5. Dead `NodeHeartbeater.staleThreshold` field and dead `kaptanto_nodes.partition_assignments` JSONB column are removed
+  6. All tests pass; `make verify-no-cgo` green
+**Plans**: 2 plans
+
+Plans:
+- [ ] 18-01-PLAN.md — Pass heartbeater and pm into runMongoPipeline; start cluster goroutines; call pm.ReleaseAll on shutdown (STATE-02, DLVR-01, DLVR-02, DLVR-03)
+- [ ] 18-02-PLAN.md — Fix walElector nil guard for MongoDB+cluster; fix inaccurate root.go comment; remove dead staleThreshold field and partition_assignments column
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -198,4 +217,5 @@ Plans:
 | 14. Shared State Foundation | v2.0 | 3/3 | ✓ Complete | 2026-04-28 |
 | 15. Distributed Event Log | v2.0 | 2/2 | ✓ Complete | 2026-04-28 |
 | 16. Partition Ownership and Active/Active Delivery | v2.0 | 3/3 | ✓ Complete | 2026-04-30 |
-| 17. Distributed Source Coordination | 3/3 | Complete    | 2026-05-01 | - |
+| 17. Distributed Source Coordination | v2.0 | 3/3 | ✓ Complete | 2026-05-01 |
+| 18. MongoDB Cluster Infrastructure Wiring [GAP] | 1/2 | In Progress|  | — |

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Distributed Architecture
 status: unknown
-last_updated: "2026-05-01T17:06:49.239Z"
+last_updated: "2026-05-02T13:58:28.499Z"
 progress:
-  total_phases: 25
+  total_phases: 26
   completed_phases: 25
-  total_plans: 61
-  completed_plans: 61
+  total_plans: 63
+  completed_plans: 62
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 
 ## Current Position
 
-Phase: 17 of 17 (Distributed Source Coordination)
-Plan: 03 complete — Phase 17 COMPLETE (3/3 plans done)
-Status: Phase 17 Complete — v2.0 Distributed Architecture milestone complete
-Last activity: 2026-04-30 — Completed 17-03 (root.go cluster wiring: WalLeaderElector + MongoDB PostgresStore, SRCC-01/02/03)
+Phase: 18 of 18 (MongoDB Cluster Infrastructure Wiring — gap closure)
+Plan: 02 — Phase 18 in progress (1/2 plans done)
+Status: 18-01 complete — runMongoPipeline wired with cluster goroutines and deferred ReleaseAll
+Last activity: 2026-05-02 — Completed 18-01 (heartbeater.Run + pm.Run + deferred pm.ReleaseAll in MongoDB pipeline)
 
-Progress: [██████████] 100% (3/3 plans complete in Phase 17)
+Progress: [██████████] 100% (1/2 plans complete in Phase 18)
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [██████████] 100% (3/3 plans complete in Phase 17)
 | Phase 17 P01 | 18 | 2 tasks (TDD) | 3 files |
 | Phase 17 P02 | 4 | 1 task (TDD) | 2 files |
 | Phase 17 P03 | 3 | 2 tasks | 1 files |
+| Phase 18 P01 | 5 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,9 @@ Recent decisions affecting current work:
 - [Phase 17]: walElector declared before event log block so it is in scope for SetEpochGetter and errgroup.Go without type assertions
 - [Phase 17]: walElector nil for MongoDB source path: MongoDB dispatched before connector block, so EpochGetter never injected into MongoDB pipeline
 - [Phase 17]: runMongoPipeline uses cfg.ClusterDSN not cfg.Source for PostgresStore DSN — cfg.Source is MongoDB URI
+- [Phase 18]: heartbeater and pm passed as explicit nil-able parameters to runMongoPipeline (nil when !cfg.Cluster) — nil guards make non-cluster MongoDB paths identical to pre-Phase-18
+- [Phase 18]: Single deferred pm.ReleaseAll at function entry in runMongoPipeline (not after g.Wait or g2.Wait) — fires on any return path including re-snapshot branch
+- [Phase 18]: walElector NOT passed to runMongoPipeline — MongoDB requires no WAL epoch fencing; nil guard in runPipeline already prevents walElector construction for MongoDB source
 
 ### Pending Todos
 
@@ -117,6 +121,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-30T17:03:00Z
-Stopped at: Completed 17-03-PLAN.md (final Phase 17 wiring: WalLeaderElector + MongoDB PostgresStore, SRCC-01/02/03 complete — v2.0 milestone done)
+Last session: 2026-05-02T13:57:00Z
+Stopped at: Completed 18-01-PLAN.md (runMongoPipeline cluster goroutine wiring: heartbeater.Run + pm.Run + deferred pm.ReleaseAll)
 Resume file: None
