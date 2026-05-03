@@ -26,6 +26,29 @@ type TableConfig struct {
 	Where   string   `yaml:"where"`
 }
 
+// TLSConfig holds paths to TLS certificates for sink connections.
+// All fields are optional; omit to use system CAs and no mutual TLS.
+type TLSConfig struct {
+	CAFile   string `yaml:"ca-file"`   // path to CA PEM; empty = system CAs
+	CertFile string `yaml:"cert-file"` // client cert PEM for mutual TLS
+	KeyFile  string `yaml:"key-file"`  // client key PEM for mutual TLS
+}
+
+// NATSSinkConfig holds connection settings for the NATS JetStream sink.
+type NATSSinkConfig struct {
+	URL             string    `yaml:"url"`              // e.g. "nats://localhost:4222"
+	SubjectTemplate string    `yaml:"subject-template"` // Go template, e.g. "cdc.{{.Schema}}.{{.Table}}"
+	StreamName      string    `yaml:"stream-name"`      // optional: if set, validated at startup
+	TLS             TLSConfig `yaml:"tls"`
+}
+
+// SinksConfig holds connection settings for all supported queue sinks.
+// Only the active sink's sub-block needs to be populated.
+// Additional sink types (SQS, Kafka, PubSub, RabbitMQ) will be added in Phases 20-23.
+type SinksConfig struct {
+	NATS *NATSSinkConfig `yaml:"nats"`
+}
+
 // Config is the complete runtime configuration for a kaptanto pipeline.
 // YAML tags match the locked schema described in the project specification.
 type Config struct {
@@ -42,6 +65,7 @@ type Config struct {
 	ClusterDSN      string                 `yaml:"cluster-dsn"`      // --cluster-dsn flag; Postgres DSN for shared cursor store
 	ClusterPeers    []string               `yaml:"cluster-peers"`    // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
 	NatsClusterPort int                    `yaml:"nats-cluster-port"` // NATS cluster route port; 0 → 6222 applied at runtime
+	Sinks           SinksConfig            `yaml:"sinks"`             // queue sink connection settings
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
