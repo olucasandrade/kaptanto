@@ -32,6 +32,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/output"
 	grpcoutput "github.com/olucasandrade/kaptanto/internal/output/grpc"
+	natssink "github.com/olucasandrade/kaptanto/internal/output/nats"
 	"github.com/olucasandrade/kaptanto/internal/output/sse"
 	"github.com/olucasandrade/kaptanto/internal/output/stdout"
 	"github.com/olucasandrade/kaptanto/internal/router"
@@ -556,8 +557,40 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 			}
 			return nil
 		}
+	case "nats":
+		natsCfg := cfg.Sinks.NATS
+		if natsCfg == nil {
+			return fmt.Errorf("--output nats requires a sinks.nats block in config (url, subject-template)")
+		}
+		natsSink, err := natssink.NewNATSSinkConsumer("nats", *natsCfg)
+		if err != nil {
+			return fmt.Errorf("nats sink: init: %w", err)
+		}
+		defer natsSink.Close()
+		natsSink.SetMetrics(metrics)
+		rtr.Register(natsSink)
+		healthProbes = append(healthProbes, observability.HealthProbe{
+			Name:  "nats",
+			Check: natsSink.Ping,
+		})
+		obsMux := http.NewServeMux()
+		obsMux.Handle("/metrics", metrics.Handler())
+		obsMux.Handle("/healthz", observability.NewHealthHandler(healthProbes))
+		obsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: obsMux}
+		outputServer = func(ctx context.Context) error {
+			go func() {
+				<-ctx.Done()
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = obsSrv.Shutdown(shutdownCtx)
+			}()
+			if err := obsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("nats obs server: %w", err)
+			}
+			return nil
+		}
 	default:
-		return fmt.Errorf("unknown output mode %q: use stdout, sse, or grpc", cfg.Output)
+		return fmt.Errorf("unknown output mode %q: use stdout, sse, grpc, or nats", cfg.Output)
 	}
 
 	// 10. Dispatch to source-specific pipeline based on DSN type.
