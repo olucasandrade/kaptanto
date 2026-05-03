@@ -295,7 +295,7 @@ Plans:
 | 16. Partition Ownership and Active/Active Delivery | v2.0 | 3/3 | ✓ Complete | 2026-04-30 |
 | 17. Distributed Source Coordination | v2.0 | 3/3 | ✓ Complete | 2026-05-01 |
 | 18. MongoDB Cluster Infrastructure Wiring [GAP] | v2.0 | 2/2 | ✓ Complete | 2026-05-02 |
-| 19. Sink Infrastructure and NATS Sink | 1/3 | In Progress|  | - |
+| 19. Sink Infrastructure and NATS Sink | 2/3 | In Progress|  | - |
 | 20. SQS Sink | v2.1 | 0/TBD | Not started | - |
 | 21. Kafka Sink | v2.1 | 0/TBD | Not started | - |
 | 22. Google Pub/Sub Sink | v2.1 | 0/TBD | Not started | - |

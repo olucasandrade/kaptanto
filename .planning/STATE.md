@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Queue Sinks
-status: roadmap_ready
-last_updated: "2026-05-04T00:00:00.000Z"
+status: unknown
+last_updated: "2026-05-03T23:20:09.501Z"
 progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 27
+  completed_phases: 26
+  total_plans: 66
+  completed_plans: 65
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 19 — Sink Infrastructure and NATS Sink (in progress)
-Plan: 02 of 03
-Status: Plan 01 complete — config and metrics foundation done
-Last activity: 2026-05-03 — Plan 19-01 complete (config types + queue metrics)
+Plan: 03 of 03
+Status: Plan 02 complete — NATSSinkConsumer implementation done
+Last activity: 2026-05-04 — Plan 19-02 complete (NATSSinkConsumer with JetStream publish)
 
-Progress: [░░░░░░░░░░] 0% (0/5 phases complete, 1/3 plans complete in Phase 19)
+Progress: [░░░░░░░░░░] 0% (0/5 phases complete, 2/3 plans complete in Phase 19)
 
 ## Accumulated Context
 
@@ -44,6 +44,8 @@ Recent decisions affecting current work:
 - **RabbitMQ last (Phase 23):** Most complex sink — non-goroutine-safe channels, no auto-reconnect, publisher confirms. Building last means four working sinks and a proven test harness exist first.
 - **Plan 19-01: NATS pointer field (*NATSSinkConfig):** Pointer field ensures nil when sinks.nats is absent in YAML; zero-value struct would hide the difference between "not configured" and "empty config".
 - **Plan 19-01: No Merge()/Defaults() changes:** Sinks has no CLI flag equivalent in this phase; CFG-04 CLI flag deferred to Plan 03.
+- [Phase 19]: isInvalidNATSSubject implements subject validation inline since nats.go v1.51.0 does not export a subject validation function
+- [Phase 19]: nc.Flush() after nc.Subscribe() in tests ensures server-side interest registration before JetStream publish to prevent flakiness
 
 ### Pending Todos
 
@@ -53,13 +55,12 @@ Recent decisions affecting current work:
 
 - **Pub/Sub emulator setup (Phase 22):** Exact local integration test harness for Pub/Sub ordering-key correctness not fully resolved. Address at start of Phase 22 planning.
 - **RabbitMQ channel pool vs. serialized goroutine (Phase 23):** Research identifies the problem but does not conclusively pick the implementation pattern. Benchmark both approaches during Phase 23 design.
-- **NATS JetStream stream pre-creation policy (Phase 19):** Whether Kaptanto validates stream existence at startup or attempts stream creation is unresolved. Clarify during Phase 19 planning.
-  - NOTE: Plan 01 added StreamName field as optional (empty string = not validated). Policy clarification still needed for Plan 02.
+- **NATS JetStream stream pre-creation policy (Phase 19):** RESOLVED — StreamName is optional. If set, validated at startup with fail-fast error. If empty, no validation (user manages stream lifecycle externally).
 - **SQS high-throughput FIFO mode (Phase 20):** Whether to enable high-throughput FIFO mode automatically or require explicit opt-in. Decide during Phase 20 planning.
 
 ## Session Continuity
 
-Last session: 2026-05-03
-Stopped at: Completed 19-01-PLAN.md — SinksConfig types and queue metrics foundation
+Last session: 2026-05-04
+Stopped at: Completed 19-02-PLAN.md — NATSSinkConsumer implementation
 Resume file: None
-Next action: Execute Plan 19-02 (NATS sink consumer)
+Next action: Execute Plan 19-03 (CLI wiring and health endpoint)

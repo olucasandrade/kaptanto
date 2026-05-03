@@ -13,7 +13,7 @@ Requirements for the Queue Sinks milestone. Each maps to roadmap phases.
 - [ ] **SNK-02**: User can configure Kaptanto to publish CDC events to a RabbitMQ exchange via AMQP
 - [ ] **SNK-03**: User can configure Kaptanto to publish CDC events to a Kafka topic
 - [ ] **SNK-04**: User can configure Kaptanto to publish CDC events to a Google Pub/Sub topic
-- [ ] **SNK-05**: User can configure Kaptanto to publish CDC events to a NATS JetStream subject
+- [x] **SNK-05**: User can configure Kaptanto to publish CDC events to a NATS JetStream subject
 
 ### Configuration
 
@@ -24,10 +24,10 @@ Requirements for the Queue Sinks milestone. Each maps to roadmap phases.
 
 ### Delivery
 
-- [ ] **DLV-01**: Each CDC event is delivered at-least-once — `Deliver` blocks until the broker acknowledges receipt
-- [ ] **DLV-02**: Per-key CDC ordering is preserved end-to-end into the queue (Kafka record key, SQS FIFO `MessageGroupId`, Pub/Sub `OrderingKey`, NATS subject suffix)
-- [ ] **DLV-03**: Transient broker errors trigger automatic retry via the existing `RetryScheduler`
-- [ ] **DLV-04**: Each event's `IdempotencyKey` is published as a message attribute/header for consumer-side deduplication
+- [x] **DLV-01**: Each CDC event is delivered at-least-once — `Deliver` blocks until the broker acknowledges receipt
+- [x] **DLV-02**: Per-key CDC ordering is preserved end-to-end into the queue (Kafka record key, SQS FIFO `MessageGroupId`, Pub/Sub `OrderingKey`, NATS subject suffix)
+- [x] **DLV-03**: Transient broker errors trigger automatic retry via the existing `RetryScheduler`
+- [x] **DLV-04**: Each event's `IdempotencyKey` is published as a message attribute/header for consumer-side deduplication
 
 ### Observability
 
@@ -73,13 +73,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CFG-02 | Phase 19 | Complete |
 | CFG-03 | Phase 19 | Complete |
 | CFG-04 | Phase 19 | Complete |
-| DLV-01 | Phase 19 | Pending |
-| DLV-02 | Phase 19 | Pending |
-| DLV-03 | Phase 19 | Pending |
-| DLV-04 | Phase 19 | Pending |
+| DLV-01 | Phase 19 | Complete |
+| DLV-02 | Phase 19 | Complete |
+| DLV-03 | Phase 19 | Complete |
+| DLV-04 | Phase 19 | Complete |
 | OBS-01 | Phase 19 | Complete |
 | OBS-02 | Phase 19 | Complete |
-| SNK-05 | Phase 19 | Pending |
+| SNK-05 | Phase 19 | Complete |
 | SNK-01 | Phase 20 | Pending |
 | SNK-03 | Phase 21 | Pending |
 | SNK-04 | Phase 22 | Pending |
