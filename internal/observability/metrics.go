@@ -12,11 +12,14 @@ import (
 // duplicate-registration panics in tests.
 type KaptantoMetrics struct {
 	reg               *prometheus.Registry
-	EventsDelivered   *prometheus.CounterVec // kaptanto_events_delivered_total{consumer,table,operation}
-	ConsumerLag       *prometheus.GaugeVec   // kaptanto_consumer_lag_events{consumer}
-	ErrorsTotal       *prometheus.CounterVec // kaptanto_errors_total{consumer,kind}
-	SourceLagBytes    *prometheus.GaugeVec   // kaptanto_source_lag_bytes{source}
-	CheckpointFlushes prometheus.Counter     // kaptanto_checkpoint_flushes_total
+	EventsDelivered   *prometheus.CounterVec   // kaptanto_events_delivered_total{consumer,table,operation}
+	ConsumerLag       *prometheus.GaugeVec     // kaptanto_consumer_lag_events{consumer}
+	ErrorsTotal       *prometheus.CounterVec   // kaptanto_errors_total{consumer,kind}
+	SourceLagBytes    *prometheus.GaugeVec     // kaptanto_source_lag_bytes{source}
+	CheckpointFlushes prometheus.Counter       // kaptanto_checkpoint_flushes_total
+	QueuePublishTotal   *prometheus.CounterVec   // queue_publish_total{sink}
+	QueuePublishErrors  *prometheus.CounterVec   // queue_publish_errors_total{sink}
+	QueuePublishLatency *prometheus.HistogramVec // queue_publish_latency_seconds{sink}
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -47,6 +50,19 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Name: "kaptanto_checkpoint_flushes_total",
 			Help: "Total number of consumer cursor flush operations to SQLite.",
 		}),
+		QueuePublishTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "queue_publish_total",
+			Help: "Total events published to queue sinks, labeled by sink type.",
+		}, []string{"sink"}),
+		QueuePublishErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "queue_publish_errors_total",
+			Help: "Total publish errors to queue sinks, labeled by sink type.",
+		}, []string{"sink"}),
+		QueuePublishLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "queue_publish_latency_seconds",
+			Help:    "Publish round-trip latency to queue sinks in seconds, labeled by sink type.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"sink"}),
 	}
 	reg.MustRegister(
 		m.EventsDelivered,
@@ -54,6 +70,9 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.ErrorsTotal,
 		m.SourceLagBytes,
 		m.CheckpointFlushes,
+		m.QueuePublishTotal,
+		m.QueuePublishErrors,
+		m.QueuePublishLatency,
 		prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
 	)
