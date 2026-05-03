@@ -106,7 +106,7 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().String("config", "", "path to YAML config file (flags take precedence over file)")
 
 	// CFG-01: Output and server flags.
-	root.PersistentFlags().String("output", "stdout", "output mode: stdout | sse | grpc")
+	root.PersistentFlags().String("output", "stdout", "output mode: stdout | sse | grpc | nats")
 	root.PersistentFlags().Int("port", 7654, "TCP port for SSE / gRPC server")
 
 	// CFG-01: Storage flags.
