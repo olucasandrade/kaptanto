@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Queue Sinks
-status: unknown
-last_updated: "2026-05-03T23:20:09.501Z"
+status: active
+last_updated: "2026-05-04T01:22:30Z"
 progress:
   total_phases: 27
   completed_phases: 26
   total_plans: 66
-  completed_plans: 65
+  completed_plans: 66
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 19 — Sink Infrastructure and NATS Sink (in progress)
-Plan: 03 of 03
-Status: Plan 02 complete — NATSSinkConsumer implementation done
-Last activity: 2026-05-04 — Plan 19-02 complete (NATSSinkConsumer with JetStream publish)
+Phase: 19 — Sink Infrastructure and NATS Sink (complete)
+Plan: 03 of 03 (complete)
+Status: Plan 03 complete — CLI wiring, health probe, /metrics + /healthz for NATS output mode
+Last activity: 2026-05-04 — Plan 19-03 complete (NATS CLI wiring in root.go)
 
-Progress: [░░░░░░░░░░] 0% (0/5 phases complete, 2/3 plans complete in Phase 19)
+Progress: [██░░░░░░░░] 20% (1/5 phases complete, 3/3 plans complete in Phase 19)
 
 ## Accumulated Context
 
@@ -46,6 +46,8 @@ Recent decisions affecting current work:
 - **Plan 19-01: No Merge()/Defaults() changes:** Sinks has no CLI flag equivalent in this phase; CFG-04 CLI flag deferred to Plan 03.
 - [Phase 19]: isInvalidNATSSubject implements subject validation inline since nats.go v1.51.0 does not export a subject validation function
 - [Phase 19]: nc.Flush() after nc.Subscribe() in tests ensures server-side interest registration before JetStream publish to prevent flakiness
+- [Phase 19 Plan 03]: NATS obs server uses cfg.Port (not cfg.Port+1) — NATS sink publishes to external broker, no TCP server on cfg.Port
+- [Phase 19 Plan 03]: Each queue sink case pattern: nil-check cfg.Sinks.X, construct consumer, SetMetrics, rtr.Register, append HealthProbe, serve /metrics + /healthz
 
 ### Pending Todos
 
@@ -61,6 +63,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-05-04
-Stopped at: Completed 19-02-PLAN.md — NATSSinkConsumer implementation
+Stopped at: Completed 19-03-PLAN.md — NATS CLI wiring in root.go
 Resume file: None
-Next action: Execute Plan 19-03 (CLI wiring and health endpoint)
+Next action: Begin Phase 20 (SQS Sink)

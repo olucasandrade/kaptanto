@@ -72,7 +72,7 @@ Full archive: `.planning/milestones/v2.0-ROADMAP.md`
 
 **Milestone Goal:** Enable Kaptanto to publish CDC events directly to the major message queues — SQS, RabbitMQ, Kafka, Google Pub/Sub, and NATS — as output sinks with per-event push delivery, at-least-once guarantees, per-key ordering, and full observability.
 
-- [ ] **Phase 19: Sink Infrastructure and NATS Sink** — `sinks:` YAML config block, CLI flags, per-sink metrics and /healthz hooks, NATSSinkConsumer with JetStream at-least-once delivery
+- [x] **Phase 19: Sink Infrastructure and NATS Sink** — `sinks:` YAML config block, CLI flags, per-sink metrics and /healthz hooks, NATSSinkConsumer with JetStream at-least-once delivery (completed 2026-05-03)
 - [ ] **Phase 20: SQS Sink** — SQSConsumer with FIFO queue validation, MessageGroupId from primary key, IdempotencyKey as dedup attribute
 - [ ] **Phase 21: Kafka Sink** — KafkaConsumer using franz-go (CGO-free mandatory), record key from primary key, SASL/TLS auth
 - [ ] **Phase 22: Google Pub/Sub Sink** — PubSubConsumer with ordering key, synchronous result.Get confirmation, ResumePublish on ordering-key errors
@@ -295,7 +295,7 @@ Plans:
 | 16. Partition Ownership and Active/Active Delivery | v2.0 | 3/3 | ✓ Complete | 2026-04-30 |
 | 17. Distributed Source Coordination | v2.0 | 3/3 | ✓ Complete | 2026-05-01 |
 | 18. MongoDB Cluster Infrastructure Wiring [GAP] | v2.0 | 2/2 | ✓ Complete | 2026-05-02 |
-| 19. Sink Infrastructure and NATS Sink | 2/3 | In Progress|  | - |
+| 19. Sink Infrastructure and NATS Sink | 3/3 | Complete   | 2026-05-03 | - |
 | 20. SQS Sink | v2.1 | 0/TBD | Not started | - |
 | 21. Kafka Sink | v2.1 | 0/TBD | Not started | - |
 | 22. Google Pub/Sub Sink | v2.1 | 0/TBD | Not started | - |
