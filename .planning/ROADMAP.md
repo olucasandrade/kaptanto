@@ -5,7 +5,8 @@
 - ✅ **v1.0 Postgres CDC Binary** — Phases 1–7.7 (shipped 2026-03-16)
 - ✅ **v1.1 Production Hardening** — Phases 8–10 (shipped 2026-03-20)
 - ✅ **v1.2 Benchmark Suite** — Phases 11–13 (shipped 2026-03-21)
-- 🚧 **v2.0 Distributed Architecture** — Phases 14–18 (in progress)
+- ✅ **v2.0 Distributed Architecture** — Phases 14–18 (shipped 2026-05-03)
+- 🚧 **v2.1 Queue Sinks** — Phases 19–23 (in progress)
 
 ## Phases
 
@@ -54,15 +55,28 @@ Full archive: `.planning/milestones/v1.2-ROADMAP.md`
 
 </details>
 
-### v2.0 Distributed Architecture (In Progress)
+<details>
+<summary>✅ v2.0 Distributed Architecture (Phases 14–18) — SHIPPED 2026-05-03</summary>
 
-**Milestone Goal:** Transform Kaptanto from an active/standby single-node system into a truly distributed CDC platform that scales horizontally, tolerates node loss, and does not depend on node-local storage for durability.
+- [x] **Phase 14: Shared State Foundation** — Shared Postgres cursor + backfill stores behind --cluster; cluster membership table with heartbeat-based node liveness (completed 2026-04-27)
+- [x] **Phase 15: Distributed Event Log** — NATS JetStream embedded event log replacing node-local Badger; CHK-01 cluster-wide; pure Go binary preserved (completed 2026-04-28)
+- [x] **Phase 16: Partition Ownership and Active/Active Delivery** — 64-partition ownership with atomic claim/steal/release; epoch fencing for zombie nodes; N-node active SSE/gRPC delivery (completed 2026-04-30)
+- [x] **Phase 17: Distributed Source Coordination** — NATS KV WAL leader election with epoch fencing; MongoDB resume tokens in shared PostgresStore (completed 2026-04-30)
+- [x] **Phase 18: MongoDB Cluster Infrastructure Wiring** [GAP-CLOSURE] — heartbeater.Run + pm.Run wired into runMongoPipeline errgroups; dead staleThreshold field and partition_assignments column removed (completed 2026-05-02)
 
-- [x] **Phase 14: Shared State Foundation** — Migrate consumer cursors and backfill progress to shared Postgres store; establish cluster membership table with heartbeat-based node liveness (completed 2026-04-27)
-- [x] **Phase 15: Distributed Event Log** — Replace node-local Badger with Raft-replicated event log (NATS JetStream sidecar); preserve CHK-01 cluster-wide; preserve pure Go default binary (completed 2026-04-28)
-- [x] **Phase 16: Partition Ownership and Active/Active Delivery** — Partition-to-node assignment layer above Router; two-phase handoff with epoch fencing; N-node active consumer delivery via SSE and gRPC (completed 2026-04-30)
-- [x] **Phase 17: Distributed Source Coordination** — NATS KV-backed WAL leader election with epoch fencing; MongoDB resume tokens written to shared store before acknowledgment (completed 2026-04-30)
-- [x] **Phase 18: MongoDB Cluster Infrastructure Wiring** [GAP-CLOSURE] — Pass heartbeater and pm into runMongoPipeline so MongoDB+cluster deployments start cluster goroutines; fix walElector nil guard and inaccurate comment; remove dead staleThreshold field and partition_assignments column (completed 2026-05-02)
+Full archive: `.planning/milestones/v2.0-ROADMAP.md`
+
+</details>
+
+### 🚧 v2.1 Queue Sinks (In Progress)
+
+**Milestone Goal:** Enable Kaptanto to publish CDC events directly to the major message queues — SQS, RabbitMQ, Kafka, Google Pub/Sub, and NATS — as output sinks with per-event push delivery, at-least-once guarantees, per-key ordering, and full observability.
+
+- [ ] **Phase 19: Sink Infrastructure and NATS Sink** — `sinks:` YAML config block, CLI flags, per-sink metrics and /healthz hooks, NATSSinkConsumer with JetStream at-least-once delivery
+- [ ] **Phase 20: SQS Sink** — SQSConsumer with FIFO queue validation, MessageGroupId from primary key, IdempotencyKey as dedup attribute
+- [ ] **Phase 21: Kafka Sink** — KafkaConsumer using franz-go (CGO-free mandatory), record key from primary key, SASL/TLS auth
+- [ ] **Phase 22: Google Pub/Sub Sink** — PubSubConsumer with ordering key, synchronous result.Get confirmation, ResumePublish on ordering-key errors
+- [ ] **Phase 23: RabbitMQ Sink** — RabbitMQConsumer with per-partition channel pool, publisher confirms, and explicit reconnect loop
 
 ## Phase Details
 
@@ -195,6 +209,68 @@ Plans:
 - [ ] 18-01-PLAN.md — Pass heartbeater and pm into runMongoPipeline; start cluster goroutines; call pm.ReleaseAll on shutdown (STATE-02, DLVR-01, DLVR-02, DLVR-03)
 - [ ] 18-02-PLAN.md — Fix walElector nil guard for MongoDB+cluster; fix inaccurate root.go comment; remove dead staleThreshold field and partition_assignments column
 
+### Phase 19: Sink Infrastructure and NATS Sink
+**Goal**: Users can configure and run a queue sink output, with the full config/CLI/metrics/healthz framework in place and NATS JetStream validated as the first working sink
+**Depends on**: Phase 18
+**Requirements**: CFG-01, CFG-02, CFG-03, CFG-04, DLV-01, DLV-02, DLV-03, DLV-04, OBS-01, OBS-02, SNK-05
+**Success Criteria** (what must be TRUE):
+  1. User can add a `sinks:` block to `kaptanto.yaml` with NATS connection params, TLS settings, and a Go template for subject routing (e.g., `cdc.{{.Schema}}.{{.Table}}`), and start Kaptanto with `--output nats` — events are published to the configured NATS JetStream subject
+  2. Every published event's `IdempotencyKey` is included as a NATS message header, and `Deliver` blocks until the JetStream server returns an `PubAck` — cursor does not advance before the broker confirms receipt (CHK-01 preserved)
+  3. Transient NATS broker errors (connection drops, timeout) trigger automatic retry via `RetryScheduler` without crashing the pipeline — the sink recovers and resumes delivery
+  4. Prometheus metrics `queue_publish_total`, `queue_publish_errors_total`, and `queue_publish_latency_seconds` are populated for the active NATS sink and visible at `/metrics`
+  5. `/healthz` includes a `nats` probe that reports unhealthy when the NATS connection is down
+**Plans**: 3 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — Config types (SinksConfig, NATSSinkConfig, TLSConfig) + queue publish metrics
+- [ ] 19-02-PLAN.md — NATSSinkConsumer implementation (Deliver, Ping, TLS, stream validation)
+- [ ] 19-03-PLAN.md — root.go wiring: case "nats":, health probe, obs HTTP server
+
+### Phase 20: SQS Sink
+**Goal**: Users can publish CDC events to an AWS SQS FIFO queue with per-key ordering preserved end-to-end via MessageGroupId
+**Depends on**: Phase 19
+**Requirements**: SNK-01
+**Success Criteria** (what must be TRUE):
+  1. User can configure `--output sqs` with an SQS FIFO queue URL, region, and AWS credentials (IAM role, environment variables, or static keys) — Kaptanto starts and publishes events to the queue
+  2. Kaptanto detects at startup if the configured queue is a Standard (non-FIFO) queue and exits with a clear error message — Standard queues are rejected because they cannot preserve per-key ordering
+  3. Each published message has `MessageGroupId` set to the event's primary key hash, `MessageDeduplicationId` set to the `IdempotencyKey`, and the raw `IdempotencyKey` value in a message attribute — downstream consumers can deduplicate without parsing the body
+  4. `make build CGO_ENABLED=0` succeeds with the SQS sink included — no CGO introduced
+**Plans**: TBD
+
+### Phase 21: Kafka Sink
+**Goal**: Users can publish CDC events to a Kafka topic with per-key ordering preserved via record key, using a pure-Go client that satisfies the CGO_ENABLED=0 build constraint
+**Depends on**: Phase 20
+**Requirements**: SNK-03
+**Success Criteria** (what must be TRUE):
+  1. User can configure `--output kafka` with bootstrap brokers, topic template, and optional SASL (PLAIN/SCRAM-SHA-256/SCRAM-SHA-512) and TLS settings — Kaptanto starts and produces events to the configured Kafka topic
+  2. Each Kafka record's key is set to the CDC event's primary key value — consumers relying on Kafka's partition-by-key guarantee receive events for the same database row on the same partition in order
+  3. `make build CGO_ENABLED=0` and `make verify-no-cgo` succeed — franz-go is used exclusively; confluent-kafka-go is not present in go.mod
+  4. `make test CGO_ENABLED=0` passes for the Kafka sink unit tests
+**Plans**: TBD
+
+### Phase 22: Google Pub/Sub Sink
+**Goal**: Users can publish CDC events to a Google Pub/Sub topic with per-key ordering preserved and correct ResumePublish recovery after ordering-key errors
+**Depends on**: Phase 21
+**Requirements**: SNK-04
+**Success Criteria** (what must be TRUE):
+  1. User can configure `--output pubsub` with a GCP project ID, topic ID, and credentials (Application Default Credentials or explicit service account key path) — Kaptanto starts and publishes events to the Pub/Sub topic
+  2. Each published message has its ordering key set to the CDC event's primary key, and `Publish().Get(ctx)` is called before `Deliver` returns nil — cursor does not advance until the Pub/Sub server confirms the message is durably accepted
+  3. When a Pub/Sub publish fails for an ordering key, `topic.ResumePublish(orderingKey)` is called before retrying — delivery for all primary keys resumes without operator intervention after a transient broker error
+  4. `make build CGO_ENABLED=0` succeeds with the Pub/Sub sink included — no CGO introduced
+**Plans**: TBD
+
+### Phase 23: RabbitMQ Sink
+**Goal**: Users can publish CDC events to a RabbitMQ exchange via AMQP with publisher confirms, concurrent-safe per-partition channel pool, and automatic reconnect on connection loss
+**Depends on**: Phase 22
+**Requirements**: SNK-02
+**Success Criteria** (what must be TRUE):
+  1. User can configure `--output rabbitmq` with an AMQP URL (including optional TLS), exchange name, and routing key template — Kaptanto starts and publishes events to the configured RabbitMQ exchange
+  2. `Deliver` blocks until the broker sends a publisher confirm (`ack`) for the published message — cursor does not advance before the broker confirms receipt; `nack` triggers retry via `RetryScheduler`
+  3. When the AMQP connection is lost (broker restart, network interruption), the sink automatically re-dials with exponential backoff and resumes publishing without crashing the pipeline — events during reconnect are retried, not dropped
+  4. Concurrent `Deliver` calls from the router's 64 partition goroutines do not corrupt channel state — each partition uses a dedicated AMQP channel (per-partition channel pool)
+  5. `make build CGO_ENABLED=0` succeeds with the RabbitMQ sink included — no CGO introduced
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -218,4 +294,9 @@ Plans:
 | 15. Distributed Event Log | v2.0 | 2/2 | ✓ Complete | 2026-04-28 |
 | 16. Partition Ownership and Active/Active Delivery | v2.0 | 3/3 | ✓ Complete | 2026-04-30 |
 | 17. Distributed Source Coordination | v2.0 | 3/3 | ✓ Complete | 2026-05-01 |
-| 18. MongoDB Cluster Infrastructure Wiring [GAP] | 2/2 | Complete   | 2026-05-02 | — |
+| 18. MongoDB Cluster Infrastructure Wiring [GAP] | v2.0 | 2/2 | ✓ Complete | 2026-05-02 |
+| 19. Sink Infrastructure and NATS Sink | v2.1 | 0/3 | Not started | - |
+| 20. SQS Sink | v2.1 | 0/TBD | Not started | - |
+| 21. Kafka Sink | v2.1 | 0/TBD | Not started | - |
+| 22. Google Pub/Sub Sink | v2.1 | 0/TBD | Not started | - |
+| 23. RabbitMQ Sink | v2.1 | 0/TBD | Not started | - |
