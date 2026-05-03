@@ -181,6 +181,9 @@ func TestNATSSinkConsumer_Deliver_SubjectTemplate(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Unsubscribe()
 
+	// Flush ensures the server has registered the subscription before we publish.
+	require.NoError(t, nc.Flush())
+
 	entry := makeTestEntry("orders", "tmpl-test:public.orders:1:insert:0/1")
 	ctx := context.Background()
 	err = consumer.Deliver(ctx, entry)
