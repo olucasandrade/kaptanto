@@ -294,6 +294,35 @@ func TestClusterWithoutDSNReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "--cluster-dsn is required when --cluster is set")
 }
 
+// TestOutputMode_Nats_MissingConfig verifies that running --output nats without a
+// sinks.nats block in config returns an error containing "sinks.nats".
+// No NATS server is required — this exercises the nil-config guard.
+func TestOutputMode_Nats_MissingConfig(t *testing.T) {
+	var buf bytes.Buffer
+	// Use an unreachable Postgres DSN so the pipeline reaches the output switch
+	// before failing. The nil sinks.nats guard fires before any DB connection.
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "nats",
+	}, &buf)
+	require.Error(t, err, "--output nats without sinks.nats config must return an error")
+	assert.Contains(t, err.Error(), "sinks.nats",
+		"error must mention sinks.nats config block")
+}
+
+// TestOutputMode_Nats_InvalidMode verifies that --output with an unknown mode
+// returns an error message that includes "nats" in the list of valid modes.
+func TestOutputMode_Nats_InvalidMode(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "invalid-queue",
+	}, &buf)
+	require.Error(t, err, "--output invalid-queue must return an error")
+	assert.Contains(t, err.Error(), "nats",
+		"error must include 'nats' in valid output modes list")
+}
+
 // TestRouterSetOwnedPartitions is a compile guard: if SetOwnedPartitions is
 // removed or its signature changes, this test will fail to compile.
 // Uses the same fakeEventLog pattern as internal/router/router_test.go.
