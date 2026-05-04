@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 20 — SQS Sink
-Plan: 02 of 03 (complete)
-Status: Plan 02 complete — SQSSinkConsumer with FIFO delivery, FNV-1a MessageGroupId, SHA-256 MessageDeduplicationId, 10 unit tests
-Last activity: 2026-05-04 — Plan 20-02 complete (SQSSinkConsumer implementation)
+Plan: 03 of 03 (complete)
+Status: Phase 20 complete — SQS sink fully wired end-to-end: config (20-01), SQSSinkConsumer (20-02), CLI wiring in root.go (20-03)
+Last activity: 2026-05-04 — Plan 20-03 complete (SQS CLI wiring)
 
-Progress: [███░░░░░░░] 30% (1/5 phases complete, 2/3 plans complete in Phase 20)
+Progress: [████░░░░░░] 40% (2/5 phases complete, 3/3 plans complete in Phase 20)
 
 ## Accumulated Context
 
@@ -53,6 +53,8 @@ Recent decisions affecting current work:
 - [Phase 20 Plan 02]: sqsAPI interface extracted from *sqs.Client for unit test injection without live AWS endpoint
 - [Phase 20 Plan 02]: newConsumerWithClient internal constructor centralises FIFO validation for both production and test use
 - [Phase 20 Plan 02]: Close is a no-op because SQS is stateless HTTP — AWS SDK manages HTTP connection pooling internally
+- [Phase 20 Plan 03]: SQS obs server uses cfg.Port (not cfg.Port+1) — SQS publishes to external AWS endpoint; no TCP server binds cfg.Port in SQS mode
+- [Phase 20 Plan 03]: Import alias sqssink mirrors natssink convention; reinforces consistent naming pattern for all sink packages
 
 ### Pending Todos
 
@@ -68,6 +70,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-05-04
-Stopped at: Completed 20-02-PLAN.md — SQSSinkConsumer implementation
+Stopped at: Completed 20-03-PLAN.md — SQS sink wired end-to-end; Phase 20 complete
 Resume file: None
-Next action: Execute Phase 20 Plan 03 (SQS CLI wiring in root.go)
+Next action: Execute Phase 21 (Kafka Sink — must use franz-go, CGO-free)
