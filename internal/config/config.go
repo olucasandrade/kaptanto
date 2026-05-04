@@ -42,11 +42,29 @@ type NATSSinkConfig struct {
 	TLS             TLSConfig `yaml:"tls"`
 }
 
+// SQSSinkConfig holds connection settings for the AWS SQS FIFO sink.
+// QueueURL must be a FIFO queue URL (name must end in .fifo).
+// Region is required. AccessKeyID and SecretAccessKey are optional static
+// credentials; if absent, the full AWS credential chain is used
+// (env vars → ~/.aws/credentials → IAM instance profile).
+// TLS allows specifying a custom CA for VPC endpoints.
+//
+// High-throughput FIFO mode is a queue-level AWS setting and does not
+// require any config change here. See AWS docs for enabling it on the queue.
+type SQSSinkConfig struct {
+	QueueURL        string    `yaml:"queue-url"`
+	Region          string    `yaml:"region"`
+	AccessKeyID     string    `yaml:"access-key-id"`
+	SecretAccessKey string    `yaml:"secret-access-key"`
+	TLS             TLSConfig `yaml:"tls"`
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
-// Additional sink types (SQS, Kafka, PubSub, RabbitMQ) will be added in Phases 20-23.
+// Additional sink types (Kafka, PubSub, RabbitMQ) will be added in Phases 21-23.
 type SinksConfig struct {
 	NATS *NATSSinkConfig `yaml:"nats"`
+	SQS  *SQSSinkConfig  `yaml:"sqs"`
 }
 
 // Config is the complete runtime configuration for a kaptanto pipeline.
