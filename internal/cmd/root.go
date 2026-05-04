@@ -33,6 +33,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/output"
 	grpcoutput "github.com/olucasandrade/kaptanto/internal/output/grpc"
 	natssink "github.com/olucasandrade/kaptanto/internal/output/nats"
+	sqssink "github.com/olucasandrade/kaptanto/internal/output/sqs"
 	"github.com/olucasandrade/kaptanto/internal/output/sse"
 	"github.com/olucasandrade/kaptanto/internal/output/stdout"
 	"github.com/olucasandrade/kaptanto/internal/router"
@@ -106,7 +107,7 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().String("config", "", "path to YAML config file (flags take precedence over file)")
 
 	// CFG-01: Output and server flags.
-	root.PersistentFlags().String("output", "stdout", "output mode: stdout | sse | grpc | nats")
+	root.PersistentFlags().String("output", "stdout", "output mode: stdout | sse | grpc | nats | sqs")
 	root.PersistentFlags().Int("port", 7654, "TCP port for SSE / gRPC server")
 
 	// CFG-01: Storage flags.
@@ -589,8 +590,40 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 			}
 			return nil
 		}
+	case "sqs":
+		sqsCfg := cfg.Sinks.SQS
+		if sqsCfg == nil {
+			return fmt.Errorf("--output sqs requires a sinks.sqs block in config (queue-url, region)")
+		}
+		sqsSink, err := sqssink.NewSQSSinkConsumer("sqs", *sqsCfg)
+		if err != nil {
+			return fmt.Errorf("sqs sink: init: %w", err)
+		}
+		defer sqsSink.Close()
+		sqsSink.SetMetrics(metrics)
+		rtr.Register(sqsSink)
+		healthProbes = append(healthProbes, observability.HealthProbe{
+			Name:  "sqs",
+			Check: sqsSink.Ping,
+		})
+		obsMux := http.NewServeMux()
+		obsMux.Handle("/metrics", metrics.Handler())
+		obsMux.Handle("/healthz", observability.NewHealthHandler(healthProbes))
+		obsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: obsMux}
+		outputServer = func(ctx context.Context) error {
+			go func() {
+				<-ctx.Done()
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = obsSrv.Shutdown(shutdownCtx)
+			}()
+			if err := obsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("sqs obs server: %w", err)
+			}
+			return nil
+		}
 	default:
-		return fmt.Errorf("unknown output mode %q: use stdout, sse, grpc, or nats", cfg.Output)
+		return fmt.Errorf("unknown output mode %q: valid modes are stdout, sse, grpc, nats, sqs", cfg.Output)
 	}
 
 	// 10. Dispatch to source-specific pipeline based on DSN type.
