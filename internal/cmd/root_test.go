@@ -323,6 +323,35 @@ func TestOutputMode_Nats_InvalidMode(t *testing.T) {
 		"error must include 'nats' in valid output modes list")
 }
 
+// TestOutputMode_SQS_MissingConfig verifies that running --output sqs without a
+// sinks.sqs block in config returns an error containing "sinks.sqs".
+// No AWS connection is required — this exercises the nil-config guard only.
+func TestOutputMode_SQS_MissingConfig(t *testing.T) {
+	var buf bytes.Buffer
+	// Use an unreachable Postgres DSN so the pipeline reaches the output switch
+	// before failing. The nil sinks.sqs guard fires before any DB connection.
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "sqs",
+	}, &buf)
+	require.Error(t, err, "--output sqs without sinks.sqs config must return an error")
+	assert.Contains(t, err.Error(), "sinks.sqs",
+		"error must mention sinks.sqs config block")
+}
+
+// TestOutputMode_SQS_InvalidMode verifies that --output with an unknown mode
+// returns an error message that includes "sqs" in the list of valid modes.
+func TestOutputMode_SQS_InvalidMode(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "invalid-queue-mode",
+	}, &buf)
+	require.Error(t, err, "--output invalid-queue-mode must return an error")
+	assert.Contains(t, err.Error(), "sqs",
+		"error must include 'sqs' in valid output modes list")
+}
+
 // TestRouterSetOwnedPartitions is a compile guard: if SetOwnedPartitions is
 // removed or its signature changes, this test will fail to compile.
 // Uses the same fakeEventLog pattern as internal/router/router_test.go.
