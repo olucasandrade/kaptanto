@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Queue Sinks
-status: active
-last_updated: "2026-05-04T01:22:30Z"
+status: unknown
+last_updated: "2026-05-04T13:06:15Z"
 progress:
   total_phases: 27
-  completed_phases: 26
+  completed_phases: 27
   total_plans: 66
   completed_plans: 66
 ---
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 19 — Sink Infrastructure and NATS Sink (complete)
-Plan: 03 of 03 (complete)
-Status: Plan 03 complete — CLI wiring, health probe, /metrics + /healthz for NATS output mode
-Last activity: 2026-05-04 — Plan 19-03 complete (NATS CLI wiring in root.go)
+Phase: 20 — SQS Sink
+Plan: 01 of 03 (complete)
+Status: Plan 01 complete — SQSSinkConfig struct, SQS pointer field on SinksConfig, aws-sdk-go-v2 modules installed
+Last activity: 2026-05-04 — Plan 20-01 complete (SQS config and AWS SDK)
 
-Progress: [██░░░░░░░░] 20% (1/5 phases complete, 3/3 plans complete in Phase 19)
+Progress: [██░░░░░░░░] 20% (1/5 phases complete, 1/3 plans complete in Phase 20)
 
 ## Accumulated Context
 
@@ -48,6 +48,8 @@ Recent decisions affecting current work:
 - [Phase 19]: nc.Flush() after nc.Subscribe() in tests ensures server-side interest registration before JetStream publish to prevent flakiness
 - [Phase 19 Plan 03]: NATS obs server uses cfg.Port (not cfg.Port+1) — NATS sink publishes to external broker, no TCP server on cfg.Port
 - [Phase 19 Plan 03]: Each queue sink case pattern: nil-check cfg.Sinks.X, construct consumer, SetMetrics, rtr.Register, append HealthProbe, serve /metrics + /healthz
+- [Phase 20 Plan 01]: SQSSinkConfig uses pointer field (*SQSSinkConfig) on SinksConfig — nil when sub-block absent in YAML, consistent with Phase 19 NATS pattern
+- [Phase 20 Plan 01]: aws-sdk-go-v2 chosen (v1 deprecated); credentials module included alongside config+sqs for static credential provider in Plan 02
 
 ### Pending Todos
 
@@ -63,6 +65,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-05-04
-Stopped at: Completed 19-03-PLAN.md — NATS CLI wiring in root.go
+Stopped at: Completed 20-01-PLAN.md — SQS config and AWS SDK installation
 Resume file: None
-Next action: Begin Phase 20 (SQS Sink)
+Next action: Execute Phase 20 Plan 02 (SQSSinkConsumer)
