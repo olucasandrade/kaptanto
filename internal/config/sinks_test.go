@@ -89,3 +89,59 @@ sinks:
 	require.NotNil(t, cfg.Sinks.NATS)
 	assert.Equal(t, "", cfg.Sinks.NATS.StreamName, "StreamName should default to empty string")
 }
+
+// TestSinks_SQS_RoundTrip tests that a full sinks.sqs YAML block
+// is parsed into Config.Sinks.SQS correctly with all fields populated.
+func TestSinks_SQS_RoundTrip(t *testing.T) {
+	raw := `
+sinks:
+  sqs:
+    queue-url: "https://sqs.us-east-1.amazonaws.com/123456789/my-queue.fifo"
+    region: "us-east-1"
+    access-key-id: "AKID"
+    secret-access-key: "SECRET"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.SQS, "SQS config should be non-nil when sinks.sqs block is present")
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123456789/my-queue.fifo", cfg.Sinks.SQS.QueueURL)
+	assert.Equal(t, "us-east-1", cfg.Sinks.SQS.Region)
+	assert.Equal(t, "AKID", cfg.Sinks.SQS.AccessKeyID)
+	assert.Equal(t, "SECRET", cfg.Sinks.SQS.SecretAccessKey)
+}
+
+// TestSinks_SQS_AbsentBlock tests that when the sinks.sqs block is absent
+// from YAML, cfg.Sinks.SQS is nil (not a zero-value struct).
+func TestSinks_SQS_AbsentBlock(t *testing.T) {
+	raw := `
+sinks:
+  nats:
+    url: "nats://localhost:4222"
+    subject-template: "cdc.{{.Table}}"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	assert.Nil(t, cfg.Sinks.SQS, "SQS config should be nil when sinks.sqs block is absent")
+}
+
+// TestSinks_SQS_TLS tests that sinks.sqs.tls.ca-file is parsed correctly.
+func TestSinks_SQS_TLS(t *testing.T) {
+	raw := `
+sinks:
+  sqs:
+    queue-url: "https://sqs.us-east-1.amazonaws.com/123456789/my-queue.fifo"
+    region: "us-east-1"
+    tls:
+      ca-file: "/etc/certs/ca.pem"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.SQS, "SQS config should be non-nil when sinks.sqs block is present")
+	assert.Equal(t, "/etc/certs/ca.pem", cfg.Sinks.SQS.TLS.CAFile)
+}
