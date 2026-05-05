@@ -352,6 +352,33 @@ func TestOutputMode_SQS_InvalidMode(t *testing.T) {
 		"error must include 'sqs' in valid output modes list")
 }
 
+// TestOutputMode_Kafka_MissingConfig verifies that running --output kafka without a
+// sinks.kafka block in config returns an error containing "sinks.kafka".
+// No Kafka broker connection is required — this exercises the nil-config guard only.
+func TestOutputMode_Kafka_MissingConfig(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "kafka",
+	}, &buf)
+	require.Error(t, err, "--output kafka without sinks.kafka config must return an error")
+	assert.Contains(t, err.Error(), "sinks.kafka",
+		"error must mention sinks.kafka config block")
+}
+
+// TestOutputMode_Kafka_InvalidMode verifies that --output with an unknown mode
+// returns an error message that includes "kafka" in the list of valid modes.
+func TestOutputMode_Kafka_InvalidMode(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "invalid-kafka-mode",
+	}, &buf)
+	require.Error(t, err, "--output invalid-kafka-mode must return an error")
+	assert.Contains(t, err.Error(), "kafka",
+		"error must include 'kafka' in valid output modes list")
+}
+
 // TestRouterSetOwnedPartitions is a compile guard: if SetOwnedPartitions is
 // removed or its signature changes, this test will fail to compile.
 // Uses the same fakeEventLog pattern as internal/router/router_test.go.
