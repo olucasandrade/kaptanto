@@ -59,12 +59,27 @@ type SQSSinkConfig struct {
 	TLS             TLSConfig `yaml:"tls"`
 }
 
+// KafkaSinkConfig holds connection settings for the Apache Kafka sink.
+// BootstrapServers is required (at least one broker address, e.g. "broker1:9092").
+// TopicTemplate is a Go template applied per-event, e.g. "cdc.{{.Schema}}.{{.Table}}".
+// SASLMechanism must be one of "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", or "" (no SASL).
+// TLS allows specifying custom CA / mTLS certificates.
+type KafkaSinkConfig struct {
+	BootstrapServers []string  `yaml:"bootstrap-servers"`
+	TopicTemplate    string    `yaml:"topic-template"`
+	SASLMechanism    string    `yaml:"sasl-mechanism"`
+	SASLUsername     string    `yaml:"sasl-username"`
+	SASLPassword     string    `yaml:"sasl-password"`
+	TLS              TLSConfig `yaml:"tls"`
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
-// Additional sink types (Kafka, PubSub, RabbitMQ) will be added in Phases 21-23.
+// Additional sink types (PubSub, RabbitMQ) will be added in Phases 22-23.
 type SinksConfig struct {
-	NATS *NATSSinkConfig `yaml:"nats"`
-	SQS  *SQSSinkConfig  `yaml:"sqs"`
+	NATS  *NATSSinkConfig  `yaml:"nats"`
+	SQS   *SQSSinkConfig   `yaml:"sqs"`
+	Kafka *KafkaSinkConfig `yaml:"kafka"`
 }
 
 // Config is the complete runtime configuration for a kaptanto pipeline.
