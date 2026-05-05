@@ -32,6 +32,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/output"
 	grpcoutput "github.com/olucasandrade/kaptanto/internal/output/grpc"
+	kafkasink "github.com/olucasandrade/kaptanto/internal/output/kafka"
 	natssink "github.com/olucasandrade/kaptanto/internal/output/nats"
 	sqssink "github.com/olucasandrade/kaptanto/internal/output/sqs"
 	"github.com/olucasandrade/kaptanto/internal/output/sse"
@@ -622,8 +623,40 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 			}
 			return nil
 		}
+	case "kafka":
+		kafkaCfg := cfg.Sinks.Kafka
+		if kafkaCfg == nil {
+			return fmt.Errorf("--output kafka requires a sinks.kafka block in config (bootstrap-servers, topic-template)")
+		}
+		kafkaSink, err := kafkasink.NewKafkaSinkConsumer("kafka", *kafkaCfg)
+		if err != nil {
+			return fmt.Errorf("kafka sink: init: %w", err)
+		}
+		defer kafkaSink.Close()
+		kafkaSink.SetMetrics(metrics)
+		rtr.Register(kafkaSink)
+		healthProbes = append(healthProbes, observability.HealthProbe{
+			Name:  "kafka",
+			Check: kafkaSink.Ping,
+		})
+		obsMux := http.NewServeMux()
+		obsMux.Handle("/metrics", metrics.Handler())
+		obsMux.Handle("/healthz", observability.NewHealthHandler(healthProbes))
+		obsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: obsMux}
+		outputServer = func(ctx context.Context) error {
+			go func() {
+				<-ctx.Done()
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = obsSrv.Shutdown(shutdownCtx)
+			}()
+			if err := obsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("kafka obs server: %w", err)
+			}
+			return nil
+		}
 	default:
-		return fmt.Errorf("unknown output mode %q: valid modes are stdout, sse, grpc, nats, sqs", cfg.Output)
+		return fmt.Errorf("unknown output mode %q: valid modes are stdout, sse, grpc, nats, sqs, kafka", cfg.Output)
 	}
 
 	// 10. Dispatch to source-specific pipeline based on DSN type.
