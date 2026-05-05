@@ -74,7 +74,7 @@ Full archive: `.planning/milestones/v2.0-ROADMAP.md`
 
 - [x] **Phase 19: Sink Infrastructure and NATS Sink** — `sinks:` YAML config block, CLI flags, per-sink metrics and /healthz hooks, NATSSinkConsumer with JetStream at-least-once delivery (completed 2026-05-03)
 - [x] **Phase 20: SQS Sink** — SQSConsumer with FIFO queue validation, MessageGroupId from primary key, IdempotencyKey as dedup attribute (completed 2026-05-04)
-- [ ] **Phase 21: Kafka Sink** — KafkaConsumer using franz-go (CGO-free mandatory), record key from primary key, SASL/TLS auth
+- [x] **Phase 21: Kafka Sink** — KafkaConsumer using franz-go (CGO-free mandatory), record key from primary key, SASL/TLS auth (completed 2026-05-05)
 - [ ] **Phase 22: Google Pub/Sub Sink** — PubSubConsumer with ordering key, synchronous result.Get confirmation, ResumePublish on ordering-key errors
 - [ ] **Phase 23: RabbitMQ Sink** — RabbitMQConsumer with per-partition channel pool, publisher confirms, and explicit reconnect loop
 
@@ -254,9 +254,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 21-01-PLAN.md — KafkaSinkConfig in config.go + franz-go v1.21.1 in go.mod
-- [ ] 21-02-PLAN.md — KafkaSinkConsumer implementation with kfake unit tests
-- [ ] 21-03-PLAN.md — root.go case "kafka": wiring + cmd tests
+- [x] 21-01-PLAN.md — KafkaSinkConfig in config.go + franz-go v1.21.1 in go.mod
+- [x] 21-02-PLAN.md — KafkaSinkConsumer implementation with kfake unit tests
+- [x] 21-03-PLAN.md — root.go case "kafka": wiring + cmd tests
 
 ### Phase 22: Google Pub/Sub Sink
 **Goal**: Users can publish CDC events to a Google Pub/Sub topic with per-key ordering preserved and correct ResumePublish recovery after ordering-key errors
@@ -307,6 +307,6 @@ Plans:
 | 18. MongoDB Cluster Infrastructure Wiring [GAP] | v2.0 | 2/2 | ✓ Complete | 2026-05-02 |
 | 19. Sink Infrastructure and NATS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 20. SQS Sink | 3/3 | Complete    | 2026-05-04 | - |
-| 21. Kafka Sink | 1/3 | In Progress|  | - |
+| 21. Kafka Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-05 |
 | 22. Google Pub/Sub Sink | v2.1 | 0/TBD | Not started | - |
 | 23. RabbitMQ Sink | v2.1 | 0/TBD | Not started | - |

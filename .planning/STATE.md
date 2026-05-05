@@ -8,7 +8,7 @@ progress:
   total_phases: 29
   completed_phases: 28
   total_plans: 72
-  completed_plans: 70
+  completed_plans: 71
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 21 — Kafka Sink
-Plan: 01 of 03 (complete)
-Status: Phase 21 in progress — Plan 21-01 complete: KafkaSinkConfig added to config.go, franz-go v1.21.1 in go.mod
-Last activity: 2026-05-05 — Plan 21-01 complete (Kafka config + franz-go dependency)
+Plan: 03 of 03 (complete)
+Status: Phase 21 complete — Plan 21-03 complete: case "kafka": wired in root.go + cmd tests
+Last activity: 2026-05-05 — Plan 21-03 complete (root.go kafka wiring + cmd tests)
 
-Progress: [████░░░░░░] 40% (2/5 phases complete, 1/3 plans complete in Phase 21)
+Progress: [████░░░░░░] 40% (2/5 phases complete, 3/3 plans complete in Phase 21)
 
 ## Accumulated Context
 
@@ -57,6 +57,9 @@ Recent decisions affecting current work:
 - [Phase 20 Plan 03]: Import alias sqssink mirrors natssink convention; reinforces consistent naming pattern for all sink packages
 - [Phase 21 Plan 01]: franz-go kept as indirect dependency (no import yet); go mod tidy omitted to preserve entry until Plan 02 imports it
 - [Phase 21 Plan 01]: KafkaSinkConfig follows SQSSinkConfig/NATSSinkConfig pointer-field pattern — nil when YAML block absent
+- [Phase 21 Plan 03]: kafkasink import alias mirrors natssink/sqssink convention — consistent naming pattern for all sink packages
+- [Phase 21 Plan 03]: Kafka obs server listens on cfg.Port (not cfg.Port+1) — Kafka publishes to external broker; no TCP server beyond observability
+- [Phase 21 Plan 03]: defer kafkaSink.Close() required — Kafka maintains persistent TCP connections, unlike stateless HTTP SQS sink
 
 ### Pending Todos
 
@@ -72,6 +75,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-05-05
-Stopped at: Completed 21-01-PLAN.md — KafkaSinkConfig + franz-go v1.21.1 added
+Stopped at: Completed 21-03-PLAN.md — case "kafka": wired in root.go + cmd tests; Phase 21 complete
 Resume file: None
-Next action: Execute Plan 21-02 (KafkaSinkConsumer implementation using franz-go)
+Next action: Execute Phase 22 (Pub/Sub Sink)
