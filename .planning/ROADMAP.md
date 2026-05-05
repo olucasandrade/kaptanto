@@ -265,9 +265,14 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. User can configure `--output pubsub` with a GCP project ID, topic ID, and credentials (Application Default Credentials or explicit service account key path) — Kaptanto starts and publishes events to the Pub/Sub topic
   2. Each published message has its ordering key set to the CDC event's primary key, and `Publish().Get(ctx)` is called before `Deliver` returns nil — cursor does not advance until the Pub/Sub server confirms the message is durably accepted
-  3. When a Pub/Sub publish fails for an ordering key, `topic.ResumePublish(orderingKey)` is called before retrying — delivery for all primary keys resumes without operator intervention after a transient broker error
+  3. When a Pub/Sub publish fails for an ordering key, `publisher.ResumePublish(orderingKey)` is called before retrying — delivery for all primary keys resumes without operator intervention after a transient broker error
   4. `make build CGO_ENABLED=0` succeeds with the Pub/Sub sink included — no CGO introduced
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 22-01-PLAN.md — PubSubSinkConfig in config.go + cloud.google.com/go/pubsub/v2 v2.6.0 in go.mod
+- [ ] 22-02-PLAN.md — PubSubSinkConsumer implementation with pstest unit tests (TDD)
+- [ ] 22-03-PLAN.md — root.go case "pubsub": wiring + cmd tests
 
 ### Phase 23: RabbitMQ Sink
 **Goal**: Users can publish CDC events to a RabbitMQ exchange via AMQP with publisher confirms, concurrent-safe per-partition channel pool, and automatic reconnect on connection loss
@@ -306,7 +311,7 @@ Plans:
 | 17. Distributed Source Coordination | v2.0 | 3/3 | ✓ Complete | 2026-05-01 |
 | 18. MongoDB Cluster Infrastructure Wiring [GAP] | v2.0 | 2/2 | ✓ Complete | 2026-05-02 |
 | 19. Sink Infrastructure and NATS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
-| 20. SQS Sink | 3/3 | Complete    | 2026-05-04 | - |
+| 20. SQS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 21. Kafka Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-05 |
-| 22. Google Pub/Sub Sink | v2.1 | 0/TBD | Not started | - |
+| 22. Google Pub/Sub Sink | v2.1 | 0/3 | Not started | - |
 | 23. RabbitMQ Sink | v2.1 | 0/TBD | Not started | - |
