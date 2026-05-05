@@ -251,7 +251,12 @@ Plans:
   2. Each Kafka record's key is set to the CDC event's primary key value — consumers relying on Kafka's partition-by-key guarantee receive events for the same database row on the same partition in order
   3. `make build CGO_ENABLED=0` and `make verify-no-cgo` succeed — franz-go is used exclusively; confluent-kafka-go is not present in go.mod
   4. `make test CGO_ENABLED=0` passes for the Kafka sink unit tests
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 21-01-PLAN.md — KafkaSinkConfig in config.go + franz-go v1.21.1 in go.mod
+- [ ] 21-02-PLAN.md — KafkaSinkConsumer implementation with kfake unit tests
+- [ ] 21-03-PLAN.md — root.go case "kafka": wiring + cmd tests
 
 ### Phase 22: Google Pub/Sub Sink
 **Goal**: Users can publish CDC events to a Google Pub/Sub topic with per-key ordering preserved and correct ResumePublish recovery after ordering-key errors
@@ -302,6 +307,6 @@ Plans:
 | 18. MongoDB Cluster Infrastructure Wiring [GAP] | v2.0 | 2/2 | ✓ Complete | 2026-05-02 |
 | 19. Sink Infrastructure and NATS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 20. SQS Sink | 3/3 | Complete    | 2026-05-04 | - |
-| 21. Kafka Sink | v2.1 | 0/TBD | Not started | - |
+| 21. Kafka Sink | 1/3 | In Progress|  | - |
 | 22. Google Pub/Sub Sink | v2.1 | 0/TBD | Not started | - |
 | 23. RabbitMQ Sink | v2.1 | 0/TBD | Not started | - |
