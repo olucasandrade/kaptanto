@@ -34,6 +34,7 @@ import (
 	grpcoutput "github.com/olucasandrade/kaptanto/internal/output/grpc"
 	kafkasink "github.com/olucasandrade/kaptanto/internal/output/kafka"
 	natssink "github.com/olucasandrade/kaptanto/internal/output/nats"
+	pubsubsink "github.com/olucasandrade/kaptanto/internal/output/pubsub"
 	sqssink "github.com/olucasandrade/kaptanto/internal/output/sqs"
 	"github.com/olucasandrade/kaptanto/internal/output/sse"
 	"github.com/olucasandrade/kaptanto/internal/output/stdout"
@@ -655,8 +656,40 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 			}
 			return nil
 		}
+	case "pubsub":
+		pubsubCfg := cfg.Sinks.PubSub
+		if pubsubCfg == nil {
+			return fmt.Errorf("--output pubsub requires a sinks.pubsub block in config (project-id, topic-id)")
+		}
+		pubsubSink, err := pubsubsink.NewPubSubSinkConsumer("pubsub", *pubsubCfg)
+		if err != nil {
+			return fmt.Errorf("pubsub sink: init: %w", err)
+		}
+		defer pubsubSink.Close()
+		pubsubSink.SetMetrics(metrics)
+		rtr.Register(pubsubSink)
+		healthProbes = append(healthProbes, observability.HealthProbe{
+			Name:  "pubsub",
+			Check: pubsubSink.Ping,
+		})
+		obsMux := http.NewServeMux()
+		obsMux.Handle("/metrics", metrics.Handler())
+		obsMux.Handle("/healthz", observability.NewHealthHandler(healthProbes))
+		obsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: obsMux}
+		outputServer = func(ctx context.Context) error {
+			go func() {
+				<-ctx.Done()
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = obsSrv.Shutdown(shutdownCtx)
+			}()
+			if err := obsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("pubsub obs server: %w", err)
+			}
+			return nil
+		}
 	default:
-		return fmt.Errorf("unknown output mode %q: valid modes are stdout, sse, grpc, nats, sqs, kafka", cfg.Output)
+		return fmt.Errorf("unknown output mode %q: valid modes are stdout, sse, grpc, nats, sqs, kafka, pubsub", cfg.Output)
 	}
 
 	// 10. Dispatch to source-specific pipeline based on DSN type.
