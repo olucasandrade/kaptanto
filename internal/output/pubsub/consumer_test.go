@@ -1,0 +1,231 @@
+// Package pubsubsink_test provides TDD black-box tests for PubSubSinkConsumer.
+// All tests use an in-process pstest fake server (pure Go, no external broker required).
+// Topics MUST be created before publishing — pstest does not auto-create topics.
+package pubsubsink_test
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"cloud.google.com/go/pubsub/v2"
+	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
+	"cloud.google.com/go/pubsub/v2/pstest"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	pubsubsink "github.com/olucasandrade/kaptanto/internal/output/pubsub"
+	"github.com/olucasandrade/kaptanto/internal/observability"
+)
+
+const (
+	testProject = "test-project"
+	testTopic   = "cdc-public-orders"
+)
+
+// startFakeServer starts a pstest fake server and returns the server and a connected
+// pubsub client. Both are registered for cleanup via t.Cleanup.
+func startFakeServer(t *testing.T) (*pstest.Server, *pubsub.Client) {
+	t.Helper()
+	srv := pstest.NewServer()
+	t.Cleanup(func() { srv.Close() })
+
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	client, err := pubsub.NewClient(context.Background(), testProject, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+
+	return srv, client
+}
+
+// createTopic creates a Pub/Sub topic on the fake server using the TopicAdminClient.
+// The topic must be created before publishing; pstest does not auto-create topics.
+func createTopic(t *testing.T, client *pubsub.Client, projectID, topicID string) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := client.TopicAdminClient.CreateTopic(ctx, &pubsubpb.Topic{
+		Name: "projects/" + projectID + "/topics/" + topicID,
+	})
+	require.NoError(t, err, "createTopic: failed to create topic %q in project %q", topicID, projectID)
+}
+
+// makeEntry creates a minimal LogEntry for tests.
+func makeEntry(schema, table string) eventlog.LogEntry {
+	return eventlog.LogEntry{
+		Event: &event.ChangeEvent{
+			Schema:         schema,
+			Table:          table,
+			Operation:      "insert",
+			Key:            json.RawMessage(`{"id":1}`),
+			IdempotencyKey: "test-idempotency-key-01",
+		},
+	}
+}
+
+// makeConsumerWithFakeServer creates a PubSubSinkConsumer wired to a pstest fake server.
+// The fake server connection is injected via option.WithGRPCConn so no real GCP credentials
+// are required. The consumer is registered for cleanup via t.Cleanup.
+func makeConsumerWithFakeServer(t *testing.T, srv *pstest.Server, projectID, topicID string) *pubsubsink.PubSubSinkConsumer {
+	t.Helper()
+
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	cfg := config.PubSubSinkConfig{
+		ProjectID: projectID,
+		TopicID:   topicID,
+	}
+	c, err := pubsubsink.NewPubSubSinkConsumer("test-consumer", cfg, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	t.Cleanup(func() { c.Close() })
+
+	return c
+}
+
+// TestNewPubSubSinkConsumer_InvalidTemplate verifies that a malformed Go template
+// returns a non-nil error from NewPubSubSinkConsumer.
+func TestNewPubSubSinkConsumer_InvalidTemplate(t *testing.T) {
+	cfg := config.PubSubSinkConfig{
+		ProjectID:     "my-project",
+		TopicID:       "my-topic",
+		TopicTemplate: "{{.Unclosed",
+	}
+	_, err := pubsubsink.NewPubSubSinkConsumer("test", cfg)
+	require.Error(t, err, "expected error for malformed topic template")
+}
+
+// TestPubSubSinkConsumer_Deliver_Success verifies:
+//   - Deliver returns nil for a valid event delivered to a pre-created pstest topic.
+//   - QueuePublishTotal WithLabelValues("pubsub") == 1.0 after a successful deliver.
+func TestPubSubSinkConsumer_Deliver_Success(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, testTopic)
+
+	c := makeConsumerWithFakeServer(t, srv, testProject, testTopic)
+
+	m := observability.NewKaptantoMetrics()
+	c.SetMetrics(m)
+
+	entry := makeEntry("public", "orders")
+	err := c.Deliver(context.Background(), entry)
+	require.NoError(t, err)
+
+	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("pubsub"))
+	assert.Equal(t, float64(1), got, "QueuePublishTotal must be 1 after successful deliver")
+}
+
+// TestPubSubSinkConsumer_Deliver_OrderingKey verifies:
+//   - The published message has OrderingKey == string(entry.Event.Key) (DLV-02).
+//   - The published message carries the Kaptanto-Idempotency-Key attribute (DLV-04).
+func TestPubSubSinkConsumer_Deliver_OrderingKey(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, testTopic)
+
+	// Create a subscription before publishing so we can pull the message.
+	ctx := context.Background()
+	subName := "projects/" + testProject + "/subscriptions/test-sub"
+	_, err := client.SubscriptionAdminClient.CreateSubscription(ctx, &pubsubpb.Subscription{
+		Name:  subName,
+		Topic: "projects/" + testProject + "/topics/" + testTopic,
+	})
+	require.NoError(t, err)
+
+	c := makeConsumerWithFakeServer(t, srv, testProject, testTopic)
+
+	entry := eventlog.LogEntry{
+		Event: &event.ChangeEvent{
+			Schema:         "public",
+			Table:          "orders",
+			Operation:      "insert",
+			Key:            json.RawMessage(`{"id":42}`),
+			IdempotencyKey: "idem-ordering-key-01",
+		},
+	}
+
+	err = c.Deliver(context.Background(), entry)
+	require.NoError(t, err)
+
+	// Pull the published message via the fake server's subscription.
+	subscriber := client.Subscriber("test-sub")
+	ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var gotOrderingKey string
+	var gotIdempotencyKey string
+	err = subscriber.Receive(ctx2, func(ctx context.Context, msg *pubsub.Message) {
+		gotOrderingKey = msg.OrderingKey
+		gotIdempotencyKey = msg.Attributes["Kaptanto-Idempotency-Key"]
+		msg.Ack()
+		cancel() // stop receiving after first message
+	})
+	// Receive returns context.Canceled when cancel() is called — that's expected.
+	if err != nil && err != context.Canceled {
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, `{"id":42}`, gotOrderingKey, "OrderingKey must equal string(entry.Event.Key)")
+	assert.Equal(t, "idem-ordering-key-01", gotIdempotencyKey, "Kaptanto-Idempotency-Key attribute must equal entry.Event.IdempotencyKey")
+}
+
+// TestPubSubSinkConsumer_Ping verifies that Ping() returns nil when the topic exists.
+func TestPubSubSinkConsumer_Ping(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, testTopic)
+
+	c := makeConsumerWithFakeServer(t, srv, testProject, testTopic)
+
+	err := c.Ping()
+	require.NoError(t, err, "Ping should return nil when topic exists on pstest server")
+}
+
+// TestPubSubSinkConsumer_Close verifies that Close() does not panic and that a
+// second call to Close() is also safe (idempotency).
+func TestPubSubSinkConsumer_Close(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, testTopic)
+
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	cfg := config.PubSubSinkConfig{
+		ProjectID: testProject,
+		TopicID:   testTopic,
+	}
+	c, err := pubsubsink.NewPubSubSinkConsumer("test-close", cfg, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() { c.Close() }, "first Close() must not panic")
+	assert.NotPanics(t, func() { c.Close() }, "second Close() must not panic")
+}
+
+// TestPubSubSinkConsumer_Deliver_MetricsError verifies that delivering to a
+// non-existent topic returns a non-nil error and increments QueuePublishErrors.
+func TestPubSubSinkConsumer_Deliver_MetricsError(t *testing.T) {
+	srv, _ := startFakeServer(t)
+	// Intentionally do NOT create the topic — publish should fail.
+
+	c := makeConsumerWithFakeServer(t, srv, testProject, "non-existent-topic")
+
+	m := observability.NewKaptantoMetrics()
+	c.SetMetrics(m)
+
+	entry := makeEntry("public", "orders")
+	err := c.Deliver(context.Background(), entry)
+	require.Error(t, err, "expected error when publishing to non-existent topic")
+
+	got := testutil.ToFloat64(m.QueuePublishErrors.WithLabelValues("pubsub"))
+	assert.GreaterOrEqual(t, got, float64(1), "QueuePublishErrors must be >= 1 after publish failure")
+}
