@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Queue Sinks
 status: unknown
-last_updated: "2026-05-06T11:28:00Z"
+last_updated: "2026-05-06T11:39:30.573Z"
 progress:
-  total_phases: 29
-  completed_phases: 29
-  total_plans: 72
-  completed_plans: 72
+  total_phases: 30
+  completed_phases: 30
+  total_plans: 75
+  completed_plans: 75
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 22 — Google Pub/Sub Sink
-Plan: 02 of 03 (complete)
-Status: Plan 22-02 complete — PubSubSinkConsumer implementation + pstest unit tests
-Last activity: 2026-05-06 — Plan 22-02 complete (PubSubSinkConsumer + 6 pstest tests)
+Plan: 03 of 03 (complete)
+Status: Plan 22-03 complete — case "pubsub": root.go wiring + cmd tests; Phase 22 complete, SNK-04 satisfied
+Last activity: 2026-05-06 — Plan 22-03 complete (pubsub root.go wiring + 2 cmd tests)
 
-Progress: [████░░░░░░] 40% (2/5 phases complete, 1/3 plans complete in Phase 22)
+Progress: [████░░░░░░] 40% (2/5 phases complete, 3/3 plans complete in Phase 22)
 
 ## Accumulated Context
 
@@ -67,6 +67,9 @@ Recent decisions affecting current work:
 - [Phase 22 Plan 02]: NewPubSubSinkConsumer accepts variadic option.ClientOption — enables pstest injection without a separate internal constructor or interface indirection; production wiring passes no extra options
 - [Phase 22 Plan 02]: TopicTemplate preserved in config but not applied per-message — Publisher is created for a fixed topicID at construction (v2 API design); multi-topic support deferred
 - [Phase 22 Plan 02]: go mod tidy run in Plan 02 — pubsub/v2 was kept indirect in Plan 01; importing it directly in Plan 02 promotes it and resolves transitive deps
+- [Phase 22-google-pubsub-sink]: [Phase 22 Plan 03]: pubsubsink import alias mirrors natssink/sqssink/kafkasink convention — consistent naming pattern for all sink packages
+- [Phase 22-google-pubsub-sink]: [Phase 22 Plan 03]: defer pubsubSink.Close() required — PubSubSinkConsumer holds a gRPC connection pool that must be drained on shutdown
+- [Phase 22-google-pubsub-sink]: [Phase 22 Plan 03]: Pub/Sub obs server uses cfg.Port (not cfg.Port+1) — Pub/Sub publishes to external GCP endpoint; no TCP server binds cfg.Port in pubsub mode
 
 ### Pending Todos
 
@@ -82,6 +85,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-05-06
-Stopped at: Completed 22-02-PLAN.md — PubSubSinkConsumer + pstest unit tests
+Stopped at: Completed 22-03-PLAN.md — PubSub root.go wiring + cmd tests (Phase 22 complete)
 Resume file: None
-Next action: Execute Phase 22 Plan 03 (root.go wiring for Pub/Sub sink)
+Next action: Execute Phase 23 (RabbitMQ Sink)

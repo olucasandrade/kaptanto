@@ -75,7 +75,7 @@ Full archive: `.planning/milestones/v2.0-ROADMAP.md`
 - [x] **Phase 19: Sink Infrastructure and NATS Sink** — `sinks:` YAML config block, CLI flags, per-sink metrics and /healthz hooks, NATSSinkConsumer with JetStream at-least-once delivery (completed 2026-05-03)
 - [x] **Phase 20: SQS Sink** — SQSConsumer with FIFO queue validation, MessageGroupId from primary key, IdempotencyKey as dedup attribute (completed 2026-05-04)
 - [x] **Phase 21: Kafka Sink** — KafkaConsumer using franz-go (CGO-free mandatory), record key from primary key, SASL/TLS auth (completed 2026-05-05)
-- [ ] **Phase 22: Google Pub/Sub Sink** — PubSubConsumer with ordering key, synchronous result.Get confirmation, ResumePublish on ordering-key errors
+- [x] **Phase 22: Google Pub/Sub Sink** — PubSubConsumer with ordering key, synchronous result.Get confirmation, ResumePublish on ordering-key errors (completed 2026-05-06)
 - [ ] **Phase 23: RabbitMQ Sink** — RabbitMQConsumer with per-partition channel pool, publisher confirms, and explicit reconnect loop
 
 ## Phase Details
@@ -313,5 +313,5 @@ Plans:
 | 19. Sink Infrastructure and NATS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 20. SQS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 21. Kafka Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-05 |
-| 22. Google Pub/Sub Sink | 2/3 | In Progress|  | - |
+| 22. Google Pub/Sub Sink | 3/3 | Complete   | 2026-05-06 | - |
 | 23. RabbitMQ Sink | v2.1 | 0/TBD | Not started | - |
