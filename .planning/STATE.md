@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Queue Sinks
 status: unknown
-last_updated: "2026-05-05T11:59:38.518Z"
+last_updated: "2026-05-06T11:28:00Z"
 progress:
   total_phases: 29
-  completed_phases: 28
+  completed_phases: 29
   total_plans: 72
-  completed_plans: 71
+  completed_plans: 72
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 21 — Kafka Sink
-Plan: 03 of 03 (complete)
-Status: Phase 21 complete — Plan 21-03 complete: case "kafka": wired in root.go + cmd tests
-Last activity: 2026-05-05 — Plan 21-03 complete (root.go kafka wiring + cmd tests)
+Phase: 22 — Google Pub/Sub Sink
+Plan: 01 of 03 (complete)
+Status: Plan 22-01 complete — PubSubSinkConfig + pubsub/v2 v2.6.0 in go.mod
+Last activity: 2026-05-06 — Plan 22-01 complete (PubSubSinkConfig config + module install)
 
-Progress: [████░░░░░░] 40% (2/5 phases complete, 3/3 plans complete in Phase 21)
+Progress: [████░░░░░░] 40% (2/5 phases complete, 1/3 plans complete in Phase 22)
 
 ## Accumulated Context
 
@@ -60,6 +60,9 @@ Recent decisions affecting current work:
 - [Phase 21 Plan 03]: kafkasink import alias mirrors natssink/sqssink convention — consistent naming pattern for all sink packages
 - [Phase 21 Plan 03]: Kafka obs server listens on cfg.Port (not cfg.Port+1) — Kafka publishes to external broker; no TCP server beyond observability
 - [Phase 21 Plan 03]: defer kafkaSink.Close() required — Kafka maintains persistent TCP connections, unlike stateless HTTP SQS sink
+- [Phase 22 Plan 01]: pubsub/v2 kept as indirect dependency (no import yet); go mod tidy omitted to preserve entry until Plan 02 imports it — mirrors Phase 21 Plan 01 decision for franz-go
+- [Phase 22 Plan 01]: PubSubSinkConfig uses pointer field (*PubSubSinkConfig) on SinksConfig — nil when sub-block absent in YAML, consistent with NATS/SQS/Kafka pattern
+- [Phase 22 Plan 01]: CredentialsFile optional; empty = ADC (GOOGLE_APPLICATION_CREDENTIALS or gcloud auth application-default login) — no required credentials beyond ProjectID and TopicID
 
 ### Pending Todos
 
@@ -74,7 +77,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-05
-Stopped at: Completed 21-03-PLAN.md — case "kafka": wired in root.go + cmd tests; Phase 21 complete
+Last session: 2026-05-06
+Stopped at: Completed 22-01-PLAN.md — PubSubSinkConfig + pubsub/v2 v2.6.0 installed
 Resume file: None
-Next action: Execute Phase 22 (Pub/Sub Sink)
+Next action: Execute Phase 22 Plan 02 (PubSubSinkConsumer implementation)

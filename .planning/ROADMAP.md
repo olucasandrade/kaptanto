@@ -313,5 +313,5 @@ Plans:
 | 19. Sink Infrastructure and NATS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 20. SQS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 21. Kafka Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-05 |
-| 22. Google Pub/Sub Sink | v2.1 | 0/3 | Not started | - |
+| 22. Google Pub/Sub Sink | 1/3 | In Progress|  | - |
 | 23. RabbitMQ Sink | v2.1 | 0/TBD | Not started | - |
