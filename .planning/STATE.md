@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 22 — Google Pub/Sub Sink
-Plan: 01 of 03 (complete)
-Status: Plan 22-01 complete — PubSubSinkConfig + pubsub/v2 v2.6.0 in go.mod
-Last activity: 2026-05-06 — Plan 22-01 complete (PubSubSinkConfig config + module install)
+Plan: 02 of 03 (complete)
+Status: Plan 22-02 complete — PubSubSinkConsumer implementation + pstest unit tests
+Last activity: 2026-05-06 — Plan 22-02 complete (PubSubSinkConsumer + 6 pstest tests)
 
 Progress: [████░░░░░░] 40% (2/5 phases complete, 1/3 plans complete in Phase 22)
 
@@ -63,6 +63,10 @@ Recent decisions affecting current work:
 - [Phase 22 Plan 01]: pubsub/v2 kept as indirect dependency (no import yet); go mod tidy omitted to preserve entry until Plan 02 imports it — mirrors Phase 21 Plan 01 decision for franz-go
 - [Phase 22 Plan 01]: PubSubSinkConfig uses pointer field (*PubSubSinkConfig) on SinksConfig — nil when sub-block absent in YAML, consistent with NATS/SQS/Kafka pattern
 - [Phase 22 Plan 01]: CredentialsFile optional; empty = ADC (GOOGLE_APPLICATION_CREDENTIALS or gcloud auth application-default login) — no required credentials beyond ProjectID and TopicID
+- [Phase 22 Plan 02]: grpc.NewClient used instead of deprecated grpc.Dial — pstest fake_test.go uses NewClient; cleaner for the codebase
+- [Phase 22 Plan 02]: NewPubSubSinkConsumer accepts variadic option.ClientOption — enables pstest injection without a separate internal constructor or interface indirection; production wiring passes no extra options
+- [Phase 22 Plan 02]: TopicTemplate preserved in config but not applied per-message — Publisher is created for a fixed topicID at construction (v2 API design); multi-topic support deferred
+- [Phase 22 Plan 02]: go mod tidy run in Plan 02 — pubsub/v2 was kept indirect in Plan 01; importing it directly in Plan 02 promotes it and resolves transitive deps
 
 ### Pending Todos
 
@@ -78,6 +82,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-05-06
-Stopped at: Completed 22-01-PLAN.md — PubSubSinkConfig + pubsub/v2 v2.6.0 installed
+Stopped at: Completed 22-02-PLAN.md — PubSubSinkConsumer + pstest unit tests
 Resume file: None
-Next action: Execute Phase 22 Plan 02 (PubSubSinkConsumer implementation)
+Next action: Execute Phase 22 Plan 03 (root.go wiring for Pub/Sub sink)
