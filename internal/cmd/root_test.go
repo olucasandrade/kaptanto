@@ -408,6 +408,35 @@ func TestOutputMode_PubSub_InvalidMode(t *testing.T) {
 		"error must include 'pubsub' in valid output modes list")
 }
 
+// TestOutputMode_RabbitMQ_MissingConfig verifies that running --output rabbitmq without a
+// sinks.rabbitmq block in config returns an error containing "sinks.rabbitmq".
+// No RabbitMQ connection is required — this exercises the nil-config guard only.
+func TestOutputMode_RabbitMQ_MissingConfig(t *testing.T) {
+	var buf bytes.Buffer
+	// Use an unreachable Postgres DSN so the pipeline reaches the output switch
+	// before failing. The nil sinks.rabbitmq guard fires before any DB connection.
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "rabbitmq",
+	}, &buf)
+	require.Error(t, err, "--output rabbitmq without sinks.rabbitmq config must return an error")
+	assert.Contains(t, err.Error(), "sinks.rabbitmq",
+		"error must mention sinks.rabbitmq config block")
+}
+
+// TestOutputMode_RabbitMQ_InvalidMode verifies that --output with an unknown mode
+// returns an error message that includes "rabbitmq" in the list of valid modes.
+func TestOutputMode_RabbitMQ_InvalidMode(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "invalid-rabbitmq-mode",
+	}, &buf)
+	require.Error(t, err, "--output invalid-rabbitmq-mode must return an error")
+	assert.Contains(t, err.Error(), "rabbitmq",
+		"error must include 'rabbitmq' in valid output modes list")
+}
+
 // TestRouterSetOwnedPartitions is a compile guard: if SetOwnedPartitions is
 // removed or its signature changes, this test will fail to compile.
 // Uses the same fakeEventLog pattern as internal/router/router_test.go.
