@@ -379,6 +379,35 @@ func TestOutputMode_Kafka_InvalidMode(t *testing.T) {
 		"error must include 'kafka' in valid output modes list")
 }
 
+// TestOutputMode_PubSub_MissingConfig verifies that running --output pubsub without a
+// sinks.pubsub block in config returns an error containing "sinks.pubsub".
+// No GCP connection is required — this exercises the nil-config guard only.
+func TestOutputMode_PubSub_MissingConfig(t *testing.T) {
+	var buf bytes.Buffer
+	// Use an unreachable Postgres DSN so the pipeline reaches the output switch
+	// before failing. The nil sinks.pubsub guard fires before any DB connection.
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "pubsub",
+	}, &buf)
+	require.Error(t, err, "--output pubsub without sinks.pubsub config must return an error")
+	assert.Contains(t, err.Error(), "sinks.pubsub",
+		"error must mention sinks.pubsub config block")
+}
+
+// TestOutputMode_PubSub_InvalidMode verifies that --output with an unknown mode
+// returns an error message that includes "pubsub" in the list of valid modes.
+func TestOutputMode_PubSub_InvalidMode(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "invalid-pubsub-mode",
+	}, &buf)
+	require.Error(t, err, "--output invalid-pubsub-mode must return an error")
+	assert.Contains(t, err.Error(), "pubsub",
+		"error must include 'pubsub' in valid output modes list")
+}
+
 // TestRouterSetOwnedPartitions is a compile guard: if SetOwnedPartitions is
 // removed or its signature changes, this test will fail to compile.
 // Uses the same fakeEventLog pattern as internal/router/router_test.go.
