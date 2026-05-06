@@ -226,3 +226,60 @@ output: stdout
 
 	assert.Nil(t, cfg.Sinks.Kafka, "Kafka config should be nil when no sinks block is present")
 }
+
+// TestSinks_RabbitMQ_RoundTrip tests that a full sinks.rabbitmq YAML block
+// is parsed into Config.Sinks.RabbitMQ correctly with all fields populated.
+func TestSinks_RabbitMQ_RoundTrip(t *testing.T) {
+	raw := `
+sinks:
+  rabbitmq:
+    url: "amqp://guest:guest@localhost:5672/"
+    exchange: "cdc-events"
+    routing-key-template: "cdc.{{.Schema}}.{{.Table}}"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.RabbitMQ, "RabbitMQ config should be non-nil when sinks.rabbitmq block is present")
+	assert.Equal(t, "amqp://guest:guest@localhost:5672/", cfg.Sinks.RabbitMQ.URL)
+	assert.Equal(t, "cdc-events", cfg.Sinks.RabbitMQ.Exchange)
+	assert.Equal(t, "cdc.{{.Schema}}.{{.Table}}", cfg.Sinks.RabbitMQ.RoutingKeyTemplate)
+}
+
+// TestSinks_RabbitMQ_AbsentBlock tests that when sinks.rabbitmq is absent from YAML,
+// cfg.Sinks.RabbitMQ is nil (not a zero-value struct).
+func TestSinks_RabbitMQ_AbsentBlock(t *testing.T) {
+	raw := `
+sinks:
+  nats:
+    url: "nats://localhost:4222"
+    subject-template: "cdc.{{.Table}}"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	assert.Nil(t, cfg.Sinks.RabbitMQ, "RabbitMQ config should be nil when sinks.rabbitmq block is absent")
+}
+
+// TestSinks_RabbitMQ_TLSBlock tests that sinks.rabbitmq.tls fields are parsed correctly.
+func TestSinks_RabbitMQ_TLSBlock(t *testing.T) {
+	raw := `
+sinks:
+  rabbitmq:
+    url: "amqps://user:pass@broker.example.com:5671/"
+    tls:
+      ca-file: "/etc/certs/ca.pem"
+      cert-file: "/etc/certs/client.pem"
+      key-file: "/etc/certs/client-key.pem"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.RabbitMQ, "RabbitMQ config should be non-nil when sinks.rabbitmq block is present")
+	assert.Equal(t, "/etc/certs/ca.pem", cfg.Sinks.RabbitMQ.TLS.CAFile)
+	assert.Equal(t, "/etc/certs/client.pem", cfg.Sinks.RabbitMQ.TLS.CertFile)
+	assert.Equal(t, "/etc/certs/client-key.pem", cfg.Sinks.RabbitMQ.TLS.KeyFile)
+}

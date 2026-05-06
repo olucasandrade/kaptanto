@@ -284,7 +284,12 @@ Plans:
   3. When the AMQP connection is lost (broker restart, network interruption), the sink automatically re-dials with exponential backoff and resumes publishing without crashing the pipeline — events during reconnect are retried, not dropped
   4. Concurrent `Deliver` calls from the router's 64 partition goroutines do not corrupt channel state — each partition uses a dedicated AMQP channel (per-partition channel pool)
   5. `make build CGO_ENABLED=0` succeeds with the RabbitMQ sink included — no CGO introduced
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 23-01-PLAN.md — RabbitMQSinkConfig in config.go + amqp091-go v1.11.0 in go.mod + config tests
+- [ ] 23-02-PLAN.md — RabbitMQSinkConsumer implementation with interface-injection unit tests (TDD)
+- [ ] 23-03-PLAN.md — root.go case "rabbitmq": wiring + cmd tests
 
 ## Progress
 
@@ -313,5 +318,5 @@ Plans:
 | 19. Sink Infrastructure and NATS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 20. SQS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 21. Kafka Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-05 |
-| 22. Google Pub/Sub Sink | 3/3 | Complete   | 2026-05-06 | - |
-| 23. RabbitMQ Sink | v2.1 | 0/TBD | Not started | - |
+| 22. Google Pub/Sub Sink | 3/3 | Complete    | 2026-05-06 | - |
+| 23. RabbitMQ Sink | v2.1 | 0/3 | Not started | - |
