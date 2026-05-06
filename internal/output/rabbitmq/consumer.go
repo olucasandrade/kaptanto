@@ -1,0 +1,445 @@
+// Package rabbitmqsink provides RabbitMQSinkConsumer, a router.Consumer
+// implementation that publishes CDC events to a RabbitMQ exchange using
+// the amqp091-go library.
+//
+// Key design decisions:
+//   - CHK-01 (Durability): Deliver blocks until the broker acknowledges the
+//     publish via WaitContext on a DeferredConfirmation. The router cursor is NOT
+//     advanced until WaitContext returns, preserving at-least-once delivery.
+//   - DLV-03 (No internal retry): On any error Deliver returns immediately.
+//     Retry is the RetryScheduler's responsibility.
+//   - DLV-04 (Idempotency header): Every publish carries a
+//     "Kaptanto-Idempotency-Key" AMQP header set to entry.Event.IdempotencyKey.
+//   - RTR-04 (Per-key ordering): The channel pool maps entry.PartitionID % 64
+//     to a dedicated channel. AMQP channels are NOT goroutine-safe, so each
+//     partition slot gets its own channel, matching the 64-partition EventLog.
+//   - CGO-free: amqp091-go is a pure Go client; CGO_ENABLED=0 is safe.
+package rabbitmqsink
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"math/rand"
+	"os"
+	"strings"
+	"sync"
+	"text/template"
+	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/router"
+)
+
+// Compile-time assertion: RabbitMQSinkConsumer must implement router.Consumer.
+var _ router.Consumer = (*RabbitMQSinkConsumer)(nil)
+
+// DeferredConfirmAPI wraps *amqp.DeferredConfirmation.WaitContext to allow
+// test injection without a live AMQP broker. Exported so that test packages
+// can implement it in fakes.
+type DeferredConfirmAPI interface {
+	// WaitContext blocks until the broker sends an ack or nack, or ctx is done.
+	// Returns (true, nil) on ack, (false, nil) on nack, (false, err) on ctx error.
+	WaitContext(ctx context.Context) (bool, error)
+}
+
+// AMQPChannelAPI is the interface subset of *amqp.Channel used by Deliver.
+// Extracted for test injection — all unit tests pass a fakeAMQPChannel.
+// Exported so that test packages can implement it in fakes.
+type AMQPChannelAPI interface {
+	// PublishWithDeferredConfirmWithContext publishes to exchange/key with publisher
+	// confirms enabled. Returns a DeferredConfirmAPI to wait for the broker ack.
+	PublishWithDeferredConfirmWithContext(
+		ctx context.Context,
+		exchange, key string,
+		mandatory, immediate bool,
+		msg amqp.Publishing,
+	) (DeferredConfirmAPI, error)
+}
+
+// realDeferredConfirm adapts *amqp.DeferredConfirmation to DeferredConfirmAPI.
+type realDeferredConfirm struct {
+	dc *amqp.DeferredConfirmation
+}
+
+func (r *realDeferredConfirm) WaitContext(ctx context.Context) (bool, error) {
+	return r.dc.WaitContext(ctx)
+}
+
+// realChannel adapts *amqp.Channel to AMQPChannelAPI.
+type realChannel struct {
+	ch *amqp.Channel
+}
+
+func (r *realChannel) PublishWithDeferredConfirmWithContext(
+	ctx context.Context,
+	exchange, key string,
+	mandatory, immediate bool,
+	msg amqp.Publishing,
+) (DeferredConfirmAPI, error) {
+	dc, err := r.ch.PublishWithDeferredConfirmWithContext(ctx, exchange, key, mandatory, immediate, msg)
+	if err != nil {
+		return nil, err
+	}
+	return &realDeferredConfirm{dc: dc}, nil
+}
+
+// RabbitMQSinkConsumer is a router.Consumer that publishes CDC events to a
+// RabbitMQ exchange. It maintains a pool of 64 channels — one per EventLog
+// partition — ensuring per-channel ordering (AMQP channels are not goroutine-safe).
+//
+// A background reconnect goroutine watches for connection drops and re-dials
+// with exponential backoff (1s → 30s + jitter).
+//
+// Use NewRabbitMQSinkConsumer to construct — do not create directly.
+type RabbitMQSinkConsumer struct {
+	id             string
+	cfg            config.RabbitMQSinkConfig
+	conn           *amqp.Connection
+	channels       [64]AMQPChannelAPI
+	mu             sync.RWMutex
+	routingKeyT    *template.Template
+	cancelReconnect context.CancelFunc
+	m              *observability.KaptantoMetrics
+}
+
+// NewRabbitMQSinkConsumer creates a RabbitMQSinkConsumer connected to cfg.URL.
+//
+// It returns a non-nil error when:
+//   - cfg.RoutingKeyTemplate is not a valid Go template
+//   - TLS certificate files are specified but cannot be read or parsed
+//   - The AMQP dial fails
+//   - Any of the 64 publisher-confirm channels cannot be opened
+//
+// The caller is responsible for calling Close() when done.
+func NewRabbitMQSinkConsumer(id string, cfg config.RabbitMQSinkConfig) (*RabbitMQSinkConsumer, error) {
+	// 1. Parse routing key template early — catches config errors at startup.
+	tmpl, err := template.New("routing-key").Parse(cfg.RoutingKeyTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("rabbitmq sink: routing-key-template parse error: %w", err)
+	}
+
+	// 2. Build TLS config if a CA file is provided.
+	var tlsCfg *tls.Config
+	if cfg.TLS.CAFile != "" {
+		tlsCfg, err = buildTLSConfig(cfg.TLS)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 3. Dial the broker.
+	conn, channels, err := dialAndOpenChannels(cfg.URL, tlsCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Set up reconnect context.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	c := &RabbitMQSinkConsumer{
+		id:              id,
+		cfg:             cfg,
+		conn:            conn,
+		channels:        channels,
+		routingKeyT:     tmpl,
+		cancelReconnect: cancel,
+	}
+
+	// 5. Start reconnect goroutine.
+	go c.reconnectLoop(ctx, cfg.URL, tlsCfg)
+
+	return c, nil
+}
+
+// NewConsumerWithChannels is an internal constructor for unit tests. It accepts
+// a pre-built [64]AMQPChannelAPI array and skips dialing and the reconnect
+// goroutine. conn is left nil; Ping will return an error in test consumers.
+func NewConsumerWithChannels(id string, cfg config.RabbitMQSinkConfig, channels [64]AMQPChannelAPI) (*RabbitMQSinkConsumer, error) {
+	tmpl, err := template.New("routing-key").Parse(cfg.RoutingKeyTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("rabbitmq sink: routing-key-template parse error: %w", err)
+	}
+	return &RabbitMQSinkConsumer{
+		id:              id,
+		cfg:             cfg,
+		channels:        channels,
+		routingKeyT:     tmpl,
+		cancelReconnect: func() {}, // no-op: no reconnect goroutine in tests
+	}, nil
+}
+
+// ID returns the stable, unique identifier for this consumer instance.
+func (c *RabbitMQSinkConsumer) ID() string {
+	return c.id
+}
+
+// SetMetrics injects a KaptantoMetrics reference so the consumer reports
+// QueuePublishTotal, QueuePublishErrors, and QueuePublishLatency.
+// Call after construction, before Deliver.
+func (c *RabbitMQSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
+	c.m = m
+}
+
+// Deliver publishes entry.Event to the RabbitMQ exchange synchronously (CHK-01).
+//
+// It selects channels[entry.PartitionID % 64], derives the routing key from the
+// template, marshals the event to JSON, and publishes with DeliveryMode=Persistent.
+//
+// The Kaptanto-Idempotency-Key AMQP header is set on every message (DLV-04).
+//
+// WaitContext blocks until the broker sends a publisher confirm (ack or nack).
+// The router cursor is NOT advanced until this function returns nil.
+//
+// On any error Deliver returns immediately — retry is the RetryScheduler's
+// responsibility (DLV-03).
+func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	// 1. Select channel for this partition (read lock — channels may be swapped
+	//    by reconnectLoop under write lock).
+	c.mu.RLock()
+	ch := c.channels[entry.PartitionID%64]
+	c.mu.RUnlock()
+
+	// 2. Derive routing key from template.
+	var buf bytes.Buffer
+	if err := c.routingKeyT.Execute(&buf, entry.Event); err != nil {
+		return fmt.Errorf("rabbitmq sink: routing key template execution: %w", err)
+	}
+	routingKey := strings.TrimSpace(buf.String())
+	if routingKey == "" {
+		return fmt.Errorf("rabbitmq sink: routing key template rendered to empty string — check routing-key-template config")
+	}
+
+	// 3. Marshal the event to JSON for the message body.
+	data, err := json.Marshal(entry.Event)
+	if err != nil {
+		return fmt.Errorf("rabbitmq sink: marshal event: %w", err)
+	}
+
+	// 4. Start latency timer.
+	start := time.Now()
+
+	// 5. Publish with publisher confirms.
+	dc, err := ch.PublishWithDeferredConfirmWithContext(ctx, c.cfg.Exchange, routingKey,
+		false, false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         data,
+			Headers: amqp.Table{
+				"Kaptanto-Idempotency-Key": entry.Event.IdempotencyKey,
+			},
+		},
+	)
+	if err != nil {
+		if c.m != nil {
+			c.m.QueuePublishErrors.WithLabelValues("rabbitmq").Inc()
+		}
+		return fmt.Errorf("rabbitmq sink: publish to exchange %q routing-key %q: %w",
+			c.cfg.Exchange, routingKey, err)
+	}
+
+	// 6. Wait for broker ack (CHK-01 — cursor does not advance before confirm).
+	acked, waitErr := dc.WaitContext(ctx)
+
+	// 7. Observe latency regardless of outcome.
+	if c.m != nil {
+		c.m.QueuePublishLatency.WithLabelValues("rabbitmq").Observe(time.Since(start).Seconds())
+	}
+
+	if waitErr != nil {
+		if c.m != nil {
+			c.m.QueuePublishErrors.WithLabelValues("rabbitmq").Inc()
+		}
+		return fmt.Errorf("rabbitmq sink: wait confirm for exchange %q routing-key %q: %w",
+			c.cfg.Exchange, routingKey, waitErr)
+	}
+	if !acked {
+		if c.m != nil {
+			c.m.QueuePublishErrors.WithLabelValues("rabbitmq").Inc()
+		}
+		return fmt.Errorf("rabbitmq sink: broker nacked message on exchange %q routing-key %q",
+			c.cfg.Exchange, routingKey)
+	}
+
+	if c.m != nil {
+		c.m.QueuePublishTotal.WithLabelValues("rabbitmq").Inc()
+	}
+	return nil
+}
+
+// Ping returns nil when the AMQP connection is open, or a non-nil error when
+// the connection is nil or reports IsClosed() == true.
+func (c *RabbitMQSinkConsumer) Ping() error {
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if conn == nil || conn.IsClosed() {
+		return fmt.Errorf("rabbitmq sink: connection is closed or not initialized")
+	}
+	return nil
+}
+
+// Close stops the reconnect goroutine, closes all 64 publisher-confirm channels,
+// and closes the AMQP connection. It is safe to call Close once.
+func (c *RabbitMQSinkConsumer) Close() {
+	// Stop the reconnect goroutine first.
+	c.cancelReconnect()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Close all 64 channels. We type-assert to *realChannel to reach the underlying
+	// *amqp.Channel. If a test-injected fake is present, the assert fails (ok=false)
+	// and we skip the close (fakes have no real connection to close).
+	for _, ch := range c.channels {
+		if rc, ok := ch.(*realChannel); ok {
+			_ = rc.ch.Close()
+		}
+	}
+
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
+}
+
+// reconnectLoop watches for connection drops and re-dials with exponential
+// backoff (initial=1s, max=30s, +50% jitter). It runs as a background goroutine
+// started by NewRabbitMQSinkConsumer and is stopped when Close() cancels ctx.
+func (c *RabbitMQSinkConsumer) reconnectLoop(ctx context.Context, url string, tlsCfg *tls.Config) {
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	// Obtain initial close-notification channel.
+	notifyClose := conn.NotifyClose(make(chan *amqp.Error, 1))
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case amqpErr, ok := <-notifyClose:
+			// ok=false means the channel was closed — that happens on a graceful
+			// Close(). Stop the loop.
+			if !ok {
+				return
+			}
+			if amqpErr != nil {
+				slog.Warn("rabbitmq sink: connection closed, reconnecting",
+					"error", amqpErr.Error())
+			}
+		}
+
+		// Exponential backoff reconnect loop.
+		const maxDelay = 30 * time.Second
+		delay := time.Second
+
+		for {
+			jitter := time.Duration(rand.Int63n(int64(delay) / 2))
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay + jitter):
+			}
+
+			newConn, newChannels, err := dialAndOpenChannels(url, tlsCfg)
+			if err != nil {
+				slog.Warn("rabbitmq sink: reconnect attempt failed",
+					"error", err,
+					"next_delay", delay*2)
+				if delay < maxDelay {
+					delay *= 2
+					if delay > maxDelay {
+						delay = maxDelay
+					}
+				}
+				continue
+			}
+
+			// Swap connection and channels under write lock.
+			c.mu.Lock()
+			c.conn = newConn
+			c.channels = newChannels
+			c.mu.Unlock()
+
+			// Reset backoff and start watching the new connection.
+			delay = time.Second
+			notifyClose = newConn.NotifyClose(make(chan *amqp.Error, 1))
+			slog.Info("rabbitmq sink: reconnected successfully")
+			break
+		}
+	}
+}
+
+// dialAndOpenChannels dials the broker and opens 64 publisher-confirm channels.
+// Returns the connection and channel array on success, or an error on failure.
+func dialAndOpenChannels(url string, tlsCfg *tls.Config) (*amqp.Connection, [64]AMQPChannelAPI, error) {
+	var conn *amqp.Connection
+	var err error
+
+	if tlsCfg != nil {
+		conn, err = amqp.DialTLS(url, tlsCfg)
+	} else {
+		conn, err = amqp.Dial(url)
+	}
+	if err != nil {
+		return nil, [64]AMQPChannelAPI{}, fmt.Errorf("rabbitmq sink: dial %q: %w", url, err)
+	}
+
+	var channels [64]AMQPChannelAPI
+	for i := range channels {
+		ch, chErr := conn.Channel()
+		if chErr != nil {
+			_ = conn.Close()
+			return nil, [64]AMQPChannelAPI{},
+				fmt.Errorf("rabbitmq sink: open channel %d: %w", i, chErr)
+		}
+		if cfmErr := ch.Confirm(false); cfmErr != nil {
+			_ = conn.Close()
+			return nil, [64]AMQPChannelAPI{},
+				fmt.Errorf("rabbitmq sink: enable publisher confirms on channel %d: %w", i, cfmErr)
+		}
+		channels[i] = &realChannel{ch: ch}
+	}
+
+	return conn, channels, nil
+}
+
+// buildTLSConfig constructs a *tls.Config from cfg.
+// If CAFile is set, loads the CA certificate pool.
+// If CertFile and KeyFile are both set, loads the client key pair for mTLS.
+func buildTLSConfig(tlsCfg config.TLSConfig) (*tls.Config, error) {
+	cfg := &tls.Config{}
+
+	if tlsCfg.CAFile != "" {
+		pem, err := os.ReadFile(tlsCfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("rabbitmq sink: read ca-file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("rabbitmq sink: no valid certs in ca-file %q", tlsCfg.CAFile)
+		}
+		cfg.RootCAs = pool
+	}
+
+	if tlsCfg.CertFile != "" && tlsCfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(tlsCfg.CertFile, tlsCfg.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("rabbitmq sink: load client cert: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+
+	return cfg, nil
+}
