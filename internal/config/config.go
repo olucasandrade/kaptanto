@@ -87,14 +87,29 @@ type PubSubSinkConfig struct {
 	TopicTemplate   string `yaml:"topic-template"`   // optional Go template
 }
 
+// RabbitMQSinkConfig holds connection settings for the RabbitMQ sink.
+// URL is the AMQP or AMQPS connection URL, e.g. "amqp://user:pass@host:5672/"
+// or "amqps://..." for TLS connections.
+// Exchange is the exchange name; empty string uses the default exchange.
+// RoutingKeyTemplate is a Go template applied per-event to compute the routing
+// key, e.g. "cdc.{{.Schema}}.{{.Table}}".
+// TLS allows specifying a custom CA for broker certificate verification and
+// optional client certificates for mutual TLS.
+type RabbitMQSinkConfig struct {
+	URL                string    `yaml:"url"`                  // AMQP URL e.g. "amqp://user:pass@host:5672/"
+	Exchange           string    `yaml:"exchange"`             // exchange name; empty = default exchange
+	RoutingKeyTemplate string    `yaml:"routing-key-template"` // Go template e.g. "cdc.{{.Schema}}.{{.Table}}"
+	TLS                TLSConfig `yaml:"tls"`
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
-// RabbitMQ will be added in Phase 23.
 type SinksConfig struct {
-	NATS   *NATSSinkConfig   `yaml:"nats"`
-	SQS    *SQSSinkConfig    `yaml:"sqs"`
-	Kafka  *KafkaSinkConfig  `yaml:"kafka"`
-	PubSub *PubSubSinkConfig `yaml:"pubsub"`
+	NATS     *NATSSinkConfig     `yaml:"nats"`
+	SQS      *SQSSinkConfig      `yaml:"sqs"`
+	Kafka    *KafkaSinkConfig    `yaml:"kafka"`
+	PubSub   *PubSubSinkConfig   `yaml:"pubsub"`
+	RabbitMQ *RabbitMQSinkConfig `yaml:"rabbitmq"`
 }
 
 // Config is the complete runtime configuration for a kaptanto pipeline.
