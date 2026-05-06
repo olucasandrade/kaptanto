@@ -73,13 +73,28 @@ type KafkaSinkConfig struct {
 	TLS              TLSConfig `yaml:"tls"`
 }
 
+// PubSubSinkConfig holds connection settings for the Google Cloud Pub/Sub sink.
+// ProjectID is required. TopicID is required.
+// CredentialsFile is optional; when empty, Application Default Credentials (ADC)
+// are used automatically (GOOGLE_APPLICATION_CREDENTIALS env var or
+// gcloud auth application-default login).
+// TopicTemplate is an optional Go template for per-event topic routing
+// (e.g. "cdc-{{.Schema}}-{{.Table}}"). When empty, TopicID is used directly.
+type PubSubSinkConfig struct {
+	ProjectID       string `yaml:"project-id"`
+	TopicID         string `yaml:"topic-id"`
+	CredentialsFile string `yaml:"credentials-file"` // optional; empty = ADC
+	TopicTemplate   string `yaml:"topic-template"`   // optional Go template
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
-// Additional sink types (PubSub, RabbitMQ) will be added in Phases 22-23.
+// RabbitMQ will be added in Phase 23.
 type SinksConfig struct {
-	NATS  *NATSSinkConfig  `yaml:"nats"`
-	SQS   *SQSSinkConfig   `yaml:"sqs"`
-	Kafka *KafkaSinkConfig `yaml:"kafka"`
+	NATS   *NATSSinkConfig   `yaml:"nats"`
+	SQS    *SQSSinkConfig    `yaml:"sqs"`
+	Kafka  *KafkaSinkConfig  `yaml:"kafka"`
+	PubSub *PubSubSinkConfig `yaml:"pubsub"`
 }
 
 // Config is the complete runtime configuration for a kaptanto pipeline.
