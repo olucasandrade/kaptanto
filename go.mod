@@ -25,6 +25,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.16
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.27
+	github.com/rabbitmq/amqp091-go v1.11.0
 	github.com/twmb/franz-go v1.21.1
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260504210720-963be6fd5989
 	golang.org/x/sync v0.20.0
@@ -81,7 +82,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
-	github.com/rabbitmq/amqp091-go v1.11.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
