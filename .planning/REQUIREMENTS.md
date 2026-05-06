@@ -10,7 +10,7 @@ Requirements for the Queue Sinks milestone. Each maps to roadmap phases.
 ### Queue Sinks
 
 - [x] **SNK-01**: User can configure Kaptanto to publish CDC events to an AWS SQS FIFO queue
-- [ ] **SNK-02**: User can configure Kaptanto to publish CDC events to a RabbitMQ exchange via AMQP
+- [x] **SNK-02**: User can configure Kaptanto to publish CDC events to a RabbitMQ exchange via AMQP
 - [x] **SNK-03**: User can configure Kaptanto to publish CDC events to a Kafka topic
 - [x] **SNK-04**: User can configure Kaptanto to publish CDC events to a Google Pub/Sub topic
 - [x] **SNK-05**: User can configure Kaptanto to publish CDC events to a NATS JetStream subject
@@ -83,7 +83,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SNK-01 | Phase 20 | Complete |
 | SNK-03 | Phase 21 | Complete |
 | SNK-04 | Phase 22 | Complete |
-| SNK-02 | Phase 23 | Pending |
+| SNK-02 | Phase 23 | Complete |
 
 **Coverage:**
 - v2.1 requirements: 15 total

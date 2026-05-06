@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Queue Sinks
 status: unknown
-last_updated: "2026-05-06T11:39:30.573Z"
+last_updated: "2026-05-06T22:49:28.588Z"
 progress:
-  total_phases: 30
+  total_phases: 31
   completed_phases: 30
-  total_plans: 75
-  completed_plans: 75
+  total_plans: 78
+  completed_plans: 76
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 22 — Google Pub/Sub Sink
-Plan: 03 of 03 (complete)
-Status: Plan 22-03 complete — case "pubsub": root.go wiring + cmd tests; Phase 22 complete, SNK-04 satisfied
-Last activity: 2026-05-06 — Plan 22-03 complete (pubsub root.go wiring + 2 cmd tests)
+Phase: 23 — RabbitMQ Sink
+Plan: 01 of 03 (complete)
+Status: Plan 23-01 complete — RabbitMQSinkConfig struct + amqp091-go v1.11.0 + three config round-trip tests; SNK-02 satisfied
+Last activity: 2026-05-07 — Plan 23-01 complete (RabbitMQSinkConfig + amqp091-go install)
 
-Progress: [████░░░░░░] 40% (2/5 phases complete, 3/3 plans complete in Phase 22)
+Progress: [████░░░░░░] 40% (2/5 phases complete, 1/3 plans complete in Phase 23)
 
 ## Accumulated Context
 
@@ -70,6 +70,10 @@ Recent decisions affecting current work:
 - [Phase 22-google-pubsub-sink]: [Phase 22 Plan 03]: pubsubsink import alias mirrors natssink/sqssink/kafkasink convention — consistent naming pattern for all sink packages
 - [Phase 22-google-pubsub-sink]: [Phase 22 Plan 03]: defer pubsubSink.Close() required — PubSubSinkConsumer holds a gRPC connection pool that must be drained on shutdown
 - [Phase 22-google-pubsub-sink]: [Phase 22 Plan 03]: Pub/Sub obs server uses cfg.Port (not cfg.Port+1) — Pub/Sub publishes to external GCP endpoint; no TCP server binds cfg.Port in pubsub mode
+- [Phase 23 Plan 01]: amqp091-go kept as indirect dependency (no import yet); go mod tidy omitted to preserve entry until Plan 02 imports it — mirrors Phase 21/22 Plan 01 decision for franz-go and pubsub/v2
+- [Phase 23 Plan 01]: RabbitMQSinkConfig uses pointer field (*RabbitMQSinkConfig) on SinksConfig — nil when sub-block absent in YAML, consistent with NATS/SQS/Kafka/PubSub pattern
+- [Phase 23 Plan 01]: TLSConfig reused from existing type — no new TLS struct needed for RabbitMQ (same pattern as all prior sinks)
+- [Phase 23-rabbitmq-sink]: amqp091-go kept as indirect dependency; go mod tidy omitted until Plan 02 imports it — mirrors Phase 21/22 Plan 01 pattern
 
 ### Pending Todos
 
@@ -84,7 +88,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-06
-Stopped at: Completed 22-03-PLAN.md — PubSub root.go wiring + cmd tests (Phase 22 complete)
+Last session: 2026-05-07
+Stopped at: Completed 23-01-PLAN.md — RabbitMQSinkConfig + amqp091-go install
 Resume file: None
-Next action: Execute Phase 23 (RabbitMQ Sink)
+Next action: Execute Phase 23 Plan 02 (RabbitMQSinkConsumer implementation)

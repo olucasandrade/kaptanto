@@ -319,4 +319,4 @@ Plans:
 | 20. SQS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 21. Kafka Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-05 |
 | 22. Google Pub/Sub Sink | 3/3 | Complete    | 2026-05-06 | - |
-| 23. RabbitMQ Sink | v2.1 | 0/3 | Not started | - |
+| 23. RabbitMQ Sink | 1/3 | In Progress|  | - |
