@@ -180,6 +180,17 @@ func TestRunE_ConfigFileNotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestFlagOutputUsageComplete verifies the --output flag description lists all 8
+// valid output modes. Closes CFG-04 gap: kafka, pubsub, rabbitmq were missing.
+func TestFlagOutputUsageComplete(t *testing.T) {
+	root := cmd.NewRootCmd()
+	f := root.PersistentFlags().Lookup("output")
+	require.NotNil(t, f, "flag 'output' must exist")
+	for _, mode := range []string{"stdout", "sse", "grpc", "nats", "sqs", "kafka", "pubsub", "rabbitmq"} {
+		assert.Contains(t, f.Usage, mode, "--output help text must contain %q", mode)
+	}
+}
+
 // TestHAFlagHelpText verifies the --ha flag description references "advisory lock"
 // and no longer references the outdated "etcd" mechanism.
 func TestHAFlagHelpText(t *testing.T) {
