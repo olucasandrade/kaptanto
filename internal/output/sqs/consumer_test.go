@@ -3,10 +3,20 @@
 package sqssink
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
@@ -14,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
@@ -241,4 +252,70 @@ func TestSQSSinkConsumer_ID(t *testing.T) {
 	fake := &fakeSQSClient{}
 	c := newTestConsumer(t, fake, "my-unique-id")
 	assert.Equal(t, "my-unique-id", c.ID())
+}
+
+// generateTestCAPEM creates a minimal self-signed CA PEM for tests using stdlib crypto only.
+func generateTestCAPEM(t *testing.T) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "TestCA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	var buf bytes.Buffer
+	require.NoError(t, pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
+	return buf.Bytes()
+}
+
+func TestNewSQSSinkConsumer_TLS_MissingCAFile(t *testing.T) {
+	cfg := config.SQSSinkConfig{
+		QueueURL: "https://sqs.us-east-1.amazonaws.com/123456789012/test.fifo",
+		Region:   "us-east-1",
+		TLS:      config.TLSConfig{CAFile: "/tmp/kaptanto_nonexistent_ca_test.pem"},
+	}
+	_, err := NewSQSSinkConsumer("sqs", cfg)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ca-file")
+}
+
+func TestNewSQSSinkConsumer_TLS_EmptyPEM(t *testing.T) {
+	dir := t.TempDir()
+	caFile := filepath.Join(dir, "empty-ca.pem")
+	require.NoError(t, os.WriteFile(caFile, []byte("not a valid pem"), 0600))
+
+	cfg := config.SQSSinkConfig{
+		QueueURL: "https://sqs.us-east-1.amazonaws.com/123456789012/test.fifo",
+		Region:   "us-east-1",
+		TLS:      config.TLSConfig{CAFile: caFile},
+	}
+	_, err := NewSQSSinkConsumer("sqs", cfg)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ca-file")
+}
+
+func TestNewSQSSinkConsumer_TLS_ValidCA(t *testing.T) {
+	dir := t.TempDir()
+	caFile := filepath.Join(dir, "ca.pem")
+	require.NoError(t, os.WriteFile(caFile, generateTestCAPEM(t), 0600))
+
+	cfg := config.SQSSinkConfig{
+		QueueURL: "https://sqs.us-east-1.amazonaws.com/123456789012/test.fifo",
+		Region:   "us-east-1",
+		TLS:      config.TLSConfig{CAFile: caFile},
+	}
+	_, err := NewSQSSinkConsumer("sqs", cfg)
+	// Error is expected (no live AWS), but it must NOT be a TLS-construction error.
+	// A network error or GetQueueAttributes failure is acceptable.
+	if err != nil {
+		assert.NotContains(t, err.Error(), "ca-file",
+			"error must come from AWS/network, not TLS construction")
+	}
 }
