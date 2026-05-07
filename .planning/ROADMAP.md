@@ -6,7 +6,7 @@
 - ✅ **v1.1 Production Hardening** — Phases 8–10 (shipped 2026-03-20)
 - ✅ **v1.2 Benchmark Suite** — Phases 11–13 (shipped 2026-03-21)
 - ✅ **v2.0 Distributed Architecture** — Phases 14–18 (shipped 2026-05-03)
-- 🚧 **v2.1 Queue Sinks** — Phases 19–23 (in progress)
+- 🚧 **v2.1 Queue Sinks** — Phases 19–25 (in progress)
 
 ## Phases
 
@@ -77,6 +77,8 @@ Full archive: `.planning/milestones/v2.0-ROADMAP.md`
 - [x] **Phase 21: Kafka Sink** — KafkaConsumer using franz-go (CGO-free mandatory), record key from primary key, SASL/TLS auth (completed 2026-05-05)
 - [x] **Phase 22: Google Pub/Sub Sink** — PubSubConsumer with ordering key, synchronous result.Get confirmation, ResumePublish on ordering-key errors (completed 2026-05-06)
 - [x] **Phase 23: RabbitMQ Sink** — RabbitMQConsumer with per-partition channel pool, publisher confirms, and explicit reconnect loop (completed 2026-05-06)
+- [ ] **Phase 24: Sink Config Surface Cleanup** [GAP-CLOSURE] — Fix stale `--output` flag help text (missing kafka/pubsub/rabbitmq); wire SQSSinkConfig.TLS into AWS SDK custom HTTP transport for CA pinning
+- [ ] **Phase 25: PubSub Per-Table Topic Routing** [GAP-CLOSURE] — Implement publisher pool so `TopicTemplate` routes Deliver() to the correct per-topic publisher; Close() drains all pooled publishers
 
 ## Phase Details
 
@@ -291,6 +293,43 @@ Plans:
 - [ ] 23-02-PLAN.md — RabbitMQSinkConsumer implementation with interface-injection unit tests (TDD)
 - [ ] 23-03-PLAN.md — root.go case "rabbitmq": wiring + cmd tests
 
+### Phase 24: Sink Config Surface Cleanup [GAP-CLOSURE]
+**Goal**: Close 2 tech debt items from the v2.1 milestone audit: (1) stale `--output` flag help text that omits `kafka`, `pubsub`, and `rabbitmq`; (2) `SQSSinkConfig.TLS` field that is parsed from YAML but silently ignored by `NewSQSSinkConsumer`
+**Depends on**: Phase 23
+**Requirements**: CFG-03 (partial gap — SQS TLS wiring), CFG-04 (partial gap — flag help text completeness)
+**Gap Closure**: Closes tech debt identified in v2.1 audit
+**Success Criteria** (what must be TRUE):
+  1. `kaptanto --help` shows all 8 valid output modes: `stdout | sse | grpc | nats | sqs | kafka | pubsub | rabbitmq`
+  2. When `sinks.sqs.tls.ca-file` is set, `NewSQSSinkConsumer` wires a custom `*http.Client` (with the CA pool loaded from the file) into the AWS config so the SDK uses it for HTTPS connections
+  3. A unit test exercises the CA-file path via interface injection or test helper (no live AWS)
+  4. A cmd test asserts the `--output` flag description string contains all 8 modes
+  5. `CGO_ENABLED=0 go build ./...` and full test suite pass
+**Plans**: 2 plans
+
+Plans:
+- [ ] 24-01-PLAN.md — Fix --output flag help text in root.go + cmd test asserting description completeness
+- [ ] 24-02-PLAN.md — Wire SQSSinkConfig.TLS into AWS http.Transport via custom *http.Client + unit test
+
+### Phase 25: PubSub Per-Table Topic Routing [GAP-CLOSURE]
+**Goal**: Implement `PubSubSinkConfig.TopicTemplate` so `Deliver()` resolves the target topic via the Go template per-message and publishes to the correct publisher — enabling Kaptanto users to route CDC events from different tables to different Pub/Sub topics
+**Depends on**: Phase 24
+**Requirements**: CFG-02 (partial gap — PubSub per-table routing via template)
+**Gap Closure**: Closes CFG-02 partial for PubSub from v2.1 audit
+**Success Criteria** (what must be TRUE):
+  1. When `topic-template` is set (e.g., `cdc.{{.Schema}}.{{.Table}}`), `Deliver()` evaluates the template per-message and publishes to the resolved topic ID
+  2. A per-topic publisher pool (`map[string]*pubsubPublisher`) is maintained; each publisher has `EnableMessageOrdering = true` set before first use
+  3. Publishers are created lazily on first Deliver to that topic; no publishers are pre-created at startup beyond the default `topic-id`
+  4. `Close()` calls `Stop()` on all pooled publishers (including the default one) before calling `client.Close()`
+  5. When a publisher enters `ErrPublishingPaused`, `ResumePublish` is called on the correct per-pool publisher before returning error
+  6. When `topic-template` is empty/absent, behavior is identical to the current fixed `topic-id` path (no regression)
+  7. Tests cover: per-table routing (2 topics), publisher pool lazy creation, Close drains all publishers, template error at deliver time, pstest-compatible
+  8. `CGO_ENABLED=0 go test ./internal/output/pubsub/...` passes
+**Plans**: 2 plans
+
+Plans:
+- [ ] 25-01-PLAN.md — Publisher pool (lazy init, map[string]*pubsubPublisher) + Deliver() topic resolution + Close() drains all
+- [ ] 25-02-PLAN.md — Tests (per-table routing, pool creation, Close drain, template error, ErrPublishingPaused per-publisher) + regression check for fixed topic-id path
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -318,5 +357,7 @@ Plans:
 | 19. Sink Infrastructure and NATS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 20. SQS Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-04 |
 | 21. Kafka Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-05 |
-| 22. Google Pub/Sub Sink | 3/3 | Complete    | 2026-05-06 | - |
-| 23. RabbitMQ Sink | 3/3 | Complete   | 2026-05-06 | - |
+| 22. Google Pub/Sub Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-06 |
+| 23. RabbitMQ Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-06 |
+| 24. Sink Config Surface Cleanup [GAP] | v2.1 | 0/2 | ⬜ Pending | — |
+| 25. PubSub Per-Table Topic Routing [GAP] | v2.1 | 0/2 | ⬜ Pending | — |

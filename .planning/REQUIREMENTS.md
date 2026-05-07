@@ -70,9 +70,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CFG-01 | Phase 19 | Complete |
-| CFG-02 | Phase 19 | Complete |
-| CFG-03 | Phase 19 | Complete |
-| CFG-04 | Phase 19 | Complete |
+| CFG-02 | Phase 19 + Phase 25 (gap) | Complete (Phase 19 NATS/Kafka/RabbitMQ); Phase 25 closes PubSub partial |
+| CFG-03 | Phase 19 + Phase 24 (gap) | Complete (Phase 19 NATS/Kafka/RabbitMQ); Phase 24 closes SQS TLS partial |
+| CFG-04 | Phase 19 + Phase 24 (gap) | Complete (runtime correct); Phase 24 closes stale flag text |
 | DLV-01 | Phase 19 | Complete |
 | DLV-02 | Phase 19 | Complete |
 | DLV-03 | Phase 19 | Complete |
@@ -89,6 +89,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 - v2.1 requirements: 15 total
 - Mapped to phases: 15
 - Unmapped: 0 ✓
+- Gap closure phases: Phase 24 (CFG-03 SQS TLS, CFG-04 flag text), Phase 25 (CFG-02 PubSub topic routing)
 
 ---
 *Requirements defined: 2026-05-03*
