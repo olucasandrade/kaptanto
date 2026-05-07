@@ -18,9 +18,13 @@ package sqssink
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -76,6 +80,30 @@ func NewSQSSinkConsumer(id string, cfg config.SQSSinkConfig) (*SQSSinkConsumer, 
 		opts = append(opts, awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
 		))
+	}
+
+	// Wire custom CA when cfg.TLS.CAFile is set (CFG-03: SQS TLS CA pinning).
+	if cfg.TLS.CAFile != "" {
+		pemData, err := os.ReadFile(cfg.TLS.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("sqs sink: read ca-file %q: %w", cfg.TLS.CAFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pemData) {
+			return nil, fmt.Errorf("sqs sink: ca-file %q: no valid PEM certificates found", cfg.TLS.CAFile)
+		}
+		transport := &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    pool,
+			},
+		}
+		opts = append(opts, awsconfig.WithHTTPClient(&http.Client{
+			Transport: transport,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}))
 	}
 
 	// 2. Load AWS config with a 10-second startup timeout.
