@@ -14,13 +14,20 @@
 //     error is ErrPublishingPaused, then returns a non-nil error immediately. Retry is
 //     the RetryScheduler's responsibility.
 //   - CGO-free: cloud.google.com/go/pubsub/v2 is a pure Go client; CGO_ENABLED=0 is safe.
+//   - Per-table topic routing: When TopicTemplate is set, Deliver evaluates the template
+//     against entry.Event per-message and routes to the resolved topic's publisher. A lazy
+//     publisher pool (map[string]*pubsub.Publisher, protected by sync.RWMutex) creates
+//     publishers on first access and shuts them all down on Close().
 package pubsubsink
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -42,13 +49,14 @@ var _ router.Consumer = (*PubSubSinkConsumer)(nil)
 //
 // Use NewPubSubSinkConsumer to construct — do not create directly.
 type PubSubSinkConsumer struct {
-	id        string
-	client    *pubsub.Client
-	publisher *pubsub.Publisher
-	projectID string
-	topicID   string
-	topicT    *template.Template // nil when TopicTemplate is empty
-	m         *observability.KaptantoMetrics
+	id         string
+	client     *pubsub.Client
+	publishers map[string]*pubsub.Publisher // keyed by resolved topic ID
+	mu         sync.RWMutex                 // protects publishers map
+	projectID  string
+	topicID    string                         // default topic (cfg.TopicID)
+	topicT     *template.Template             // nil when TopicTemplate is empty
+	m          *observability.KaptantoMetrics
 }
 
 // NewPubSubSinkConsumer creates a PubSubSinkConsumer that publishes to cfg.TopicID in cfg.ProjectID.
@@ -83,19 +91,19 @@ func NewPubSubSinkConsumer(id string, cfg config.PubSubSinkConfig, clientOpts ..
 		return nil, fmt.Errorf("pubsub sink: create client: %w", err)
 	}
 
-	// 4. Create the publisher for the configured topic (v2 API: Publisher, not Topic).
-	publisher := client.Publisher(cfg.TopicID)
+	// 4. Create the default publisher for cfg.TopicID and seed the pool.
+	defaultPub := client.Publisher(cfg.TopicID)
 
 	// 5. Enable message ordering BEFORE any Publish call (required for OrderingKey support).
-	publisher.EnableMessageOrdering = true
+	defaultPub.EnableMessageOrdering = true
 
 	return &PubSubSinkConsumer{
-		id:        id,
-		client:    client,
-		publisher: publisher,
-		projectID: cfg.ProjectID,
-		topicID:   cfg.TopicID,
-		topicT:    topicT,
+		id:         id,
+		client:     client,
+		publishers: map[string]*pubsub.Publisher{cfg.TopicID: defaultPub},
+		projectID:  cfg.ProjectID,
+		topicID:    cfg.TopicID,
+		topicT:     topicT,
 	}, nil
 }
 
@@ -112,6 +120,49 @@ func (c *PubSubSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 	c.m = m
 }
 
+// resolveTopicID returns the target topic ID for the given log entry.
+// When TopicTemplate is set, it executes the template against entry.Event.
+// When TopicTemplate is empty (topicT is nil), it returns cfg.TopicID directly.
+// The router guarantees entry.Event is non-nil.
+func (c *PubSubSinkConsumer) resolveTopicID(entry eventlog.LogEntry) (string, error) {
+	if c.topicT == nil {
+		return c.topicID, nil
+	}
+	var buf bytes.Buffer
+	if err := c.topicT.Execute(&buf, entry.Event); err != nil {
+		return "", fmt.Errorf("pubsub sink: topic template execution: %w", err)
+	}
+	topic := strings.TrimSpace(buf.String())
+	if topic == "" {
+		return "", fmt.Errorf("pubsub sink: topic template rendered to empty string — check TopicTemplate config")
+	}
+	return topic, nil
+}
+
+// getOrCreatePublisher returns the publisher for topicID from the pool, creating it
+// lazily on first access. Uses double-checked lazy initialization under sync.RWMutex.
+// EnableMessageOrdering is set immediately after creation (required for OrderingKey support).
+func (c *PubSubSinkConsumer) getOrCreatePublisher(topicID string) *pubsub.Publisher {
+	// Fast path: topic already in pool.
+	c.mu.RLock()
+	pub, ok := c.publishers[topicID]
+	c.mu.RUnlock()
+	if ok {
+		return pub
+	}
+	// Slow path: first Deliver to this topic — create and register publisher.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Double-check: another goroutine may have created it between RUnlock and Lock.
+	if pub, ok = c.publishers[topicID]; ok {
+		return pub
+	}
+	pub = c.client.Publisher(topicID)
+	pub.EnableMessageOrdering = true
+	c.publishers[topicID] = pub
+	return pub
+}
+
 // Deliver publishes entry.Event to Pub/Sub synchronously using result.Get(ctx) (CHK-01).
 //
 // It blocks until the Pub/Sub server acknowledges the publish.
@@ -122,10 +173,9 @@ func (c *PubSubSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 //   - OrderingKey: string(entry.Event.Key) — the CDC primary key (DLV-02)
 //   - Attributes:  {"Kaptanto-Idempotency-Key": entry.Event.IdempotencyKey} (DLV-04)
 //
-// Note on TopicTemplate: the Pub/Sub publisher is created for a fixed topicID at
-// construction time (unlike Kafka where topic is passed per-record). TopicTemplate
-// is preserved in the config for future multi-topic support but is not applied per-message
-// in v2.6.0. Messages are always published to the configured TopicID.
+// When TopicTemplate is set, Deliver evaluates the template against entry.Event per-message
+// and routes to the resolved topic's publisher. When TopicTemplate is empty, all messages
+// are published to the default cfg.TopicID publisher.
 //
 // On error, Deliver calls ResumePublish if ErrPublishingPaused is detected, then returns
 // a non-nil error. The RetryScheduler is responsible for rescheduling; Deliver never
@@ -140,9 +190,18 @@ func (c *PubSubSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 		return fmt.Errorf("pubsub sink: marshal event: %w", err)
 	}
 
-	// 3. Publish the message; Publish is non-blocking — it returns a PublishResult.
+	// 3. Resolve the target topic ID for this message.
+	topicID, err := c.resolveTopicID(entry)
+	if err != nil {
+		return err
+	}
+
+	// 4. Get or lazily create the publisher for the resolved topic.
+	pub := c.getOrCreatePublisher(topicID)
+
+	// 5. Publish the message; Publish is non-blocking — it returns a PublishResult.
 	start := time.Now()
-	result := c.publisher.Publish(ctx, &pubsub.Message{
+	result := pub.Publish(ctx, &pubsub.Message{
 		Data:        data,
 		OrderingKey: orderingKey,
 		Attributes: map[string]string{
@@ -150,29 +209,29 @@ func (c *PubSubSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 		},
 	})
 
-	// 4. Block until the server acknowledges (CHK-01 — cursor does not advance before ack).
+	// 6. Block until the server acknowledges (CHK-01 — cursor does not advance before ack).
 	_, publishErr := result.Get(ctx)
 
-	// 5. Observe publish latency regardless of outcome.
+	// 7. Observe publish latency regardless of outcome.
 	if c.m != nil {
 		c.m.QueuePublishLatency.WithLabelValues("pubsub").Observe(time.Since(start).Seconds())
 	}
 
-	// 6. Handle publish error.
+	// 8. Handle publish error.
 	if publishErr != nil {
 		// If ordering-key publishing is paused due to a previous error, resume it
 		// before returning so the next Deliver call can proceed (not permanently blocked).
 		var paused pubsub.ErrPublishingPaused
 		if errors.As(publishErr, &paused) {
-			c.publisher.ResumePublish(paused.OrderingKey)
+			pub.ResumePublish(paused.OrderingKey)
 		}
 		if c.m != nil {
 			c.m.QueuePublishErrors.WithLabelValues("pubsub").Inc()
 		}
-		return fmt.Errorf("pubsub sink: publish for key %q: %w", orderingKey, publishErr)
+		return fmt.Errorf("pubsub sink: publish for key %q to topic %q: %w", orderingKey, topicID, publishErr)
 	}
 
-	// 7. Success — increment total counter.
+	// 9. Success — increment total counter.
 	if c.m != nil {
 		c.m.QueuePublishTotal.WithLabelValues("pubsub").Inc()
 	}
@@ -194,10 +253,20 @@ func (c *PubSubSinkConsumer) Ping() error {
 	return nil
 }
 
-// Close stops the publisher (draining buffered messages) and closes the gRPC
-// connection pool. Always call publisher.Stop() before client.Close().
-// Close is safe to call multiple times.
+// Close stops all publishers in the pool (draining buffered messages) and closes
+// the gRPC connection pool. The publisher map is snapshotted under lock before
+// calling Stop() outside the lock to avoid deadlock with in-flight Deliver goroutines.
+// Always call Stop() on all publishers before client.Close().
 func (c *PubSubSinkConsumer) Close() {
-	c.publisher.Stop() // drain buffered messages first
-	c.client.Close()   // then close gRPC connection pool
+	c.mu.Lock()
+	pubs := make([]*pubsub.Publisher, 0, len(c.publishers))
+	for _, pub := range c.publishers {
+		pubs = append(pubs, pub)
+	}
+	c.mu.Unlock() // Release lock before Stop() to avoid deadlock with in-flight Deliver goroutines.
+
+	for _, pub := range pubs {
+		pub.Stop() // blocks until buffered messages are sent or publisher fails
+	}
+	c.client.Close() // then close the shared gRPC connection pool
 }
