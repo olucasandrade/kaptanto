@@ -6,6 +6,7 @@ package pubsubsink_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,4 +229,161 @@ func TestPubSubSinkConsumer_Deliver_MetricsError(t *testing.T) {
 
 	got := testutil.ToFloat64(m.QueuePublishErrors.WithLabelValues("pubsub"))
 	assert.GreaterOrEqual(t, got, float64(1), "QueuePublishErrors must be >= 1 after publish failure")
+}
+
+// TestPubSubSinkConsumer_PerTableRouting verifies that Deliver routes events from
+// different tables to different Pub/Sub topics when TopicTemplate is set.
+// Two events (public.orders and public.users) must land on separate topics
+// (cdc-public-orders and cdc-public-users) as observed via srv.Messages().Topic.
+func TestPubSubSinkConsumer_PerTableRouting(t *testing.T) {
+	srv, client := startFakeServer(t)
+	// Must create both topics before publishing — pstest does not auto-create topics.
+	createTopic(t, client, testProject, "cdc-public-orders")
+	createTopic(t, client, testProject, "cdc-public-users")
+
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	cfg := config.PubSubSinkConfig{
+		ProjectID:     testProject,
+		TopicID:       "cdc-public-orders", // default topic
+		TopicTemplate: "cdc-{{.Schema}}-{{.Table}}",
+	}
+	c, err := pubsubsink.NewPubSubSinkConsumer("routing-test", cfg, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	defer c.Close()
+
+	err = c.Deliver(context.Background(), makeEntry("public", "orders"))
+	require.NoError(t, err)
+	err = c.Deliver(context.Background(), makeEntry("public", "users"))
+	require.NoError(t, err)
+
+	msgs := srv.Messages()
+	var ordersCount, usersCount int
+	for _, m := range msgs {
+		switch {
+		case strings.Contains(m.Topic, "cdc-public-orders"):
+			ordersCount++
+		case strings.Contains(m.Topic, "cdc-public-users"):
+			usersCount++
+		}
+	}
+	assert.Equal(t, 1, ordersCount, "expected 1 message on cdc-public-orders topic")
+	assert.Equal(t, 1, usersCount, "expected 1 message on cdc-public-users topic")
+}
+
+// TestPubSubSinkConsumer_PoolReusesSamePublisher verifies that delivering two events
+// to the same resolved topic uses the same pooled publisher (no crash or duplication).
+// Both messages must appear on the resolved topic.
+func TestPubSubSinkConsumer_PoolReusesSamePublisher(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, "cdc-public-orders")
+
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	cfg := config.PubSubSinkConfig{
+		ProjectID:     testProject,
+		TopicID:       "cdc-public-orders",
+		TopicTemplate: "cdc-{{.Schema}}-{{.Table}}",
+	}
+	c, err := pubsubsink.NewPubSubSinkConsumer("reuse-test", cfg, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	defer c.Close()
+
+	// Two delivers to the same resolved topic — pool must not panic or duplicate.
+	err = c.Deliver(context.Background(), makeEntry("public", "orders"))
+	require.NoError(t, err)
+	err = c.Deliver(context.Background(), makeEntry("public", "orders"))
+	require.NoError(t, err)
+
+	msgs := srv.Messages()
+	var count int
+	for _, m := range msgs {
+		if strings.Contains(m.Topic, "cdc-public-orders") {
+			count++
+		}
+	}
+	assert.Equal(t, 2, count, "expected 2 messages on cdc-public-orders topic")
+}
+
+// TestPubSubSinkConsumer_CloseDrainsAllPublishers verifies that Close() does not panic
+// when the publisher pool contains publishers for multiple topics. It drains all pooled
+// publishers before returning.
+func TestPubSubSinkConsumer_CloseDrainsAllPublishers(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, "cdc-public-orders")
+	createTopic(t, client, testProject, "cdc-public-users")
+
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	// Do not t.Cleanup conn here — Close() will drain and we close conn after.
+
+	cfg := config.PubSubSinkConfig{
+		ProjectID:     testProject,
+		TopicID:       "cdc-public-orders",
+		TopicTemplate: "cdc-{{.Schema}}-{{.Table}}",
+	}
+	c, err := pubsubsink.NewPubSubSinkConsumer("close-all-test", cfg, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = c.Deliver(ctx, makeEntry("public", "orders"))
+	require.NoError(t, err)
+	err = c.Deliver(ctx, makeEntry("public", "users"))
+	require.NoError(t, err)
+
+	// Close must not panic — it must drain all 2 pooled publishers.
+	assert.NotPanics(t, func() { c.Close() })
+	assert.NotPanics(t, func() { conn.Close() })
+}
+
+// TestPubSubSinkConsumer_Deliver_EmptyTemplateResult verifies that Deliver returns a
+// non-nil error containing "empty string" when TopicTemplate evaluates to an empty
+// string after TrimSpace. The consumer must not crash or publish to an invalid topic.
+func TestPubSubSinkConsumer_Deliver_EmptyTemplateResult(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, testTopic)
+
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	// TopicTemplate that always renders to an empty string after TrimSpace.
+	cfg := config.PubSubSinkConfig{
+		ProjectID:     testProject,
+		TopicID:       testTopic,
+		TopicTemplate: "{{if false}}something{{end}}",
+	}
+	c, err := pubsubsink.NewPubSubSinkConsumer("empty-tmpl-test", cfg, option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	defer c.Close()
+
+	err = c.Deliver(context.Background(), makeEntry("public", "orders"))
+	require.Error(t, err, "expected error when template renders to empty string")
+	assert.Contains(t, err.Error(), "empty string")
+}
+
+// TestPubSubSinkConsumer_Deliver_NoTemplate_Regression verifies that when TopicTemplate
+// is empty (the Phase 22 default), Deliver publishes to cfg.TopicID without regression.
+func TestPubSubSinkConsumer_Deliver_NoTemplate_Regression(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, testTopic)
+
+	// No TopicTemplate — must behave identically to Phase 22.
+	c := makeConsumerWithFakeServer(t, srv, testProject, testTopic)
+
+	err := c.Deliver(context.Background(), makeEntry("public", "orders"))
+	require.NoError(t, err)
+
+	msgs := srv.Messages()
+	var count int
+	for _, m := range msgs {
+		if strings.Contains(m.Topic, testTopic) {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "expected 1 message on default topic (no template regression)")
 }

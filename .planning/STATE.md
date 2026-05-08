@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Queue Sinks
 status: unknown
-last_updated: "2026-05-07T22:55:05.507Z"
+last_updated: "2026-05-08T09:46:45.588Z"
 progress:
   total_phases: 33
   completed_phases: 32
-  total_plans: 80
-  completed_plans: 80
+  total_plans: 82
+  completed_plans: 81
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 24 — Sink Config Surface Cleanup
-Plan: 02 of 02 (complete)
-Status: Plan 24-02 complete — SQS TLS CAFile wired via x509.NewCertPool + WithHTTPClient, CFG-03 closed
-Last activity: 2026-05-08 — Plan 24-02 complete (SQS TLS CA pinning)
+Phase: 25 — PubSub Per-Table Topic Routing
+Plan: 01 of 02 (complete)
+Status: Plan 25-01 complete — PubSubSinkConsumer publisher pool with resolveTopicID + getOrCreatePublisher, CFG-02 closed
+Last activity: 2026-05-08 — Plan 25-01 complete (PubSub per-table topic routing via lazy publisher pool)
 
-Progress: [████░░░░░░] 40% (2/5 phases complete, 3/3 plans complete in Phase 23)
+Progress: [████░░░░░░] 40% (2/5 phases complete, 1/2 plans complete in Phase 25)
 
 ## Accumulated Context
 
@@ -81,6 +81,9 @@ Recent decisions affecting current work:
 - [Phase 23 Plan 03]: RabbitMQ obs server uses cfg.Port (not cfg.Port+1) — RabbitMQ publishes to external broker; no TCP server binds cfg.Port in rabbitmq mode
 - [Phase 24-sink-config-surface-cleanup]: Updated --output flag Usage string (line 113) to list all 8 modes; runtime error at line 725 was already correct
 - [Phase 24]: SQS TLS CA pinning wired via x509.NewCertPool + AppendCertsFromPEM + awsconfig.WithHTTPClient; mTLS out of scope for Phase 24
+- [Phase 25-pubsub-per-table-topic-routing]: Publisher pool seeded at construction with default publisher for cfg.TopicID — template-empty path identical to Phase 22, zero regression risk
+- [Phase 25-pubsub-per-table-topic-routing]: getOrCreatePublisher uses double-checked lazy init with RWMutex — avoids lock contention for common case where topic is already in pool
+- [Phase 25-pubsub-per-table-topic-routing]: Close snapshots publisher slice under lock then releases lock before Stop() — prevents deadlock with in-flight Deliver goroutines
 
 ### Pending Todos
 
@@ -96,6 +99,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-05-08
-Stopped at: Completed 24-01-PLAN.md — Phase 24 complete (--output flag help text, CFG-04 closed)
+Stopped at: Completed 25-01-PLAN.md — PubSub publisher pool refactor, CFG-02 closed
 Resume file: None
-Next action: Phase 24 complete — CFG-04 satisfied; proceed to next phase
+Next action: Phase 25 Plan 01 complete — proceed to 25-02 (tests or next plan)
