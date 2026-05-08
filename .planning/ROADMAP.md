@@ -6,7 +6,7 @@
 - ✅ **v1.1 Production Hardening** — Phases 8–10 (shipped 2026-03-20)
 - ✅ **v1.2 Benchmark Suite** — Phases 11–13 (shipped 2026-03-21)
 - ✅ **v2.0 Distributed Architecture** — Phases 14–18 (shipped 2026-05-03)
-- 🚧 **v2.1 Queue Sinks** — Phases 19–25 (in progress)
+- 🚧 **v2.1 Queue Sinks** — Phases 19–28 (in progress)
 
 ## Phases
 
@@ -79,6 +79,9 @@ Full archive: `.planning/milestones/v2.0-ROADMAP.md`
 - [x] **Phase 23: RabbitMQ Sink** — RabbitMQConsumer with per-partition channel pool, publisher confirms, and explicit reconnect loop (completed 2026-05-06)
 - [x] **Phase 24: Sink Config Surface Cleanup** [GAP-CLOSURE] — Fix stale `--output` flag help text (missing kafka/pubsub/rabbitmq); wire SQSSinkConfig.TLS into AWS SDK custom HTTP transport for CA pinning (completed 2026-05-07)
 - [x] **Phase 25: PubSub Per-Table Topic Routing** [GAP-CLOSURE] — Implement publisher pool so `TopicTemplate` routes Deliver() to the correct per-topic publisher; Close() drains all pooled publishers (completed 2026-05-08)
+- [ ] **Phase 26: SQS mTLS Wiring** [TECH-DEBT] — Wire `SQSSinkConfig.TLS.CertFile`/`KeyFile` into AWS SDK custom HTTP transport for mTLS, or add startup validation error when either field is set without a complete mTLS config
+- [ ] **Phase 27: PubSub Config Tests and NATS Comment Fix** [TECH-DEBT] — Add 3 YAML round-trip tests for `PubSubSinkConfig` to `sinks_test.go`; fix misleading DLV-02 comment in NATS consumer to clarify ordering lives in RTR-04
+- [ ] **Phase 28: SQS Per-Table Routing** [TECH-DEBT] — Implement `QueueURLTemplate` + queue URL pool for SQS sink so CDC events from different tables route to different FIFO queues (closes CFG-02 structural gap for SQS)
 
 ## Phase Details
 
@@ -330,6 +333,55 @@ Plans:
 - [ ] 25-01-PLAN.md — Publisher pool (lazy init, map[string]*pubsubPublisher) + Deliver() topic resolution + Close() drains all
 - [ ] 25-02-PLAN.md — Tests (per-table routing, pool creation, Close drain, template error, ErrPublishingPaused per-publisher) + regression check for fixed topic-id path
 
+### Phase 26: SQS mTLS Wiring [TECH-DEBT]
+**Goal**: Wire `SQSSinkConfig.TLS.CertFile` and `TLS.KeyFile` into the AWS SDK HTTP transport so mTLS connections use the configured client certificate, eliminating the silent misconfiguration where users who set these fields get neither an error nor an mTLS connection
+**Depends on**: Phase 25
+**Requirements**: CFG-03 (SQS mTLS scope gap)
+**Tech Debt Closure**: Closes Phase 20 tech debt item 2 from v2.1 audit
+**Success Criteria** (what must be TRUE):
+  1. When both `cert-file` and `key-file` are set under `sinks.sqs.tls`, `NewSQSSinkConsumer` loads the keypair via `tls.LoadX509KeyPair` and injects it into the AWS SDK HTTP client via `awsconfig.WithHTTPClient`
+  2. When only one of `cert-file` or `key-file` is set (incomplete mTLS config), `NewSQSSinkConsumer` returns an error at startup before any connection is attempted
+  3. When neither field is set, behavior is identical to current (CA-only or no-TLS path — no regression)
+  4. Three unit tests cover: mTLS wired when both fields set, error on partial config, no regression when neither field set
+  5. `CGO_ENABLED=0 go test ./internal/output/sqs/...` passes
+**Plans**: 1 plan
+
+Plans:
+- [ ] 26-01-PLAN.md — Wire mTLS keypair into AWS SDK HTTP transport + startup validation + tests
+
+### Phase 27: PubSub Config Tests and NATS Comment Fix [TECH-DEBT]
+**Goal**: Add the missing `PubSubSinkConfig` YAML round-trip tests to close the config-layer test gap, and correct the misleading DLV-02 comment in the NATS consumer that implies NATS JetStream provides per-key ordering (it does not — ordering is RTR-04's guarantee)
+**Depends on**: Phase 25
+**Requirements**: — (test coverage + comment correctness)
+**Tech Debt Closure**: Closes Phase 22 test gap + Phase 19 comment imprecision from v2.1 audit
+**Success Criteria** (what must be TRUE):
+  1. `sinks_test.go` has at least 3 new YAML round-trip tests for `PubSubSinkConfig`: full block (TopicTemplate + CredentialsFile), no-credentials-file, and absent-block
+  2. `internal/output/nats/consumer.go` doc comment no longer attributes per-key ordering to NATS JetStream; comment accurately states ordering is an RTR-04 router guarantee
+  3. `CGO_ENABLED=0 go test ./internal/config/...` passes (covering new sinks_test.go tests)
+**Plans**: 1 plan
+
+Plans:
+- [ ] 27-01-PLAN.md — Add PubSubSinkConfig YAML tests to sinks_test.go + fix NATS DLV-02 comment
+
+### Phase 28: SQS Per-Table Routing [TECH-DEBT]
+**Goal**: Implement `QueueURLTemplate` support for the SQS sink so CDC events from different tables route to different SQS FIFO queues — closing the CFG-02 structural gap for SQS (analogous to the Phase 25 PubSub publisher pool)
+**Depends on**: Phase 26
+**Requirements**: CFG-02 (SQS per-table routing structural gap)
+**Tech Debt Closure**: Closes Phase 20 tech debt item 1 (CFG-02 structural limitation) from v2.1 audit
+**Success Criteria** (what must be TRUE):
+  1. `SQSSinkConfig` has a `QueueURLTemplate` string field (yaml: `queue-url-template`); when set, it overrides `QueueURL` for per-message routing
+  2. `Deliver()` evaluates the Go template per-message with `.Schema`, `.Table`, `.Operation` fields and resolves the target queue URL
+  3. A queue URL pool (`map[string]string` or per-URL SQS client wrapper) caches resolved URLs to avoid re-evaluating the template on every message
+  4. When `queue-url-template` is empty/absent, behavior is identical to current single-queue path (no regression)
+  5. `Close()` cleans up any pooled per-queue state
+  6. Tests cover: per-table routing (2 queues), pool caching, template error at deliver time, fallback to single queue URL when template absent
+  7. `CGO_ENABLED=0 go test ./internal/output/sqs/...` passes
+**Plans**: 2 plans
+
+Plans:
+- [ ] 28-01-PLAN.md — QueueURLTemplate field + queue URL pool + Deliver() template resolution
+- [ ] 28-02-PLAN.md — Tests (per-table routing, pool caching, template errors, regression check)
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -359,5 +411,8 @@ Plans:
 | 21. Kafka Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-05 |
 | 22. Google Pub/Sub Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-06 |
 | 23. RabbitMQ Sink | v2.1 | 3/3 | ✓ Complete | 2026-05-06 |
-| 24. Sink Config Surface Cleanup [GAP] | 2/2 | Complete    | 2026-05-07 | — |
-| 25. PubSub Per-Table Topic Routing [GAP] | 2/2 | Complete   | 2026-05-08 | — |
+| 24. Sink Config Surface Cleanup [GAP] | v2.1 | 2/2 | ✓ Complete | 2026-05-07 |
+| 25. PubSub Per-Table Topic Routing [GAP] | v2.1 | 2/2 | ✓ Complete | 2026-05-08 |
+| 26. SQS mTLS Wiring [TECH-DEBT] | v2.1 | 0/1 | Pending | — |
+| 27. PubSub Config Tests + NATS Comment Fix [TECH-DEBT] | v2.1 | 0/1 | Pending | — |
+| 28. SQS Per-Table Routing [TECH-DEBT] | v2.1 | 0/2 | Pending | — |
