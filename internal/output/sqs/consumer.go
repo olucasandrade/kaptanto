@@ -82,24 +82,37 @@ func NewSQSSinkConsumer(id string, cfg config.SQSSinkConfig) (*SQSSinkConsumer, 
 		))
 	}
 
-	// Wire custom CA when cfg.TLS.CAFile is set (CFG-03: SQS TLS CA pinning).
-	if cfg.TLS.CAFile != "" {
-		pemData, err := os.ReadFile(cfg.TLS.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("sqs sink: read ca-file %q: %w", cfg.TLS.CAFile, err)
+	// Wire TLS transport when any TLS field is configured (CFG-03: CA pinning + mTLS).
+	if cfg.TLS.CAFile != "" || cfg.TLS.CertFile != "" || cfg.TLS.KeyFile != "" {
+		// Guard: cert-file and key-file must both be set or both absent.
+		if (cfg.TLS.CertFile != "") != (cfg.TLS.KeyFile != "") {
+			return nil, fmt.Errorf("sqs sink: tls cert-file and key-file must both be set for mTLS")
 		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pemData) {
-			return nil, fmt.Errorf("sqs sink: ca-file %q: no valid PEM certificates found", cfg.TLS.CAFile)
+
+		tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+
+		if cfg.TLS.CAFile != "" {
+			pemData, err := os.ReadFile(cfg.TLS.CAFile)
+			if err != nil {
+				return nil, fmt.Errorf("sqs sink: read ca-file %q: %w", cfg.TLS.CAFile, err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(pemData) {
+				return nil, fmt.Errorf("sqs sink: ca-file %q: no valid PEM certificates found", cfg.TLS.CAFile)
+			}
+			tlsCfg.RootCAs = pool
 		}
-		transport := &http.Transport{
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				RootCAs:    pool,
-			},
+
+		if cfg.TLS.CertFile != "" {
+			cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("sqs sink: load client cert: %w", err)
+			}
+			tlsCfg.Certificates = []tls.Certificate{cert}
 		}
+
 		opts = append(opts, awsconfig.WithHTTPClient(&http.Client{
-			Transport: transport,
+			Transport: &http.Transport{TLSClientConfig: tlsCfg},
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
