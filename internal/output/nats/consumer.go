@@ -9,7 +9,8 @@
 //   - Every published message includes a "Kaptanto-Idempotency-Key" header set
 //     to entry.Event.IdempotencyKey (DLV-04).
 //   - The NATS subject is derived by executing a Go template against the ChangeEvent
-//     at deliver time (DLV-02).
+//     at deliver time (DLV-02 subject routing); per-key delivery ordering is an
+//     RTR-04 router guarantee, not a NATS JetStream feature.
 //   - On publish failure Deliver returns a non-nil error; retry is the RetryScheduler's
 //     responsibility — NATSSinkConsumer never retries internally (DLV-03).
 //   - If StreamName is set in config, NewNATSSinkConsumer validates the stream exists
