@@ -254,6 +254,30 @@ func TestSQSSinkConsumer_ID(t *testing.T) {
 	assert.Equal(t, "my-unique-id", c.ID())
 }
 
+// generateTestClientKeypair creates a self-signed client cert + RSA private key PEM pair.
+// Uses stdlib only (crypto/rand, crypto/rsa, crypto/x509, encoding/pem).
+// The private key is encoded as PKCS#1 ("RSA PRIVATE KEY") — required for tls.LoadX509KeyPair.
+func generateTestClientKeypair(t *testing.T) (certPEM, keyPEM []byte) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "TestClient"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	var certBuf, keyBuf bytes.Buffer
+	require.NoError(t, pem.Encode(&certBuf, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
+	require.NoError(t, pem.Encode(&keyBuf, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	return certBuf.Bytes(), keyBuf.Bytes()
+}
+
 // generateTestCAPEM creates a minimal self-signed CA PEM for tests using stdlib crypto only.
 func generateTestCAPEM(t *testing.T) []byte {
 	t.Helper()
@@ -318,4 +342,59 @@ func TestNewSQSSinkConsumer_TLS_ValidCA(t *testing.T) {
 		assert.NotContains(t, err.Error(), "ca-file",
 			"error must come from AWS/network, not TLS construction")
 	}
+}
+
+func TestNewSQSSinkConsumer_mTLS_BothFieldsSet(t *testing.T) {
+	dir := t.TempDir()
+	certPEM, keyPEM := generateTestClientKeypair(t)
+	certFile := filepath.Join(dir, "client.pem")
+	keyFile := filepath.Join(dir, "client-key.pem")
+	require.NoError(t, os.WriteFile(certFile, certPEM, 0600))
+	require.NoError(t, os.WriteFile(keyFile, keyPEM, 0600))
+
+	cfg := config.SQSSinkConfig{
+		QueueURL: "https://sqs.us-east-1.amazonaws.com/123456789012/test.fifo",
+		Region:   "us-east-1",
+		TLS:      config.TLSConfig{CertFile: certFile, KeyFile: keyFile},
+	}
+	_, err := NewSQSSinkConsumer("sqs", cfg)
+	// Error expected (no live AWS), but must NOT be a TLS construction error.
+	if err != nil {
+		assert.NotContains(t, err.Error(), "cert-file and key-file",
+			"error must come from AWS/network, not TLS construction")
+		assert.NotContains(t, err.Error(), "load client cert",
+			"error must come from AWS/network, not TLS construction")
+	}
+}
+
+func TestNewSQSSinkConsumer_mTLS_PartialConfig_CertOnly(t *testing.T) {
+	dir := t.TempDir()
+	certPEM, _ := generateTestClientKeypair(t)
+	certFile := filepath.Join(dir, "client.pem")
+	require.NoError(t, os.WriteFile(certFile, certPEM, 0600))
+
+	cfg := config.SQSSinkConfig{
+		QueueURL: "https://sqs.us-east-1.amazonaws.com/123456789012/test.fifo",
+		Region:   "us-east-1",
+		TLS:      config.TLSConfig{CertFile: certFile}, // KeyFile intentionally absent
+	}
+	_, err := NewSQSSinkConsumer("sqs", cfg)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "cert-file and key-file must both be set")
+}
+
+func TestNewSQSSinkConsumer_mTLS_PartialConfig_KeyOnly(t *testing.T) {
+	dir := t.TempDir()
+	_, keyPEM := generateTestClientKeypair(t)
+	keyFile := filepath.Join(dir, "client-key.pem")
+	require.NoError(t, os.WriteFile(keyFile, keyPEM, 0600))
+
+	cfg := config.SQSSinkConfig{
+		QueueURL: "https://sqs.us-east-1.amazonaws.com/123456789012/test.fifo",
+		Region:   "us-east-1",
+		TLS:      config.TLSConfig{KeyFile: keyFile}, // CertFile intentionally absent
+	}
+	_, err := NewSQSSinkConsumer("sqs", cfg)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "cert-file and key-file must both be set")
 }
