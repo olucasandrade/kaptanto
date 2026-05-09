@@ -64,10 +64,12 @@ func (f *fakeSQSClient) GetQueueAttributes(ctx context.Context, params *sqs.GetQ
 // bypassing the AWS SDK constructor so tests never need a real AWS endpoint.
 func newTestConsumer(t *testing.T, fake *fakeSQSClient, id string) *SQSSinkConsumer {
 	t.Helper()
+	const defaultURL = "https://sqs.us-east-1.amazonaws.com/123456789/test-queue.fifo"
 	return &SQSSinkConsumer{
-		id:       id,
-		client:   fake,
-		queueURL: "https://sqs.us-east-1.amazonaws.com/123456789/test-queue.fifo",
+		id:              id,
+		client:          fake,
+		queueURL:        defaultURL,
+		validatedQueues: map[string]bool{defaultURL: true},
 	}
 }
 
@@ -206,7 +208,7 @@ func TestSQSSinkConsumer_NewConsumer_NonFIFO(t *testing.T) {
 		},
 	}
 
-	_, err := newConsumerWithClient("consumer-1", "https://sqs.us-east-1.amazonaws.com/123/standard-queue", fake)
+	_, err := newConsumerWithClient("consumer-1", "https://sqs.us-east-1.amazonaws.com/123/standard-queue", fake, nil)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "not a FIFO queue")
 }
@@ -218,7 +220,7 @@ func TestSQSSinkConsumer_NewConsumer_GetAttrsFails(t *testing.T) {
 		},
 	}
 
-	_, err := newConsumerWithClient("consumer-1", "https://sqs.us-east-1.amazonaws.com/123/test.fifo", fake)
+	_, err := newConsumerWithClient("consumer-1", "https://sqs.us-east-1.amazonaws.com/123/test.fifo", fake, nil)
 	require.Error(t, err)
 }
 
