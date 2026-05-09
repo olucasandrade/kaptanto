@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"text/template"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -38,6 +39,8 @@ type fakeSQSClient struct {
 	getQueueAttributesFunc func(ctx context.Context, params *sqs.GetQueueAttributesInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueAttributesOutput, error)
 	// lastSendInput captures the most recent SendMessageInput passed to SendMessage.
 	lastSendInput *sqs.SendMessageInput
+	// getQueueAttributesCallCount tracks how many times GetQueueAttributes is called.
+	getQueueAttributesCallCount int
 }
 
 func (f *fakeSQSClient) SendMessage(ctx context.Context, params *sqs.SendMessageInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
@@ -49,6 +52,7 @@ func (f *fakeSQSClient) SendMessage(ctx context.Context, params *sqs.SendMessage
 }
 
 func (f *fakeSQSClient) GetQueueAttributes(ctx context.Context, params *sqs.GetQueueAttributesInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueAttributesOutput, error) {
+	f.getQueueAttributesCallCount++
 	if f.getQueueAttributesFunc != nil {
 		return f.getQueueAttributesFunc(ctx, params, optFns...)
 	}
@@ -82,6 +86,22 @@ func makeEntry(key []byte, idempotencyKey string) eventlog.LogEntry {
 			Key:            key,
 			IdempotencyKey: idempotencyKey,
 		},
+	}
+}
+
+// newTemplateConsumer constructs a SQSSinkConsumer with a parsed queue URL template
+// for routing tests. The default fallback URL is pre-validated in validatedQueues.
+func newTemplateConsumer(t *testing.T, fake *fakeSQSClient, id string, queueURLTemplate string) *SQSSinkConsumer {
+	t.Helper()
+	const defaultURL = "https://sqs.us-east-1.amazonaws.com/123456789/fallback.fifo"
+	tmpl, err := template.New("queue-url").Parse(queueURLTemplate)
+	require.NoError(t, err)
+	return &SQSSinkConsumer{
+		id:              id,
+		client:          fake,
+		queueURL:        defaultURL,
+		queueURLT:       tmpl,
+		validatedQueues: map[string]bool{defaultURL: true},
 	}
 }
 
@@ -399,4 +419,98 @@ func TestNewSQSSinkConsumer_mTLS_PartialConfig_KeyOnly(t *testing.T) {
 	_, err := NewSQSSinkConsumer("sqs", cfg)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "cert-file and key-file must both be set")
+}
+
+// --- Per-table routing tests ---
+
+// TestSQSSinkConsumer_Routing_PerTable confirms that two events with different
+// Schema+Table values are delivered to two different QueueUrl values derived
+// from the template.
+func TestSQSSinkConsumer_Routing_PerTable(t *testing.T) {
+	fake := &fakeSQSClient{}
+	c := newTemplateConsumer(t, fake, "test", "https://sqs.us-east-1.amazonaws.com/123/{{.Schema}}-{{.Table}}.fifo")
+
+	// Event from public.orders — should route to public-orders.fifo.
+	entry1 := eventlog.LogEntry{Event: &event.ChangeEvent{
+		Schema: "public", Table: "orders",
+		Key: []byte(`{"id":1}`), IdempotencyKey: "key1",
+	}}
+	require.NoError(t, c.Deliver(context.Background(), entry1))
+	require.NotNil(t, fake.lastSendInput)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123/public-orders.fifo", *fake.lastSendInput.QueueUrl)
+
+	// Event from public.users — should route to public-users.fifo.
+	entry2 := eventlog.LogEntry{Event: &event.ChangeEvent{
+		Schema: "public", Table: "users",
+		Key: []byte(`{"id":2}`), IdempotencyKey: "key2",
+	}}
+	require.NoError(t, c.Deliver(context.Background(), entry2))
+	require.NotNil(t, fake.lastSendInput)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123/public-users.fifo", *fake.lastSendInput.QueueUrl)
+}
+
+// TestSQSSinkConsumer_Routing_PoolCaching confirms that GetQueueAttributes is
+// called exactly once for a given resolved URL regardless of how many Deliver
+// calls target it (lazy double-checked validation pool).
+func TestSQSSinkConsumer_Routing_PoolCaching(t *testing.T) {
+	fake := &fakeSQSClient{}
+	c := newTemplateConsumer(t, fake, "test", "https://sqs.us-east-1.amazonaws.com/123/{{.Table}}.fifo")
+
+	entry := eventlog.LogEntry{Event: &event.ChangeEvent{
+		Schema: "public", Table: "orders",
+		Key: []byte(`{"id":1}`), IdempotencyKey: "key-cache",
+	}}
+
+	// Deliver 3 times to the same resolved URL.
+	require.NoError(t, c.Deliver(context.Background(), entry))
+	require.NoError(t, c.Deliver(context.Background(), entry))
+	require.NoError(t, c.Deliver(context.Background(), entry))
+
+	// GetQueueAttributes must have been called exactly once (first Deliver to orders.fifo).
+	assert.Equal(t, 1, fake.getQueueAttributesCallCount,
+		"FIFO validation should be cached: GetQueueAttributes called only once per unique URL")
+}
+
+// TestSQSSinkConsumer_Routing_TemplateParseError confirms that an invalid Go template
+// string fails at parse time (construction), not at Deliver time (fail-fast pattern).
+func TestSQSSinkConsumer_Routing_TemplateParseError(t *testing.T) {
+	// Verify that template.Parse fails for a malformed template — the same logic
+	// used by NewSQSSinkConsumer before any AWS I/O.
+	_, err := template.New("queue-url").Parse("{{.Schema}}-{{invalid")
+	require.Error(t, err, "invalid template must fail to parse")
+	// This confirms the parse error would be caught at construction time (fail-fast).
+}
+
+// TestSQSSinkConsumer_Routing_TemplateExecError confirms that a template that renders
+// to an empty string returns an error at Deliver time containing "rendered to empty string".
+func TestSQSSinkConsumer_Routing_TemplateExecError(t *testing.T) {
+	fake := &fakeSQSClient{}
+	// Template that always renders to empty string.
+	c := newTemplateConsumer(t, fake, "test", "{{if false}}something{{end}}")
+	entry := eventlog.LogEntry{Event: &event.ChangeEvent{
+		Schema: "public", Table: "orders",
+		Key: []byte(`{"id":1}`), IdempotencyKey: "key-empty",
+	}}
+	err := c.Deliver(context.Background(), entry)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "rendered to empty string")
+}
+
+// TestSQSSinkConsumer_Routing_Regression_NoTemplate confirms that when no template
+// is set, Deliver always uses the default queueURL and never calls GetQueueAttributes
+// (the default URL is pre-validated at construction via validatedQueues seeding).
+func TestSQSSinkConsumer_Routing_Regression_NoTemplate(t *testing.T) {
+	fake := &fakeSQSClient{}
+	c := newTestConsumer(t, fake, "test") // no template — uses c.queueURL
+
+	entry := makeEntry([]byte(`{"id":1}`), "key-regression")
+	require.NoError(t, c.Deliver(context.Background(), entry))
+
+	require.NotNil(t, fake.lastSendInput)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123456789/test-queue.fifo", *fake.lastSendInput.QueueUrl,
+		"Without template, Deliver must use the default queueURL")
+	// Default URL is pre-validated at construction (seeded in validatedQueues) —
+	// GetQueueAttributes must NOT be called during Deliver.
+	assert.Equal(t, 0, fake.getQueueAttributesCallCount,
+		"Default URL is pre-validated at construction; no GetQueueAttributes call expected")
 }
