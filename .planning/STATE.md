@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Queue Sinks
 status: unknown
-last_updated: "2026-05-09T16:50:04.742Z"
+last_updated: "2026-05-09T16:54:32.870Z"
 progress:
   total_phases: 36
-  completed_phases: 35
+  completed_phases: 36
   total_plans: 86
-  completed_plans: 85
+  completed_plans: 86
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 28 — SQS Per-Table Routing
-Plan: 01 of 02 (complete)
-Status: Plan 28-01 complete — QueueURLTemplate config field + resolveQueueURL/getOrValidateQueue routing pool added to SQSSinkConsumer; CFG-02 structural gap closed
-Last activity: 2026-05-09 — Plan 28-01 complete (QueueURLTemplate field, resolveQueueURL, getOrValidateQueue, updated Deliver, 16 existing tests green)
+Plan: 02 of 02 (complete)
+Status: Plan 28-02 complete — 3 YAML config round-trip tests + 5 routing/pool/error/regression consumer tests; Phase 28 fully done, CFG-02 closed
+Last activity: 2026-05-09 — Plan 28-02 complete (3 config tests, 5 consumer routing tests, 21 total SQS tests green)
 
-Progress: [████░░░░░░] 40% (2/5 phases complete, 1/2 plans complete in Phase 28)
+Progress: [████░░░░░░] 40% (2/5 phases complete, 2/2 plans complete in Phase 28)
 
 ## Accumulated Context
 
@@ -94,6 +94,8 @@ Recent decisions affecting current work:
 - [Phase 28-sqs-per-table-routing]: QueueURLTemplate nil-check in resolveQueueURL ensures zero-regression for existing single-queue deployments
 - [Phase 28-sqs-per-table-routing]: validatedQueues seeded with default queueURL at construction so no-template path never calls GetQueueAttributes at Deliver time
 - [Phase 28-sqs-per-table-routing]: Template parsed before AWS config loading in NewSQSSinkConsumer — fail fast before any AWS I/O
+- [Phase 28-sqs-per-table-routing]: getQueueAttributesCallCount added to fakeSQSClient — incremented before nil-func check to count all calls for pool caching assertions
+- [Phase 28-sqs-per-table-routing]: newTemplateConsumer seeds validatedQueues with default URL to prevent accidental GetQueueAttributes calls during routing tests
 
 ### Pending Todos
 
@@ -109,6 +111,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-05-09
-Stopped at: Completed 28-01-PLAN.md — SQS QueueURLTemplate routing + validated queue pool, Plan 28-01 complete
+Stopped at: Completed 28-02-PLAN.md — SQS routing tests (3 config YAML + 5 consumer routing/pool/error), Phase 28 complete
 Resume file: None
-Next action: Execute Plan 28-02 (routing tests for resolveQueueURL + getOrValidateQueue)
+Next action: Phase 28 complete — proceed to next phase
