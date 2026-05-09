@@ -340,3 +340,58 @@ sinks:
 
 	assert.Nil(t, cfg.Sinks.PubSub, "PubSub config should be nil when sinks.pubsub block is absent")
 }
+
+// TestSinks_SQS_QueueURLTemplate_FullBlock tests that a full sinks.sqs block with
+// both queue-url and queue-url-template parses both fields correctly.
+func TestSinks_SQS_QueueURLTemplate_FullBlock(t *testing.T) {
+	raw := `
+sinks:
+  sqs:
+    queue-url: "https://sqs.us-east-1.amazonaws.com/123456789/fallback.fifo"
+    queue-url-template: "https://sqs.us-east-1.amazonaws.com/123456789/cdc-{{.Schema}}-{{.Table}}.fifo"
+    region: "us-east-1"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.SQS)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123456789/fallback.fifo", cfg.Sinks.SQS.QueueURL)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123456789/cdc-{{.Schema}}-{{.Table}}.fifo", cfg.Sinks.SQS.QueueURLTemplate)
+	assert.Equal(t, "us-east-1", cfg.Sinks.SQS.Region)
+}
+
+// TestSinks_SQS_QueueURLTemplate_TemplateOnly tests that a sinks.sqs block with
+// queue-url-template but no queue-url leaves QueueURL empty.
+func TestSinks_SQS_QueueURLTemplate_TemplateOnly(t *testing.T) {
+	raw := `
+sinks:
+  sqs:
+    queue-url-template: "https://sqs.us-east-1.amazonaws.com/123456789/cdc-{{.Table}}.fifo"
+    region: "us-east-1"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.SQS)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123456789/cdc-{{.Table}}.fifo", cfg.Sinks.SQS.QueueURLTemplate)
+	assert.Equal(t, "", cfg.Sinks.SQS.QueueURL, "QueueURL should be empty when only template is set")
+}
+
+// TestSinks_SQS_QueueURLTemplate_AbsentTemplate is a regression test: a sinks.sqs
+// block without queue-url-template leaves QueueURLTemplate as an empty string.
+func TestSinks_SQS_QueueURLTemplate_AbsentTemplate(t *testing.T) {
+	raw := `
+sinks:
+  sqs:
+    queue-url: "https://sqs.us-east-1.amazonaws.com/123456789/my-queue.fifo"
+    region: "us-east-1"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.SQS)
+	assert.Equal(t, "", cfg.Sinks.SQS.QueueURLTemplate, "QueueURLTemplate should be empty when not set")
+}
