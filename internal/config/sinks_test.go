@@ -283,3 +283,60 @@ sinks:
 	assert.Equal(t, "/etc/certs/client.pem", cfg.Sinks.RabbitMQ.TLS.CertFile)
 	assert.Equal(t, "/etc/certs/client-key.pem", cfg.Sinks.RabbitMQ.TLS.KeyFile)
 }
+
+// TestSinks_PubSub_FullBlock tests that a full sinks.pubsub YAML block with all
+// four PubSubSinkConfig fields is parsed into Config.Sinks.PubSub correctly.
+func TestSinks_PubSub_FullBlock(t *testing.T) {
+	raw := `
+sinks:
+  pubsub:
+    project-id: "my-gcp-project"
+    topic-id: "cdc-events"
+    topic-template: "cdc-{{.Schema}}-{{.Table}}"
+    credentials-file: "/etc/gcp/sa.json"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.PubSub, "PubSub config should be non-nil when sinks.pubsub block is present")
+	assert.Equal(t, "my-gcp-project", cfg.Sinks.PubSub.ProjectID)
+	assert.Equal(t, "cdc-events", cfg.Sinks.PubSub.TopicID)
+	assert.Equal(t, "cdc-{{.Schema}}-{{.Table}}", cfg.Sinks.PubSub.TopicTemplate)
+	assert.Equal(t, "/etc/gcp/sa.json", cfg.Sinks.PubSub.CredentialsFile)
+}
+
+// TestSinks_PubSub_NoCredentialsFile tests that a sinks.pubsub block with only
+// project-id and topic-id leaves CredentialsFile empty (ADC path).
+func TestSinks_PubSub_NoCredentialsFile(t *testing.T) {
+	raw := `
+sinks:
+  pubsub:
+    project-id: "my-gcp-project"
+    topic-id: "cdc-events"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Sinks.PubSub, "PubSub config should be non-nil when sinks.pubsub block is present")
+	assert.Equal(t, "my-gcp-project", cfg.Sinks.PubSub.ProjectID)
+	assert.Equal(t, "cdc-events", cfg.Sinks.PubSub.TopicID)
+	assert.Equal(t, "", cfg.Sinks.PubSub.CredentialsFile, "CredentialsFile should be empty when not set (ADC path)")
+}
+
+// TestSinks_PubSub_AbsentBlock tests that when the sinks.pubsub block is absent
+// from YAML, cfg.Sinks.PubSub is nil (not a zero-value struct).
+func TestSinks_PubSub_AbsentBlock(t *testing.T) {
+	raw := `
+sinks:
+  nats:
+    url: "nats://localhost:4222"
+    subject-template: "cdc.{{.Table}}"
+`
+	var cfg config.Config
+	err := yaml.Unmarshal([]byte(raw), &cfg)
+	require.NoError(t, err)
+
+	assert.Nil(t, cfg.Sinks.PubSub, "PubSub config should be nil when sinks.pubsub block is absent")
+}
