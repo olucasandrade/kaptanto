@@ -16,6 +16,7 @@
 package sqssink
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -25,6 +26,9 @@ import (
 	"hash/fnv"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
+	"text/template"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -55,16 +59,20 @@ type sqsAPI interface {
 //
 // Use NewSQSSinkConsumer to construct — do not create directly.
 type SQSSinkConsumer struct {
-	id       string
-	client   sqsAPI
-	queueURL string
-	m        *observability.KaptantoMetrics
+	id              string
+	client          sqsAPI
+	queueURL        string             // default queue URL (cfg.QueueURL); used when template absent
+	queueURLT       *template.Template // nil when QueueURLTemplate is empty
+	validatedQueues map[string]bool    // set of FIFO-validated queue URLs
+	mu              sync.RWMutex       // protects validatedQueues
+	m               *observability.KaptantoMetrics
 }
 
 // NewSQSSinkConsumer creates a SQSSinkConsumer that publishes to the FIFO queue
 // identified by cfg.QueueURL.
 //
 // It returns a non-nil error when:
+//   - cfg.QueueURLTemplate is set but fails to parse as a Go template
 //   - GetQueueAttributes fails (access denied, queue not found, network error)
 //   - The queue is not a FIFO queue (FifoQueue attribute != "true")
 //
@@ -72,6 +80,16 @@ type SQSSinkConsumer struct {
 // are non-empty; otherwise the full AWS credential chain applies
 // (env vars → ~/.aws/credentials → IAM instance profile).
 func NewSQSSinkConsumer(id string, cfg config.SQSSinkConfig) (*SQSSinkConsumer, error) {
+	// 0. Parse QueueURLTemplate before any AWS config loading — fail fast on bad templates.
+	var queueURLT *template.Template
+	if cfg.QueueURLTemplate != "" {
+		t, err := template.New("queue-url").Parse(cfg.QueueURLTemplate)
+		if err != nil {
+			return nil, fmt.Errorf("sqs sink: queue-url-template parse error: %w", err)
+		}
+		queueURLT = t
+	}
+
 	// 1. Build AWS SDK option functions.
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.Region),
@@ -131,12 +149,13 @@ func NewSQSSinkConsumer(id string, cfg config.SQSSinkConfig) (*SQSSinkConsumer, 
 	// 3. Create the SQS client (*sqs.Client satisfies sqsAPI).
 	client := sqs.NewFromConfig(awsCfg)
 
-	return newConsumerWithClient(id, cfg.QueueURL, client)
+	return newConsumerWithClient(id, cfg.QueueURL, client, queueURLT)
 }
 
 // newConsumerWithClient is the internal constructor used by both NewSQSSinkConsumer
-// and tests. It validates that queueURL refers to a FIFO queue via GetQueueAttributes.
-func newConsumerWithClient(id string, queueURL string, client sqsAPI) (*SQSSinkConsumer, error) {
+// and tests. It validates that queueURL refers to a FIFO queue via GetQueueAttributes
+// and seeds the validatedQueues pool with the default queue URL.
+func newConsumerWithClient(id string, queueURL string, client sqsAPI, queueURLT *template.Template) (*SQSSinkConsumer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -153,9 +172,11 @@ func newConsumerWithClient(id string, queueURL string, client sqsAPI) (*SQSSinkC
 	}
 
 	return &SQSSinkConsumer{
-		id:       id,
-		client:   client,
-		queueURL: queueURL,
+		id:              id,
+		client:          client,
+		queueURL:        queueURL,
+		queueURLT:       queueURLT,
+		validatedQueues: map[string]bool{queueURL: true},
 	}, nil
 }
 
@@ -163,6 +184,55 @@ func newConsumerWithClient(id string, queueURL string, client sqsAPI) (*SQSSinkC
 // It is the id argument passed to NewSQSSinkConsumer.
 func (c *SQSSinkConsumer) ID() string {
 	return c.id
+}
+
+// resolveQueueURL returns the target queue URL for the given log entry.
+// When queueURLT is nil (no template configured), it returns the default queueURL.
+// Otherwise it executes the template against entry.Event and trims whitespace.
+// An error is returned if template execution fails or the result is empty.
+func (c *SQSSinkConsumer) resolveQueueURL(entry eventlog.LogEntry) (string, error) {
+	if c.queueURLT == nil {
+		return c.queueURL, nil
+	}
+	var buf bytes.Buffer
+	if err := c.queueURLT.Execute(&buf, entry.Event); err != nil {
+		return "", fmt.Errorf("sqs sink: queue-url-template execution: %w", err)
+	}
+	url := strings.TrimSpace(buf.String())
+	if url == "" {
+		return "", fmt.Errorf("sqs sink: queue-url-template rendered to empty string — check QueueURLTemplate config")
+	}
+	return url, nil
+}
+
+// getOrValidateQueue ensures queueURL refers to a FIFO queue exactly once per
+// unique URL. It uses double-checked locking: an RLock fast path avoids lock
+// contention for already-validated queues; the write-lock slow path calls
+// GetQueueAttributes and records the result.
+func (c *SQSSinkConsumer) getOrValidateQueue(ctx context.Context, queueURL string) error {
+	c.mu.RLock()
+	ok := c.validatedQueues[queueURL]
+	c.mu.RUnlock()
+	if ok {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.validatedQueues[queueURL] {
+		return nil
+	}
+	out, err := c.client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       aws.String(queueURL),
+		AttributeNames: []types.QueueAttributeName{types.QueueAttributeNameFifoQueue},
+	})
+	if err != nil {
+		return fmt.Errorf("sqs sink: get queue attributes for %q: %w", queueURL, err)
+	}
+	if out.Attributes[string(types.QueueAttributeNameFifoQueue)] != "true" {
+		return fmt.Errorf("sqs sink: %q is not a FIFO queue — SQS sink requires a .fifo queue URL", queueURL)
+	}
+	c.validatedQueues[queueURL] = true
+	return nil
 }
 
 // SetMetrics injects a KaptantoMetrics reference so the consumer reports
@@ -186,6 +256,15 @@ func (c *SQSSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // On error Deliver returns a non-nil error immediately. The RetryScheduler is
 // responsible for rescheduling; Deliver never retries internally (DLV-03).
 func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	// 0. Resolve target queue URL (template path or default).
+	targetURL, err := c.resolveQueueURL(entry)
+	if err != nil {
+		return err
+	}
+	if err := c.getOrValidateQueue(ctx, targetURL); err != nil {
+		return err
+	}
+
 	// 1. MessageGroupId: FNV-1a 64-bit hash of Key bytes, formatted as 16 zero-padded hex chars.
 	h := fnv.New64a()
 	h.Write(entry.Event.Key)
@@ -196,17 +275,17 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 	dedupID := fmt.Sprintf("%x", sum)[:64]
 
 	// 3. Marshal the event to JSON for the message body.
-	data, err := json.Marshal(entry.Event)
-	if err != nil {
-		return fmt.Errorf("sqs sink: marshal event: %w", err)
+	data, marshalErr := json.Marshal(entry.Event)
+	if marshalErr != nil {
+		return fmt.Errorf("sqs sink: marshal event: %w", marshalErr)
 	}
 
 	// 4. Record send start time for latency observation.
 	start := time.Now()
 
-	// 5. Send the message to SQS.
+	// 5. Send the message to SQS using the resolved target URL.
 	_, sendErr := c.client.SendMessage(ctx, &sqs.SendMessageInput{
-		QueueUrl:               aws.String(c.queueURL),
+		QueueUrl:               aws.String(targetURL),
 		MessageBody:            aws.String(string(data)),
 		MessageGroupId:         aws.String(groupID),
 		MessageDeduplicationId: aws.String(dedupID),
@@ -227,7 +306,7 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 		if c.m != nil {
 			c.m.QueuePublishErrors.WithLabelValues("sqs").Inc()
 		}
-		return fmt.Errorf("sqs sink: send message to %q: %w", c.queueURL, sendErr)
+		return fmt.Errorf("sqs sink: send message to %q: %w", targetURL, sendErr)
 	}
 
 	if c.m != nil {
@@ -255,7 +334,9 @@ func (c *SQSSinkConsumer) Ping() error {
 
 // Close is a no-op for SQSSinkConsumer. SQS is a stateless HTTP API — there is
 // no persistent TCP connection or session to close. The AWS SDK manages HTTP
-// connection pooling internally.
+// connection pooling internally. validatedQueues holds only strings — no
+// stateful resources to drain.
 func (c *SQSSinkConsumer) Close() {
 	// no-op: SQS uses stateless HTTP; AWS SDK manages connection pooling internally.
+	// validatedQueues holds only strings — no stateful resources to drain.
 }
