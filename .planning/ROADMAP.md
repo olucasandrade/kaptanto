@@ -414,5 +414,5 @@ Plans:
 | 24. Sink Config Surface Cleanup [GAP] | v2.1 | 2/2 | ✓ Complete | 2026-05-07 |
 | 25. PubSub Per-Table Topic Routing [GAP] | v2.1 | 2/2 | ✓ Complete | 2026-05-08 |
 | 26. SQS mTLS Wiring [TECH-DEBT] | 1/1 | Complete    | 2026-05-09 | — |
-| 27. PubSub Config Tests + NATS Comment Fix [TECH-DEBT] | 1/1 | Complete   | 2026-05-09 | — |
+| 27. PubSub Config Tests + NATS Comment Fix [TECH-DEBT] | 1/1 | Complete    | 2026-05-09 | — |
 | 28. SQS Per-Table Routing [TECH-DEBT] | v2.1 | 0/2 | Pending | — |
