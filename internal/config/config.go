@@ -49,14 +49,19 @@ type NATSSinkConfig struct {
 // (env vars → ~/.aws/credentials → IAM instance profile).
 // TLS allows specifying a custom CA for VPC endpoints.
 //
+// QueueURLTemplate is an optional Go template for per-table routing
+// (e.g. `https://sqs.us-east-1.amazonaws.com/123/cdc-{{.Schema}}-{{.Table}}.fifo`).
+// When set, overrides QueueURL per-message.
+//
 // High-throughput FIFO mode is a queue-level AWS setting and does not
 // require any config change here. See AWS docs for enabling it on the queue.
 type SQSSinkConfig struct {
-	QueueURL        string    `yaml:"queue-url"`
-	Region          string    `yaml:"region"`
-	AccessKeyID     string    `yaml:"access-key-id"`
-	SecretAccessKey string    `yaml:"secret-access-key"`
-	TLS             TLSConfig `yaml:"tls"`
+	QueueURL         string    `yaml:"queue-url"`
+	QueueURLTemplate string    `yaml:"queue-url-template"` // optional Go template; overrides QueueURL per-message when set
+	Region           string    `yaml:"region"`
+	AccessKeyID      string    `yaml:"access-key-id"`
+	SecretAccessKey  string    `yaml:"secret-access-key"`
+	TLS              TLSConfig `yaml:"tls"`
 }
 
 // KafkaSinkConfig holds connection settings for the Apache Kafka sink.
