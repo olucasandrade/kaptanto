@@ -154,6 +154,54 @@ services:
       start_period: 20s
 
   # ---------------------------------------------------------------------------
+  # NATS — standalone NATS server for kaptanto NATS sink
+  # Monitoring port 8222 used for healthcheck probe
+  # ---------------------------------------------------------------------------
+  nats:
+    image: nats:2.10-alpine
+    command: ["-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Kaptanto (NATS sink) — built from source, streams CDC events to NATS
+  # Config file mounted from bench/config/kaptanto-nats.yaml
+  # Observability on port 7658; depends on postgres + nats
+  # ---------------------------------------------------------------------------
+  kaptanto-nats:
+    build:
+      context: ..
+      dockerfile: bench/Dockerfile.bench
+    ports:
+      - "7658:7658"
+    command:
+      - --config
+      - /config/kaptanto-nats.yaml
+      - --data-dir
+      - /data
+    volumes:
+      - kaptanto-nats-data:/data
+      - ./config/kaptanto-nats.yaml:/config/kaptanto-nats.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7658/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
   # Debezium Server 3.4.2.Final — Postgres source, Redis sink
   # IMPORTANT: quay.io only — Docker Hub is frozen at 2.x for this image
   # Config mounted from ./config/debezium/application.properties
@@ -429,6 +477,7 @@ volumes:
   kaptanto-data:
   kaptanto-rust-data:
   kaptanto-kafka-data:
+  kaptanto-nats-data:
   debezium-data:
     # Stores Debezium offset files so the connector resumes from the last
     # committed offset on restart (avoids full re-scan on compose restart)
