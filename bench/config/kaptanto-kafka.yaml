@@ -1,0 +1,12 @@
+source: postgres://bench:bench@postgres:5432/bench
+output: kafka
+port: 7657
+data-dir: /data
+source-id: bench_kafka
+tables:
+  public.bench_events: {}
+sinks:
+  kafka:
+    bootstrap-servers:
+      - redpanda:9092
+    topic-template: "{{.Schema}}.{{.Table}}"

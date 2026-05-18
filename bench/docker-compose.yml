@@ -123,6 +123,37 @@ services:
       start_period: 20s
 
   # ---------------------------------------------------------------------------
+  # Kaptanto (Kafka sink) — built from source, streams CDC events to Redpanda
+  # Config file mounted from bench/config/kaptanto-kafka.yaml
+  # Observability on port 7657; depends on postgres + redpanda
+  # ---------------------------------------------------------------------------
+  kaptanto-kafka:
+    build:
+      context: ..
+      dockerfile: bench/Dockerfile.bench
+    ports:
+      - "7657:7657"
+    command:
+      - --config
+      - /config/kaptanto-kafka.yaml
+      - --data-dir
+      - /data
+    volumes:
+      - kaptanto-kafka-data:/data
+      - ./config/kaptanto-kafka.yaml:/config/kaptanto-kafka.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7657/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
   # Debezium Server 3.4.2.Final — Postgres source, Redis sink
   # IMPORTANT: quay.io only — Docker Hub is frozen at 2.x for this image
   # Config mounted from ./config/debezium/application.properties
@@ -397,6 +428,7 @@ services:
 volumes:
   kaptanto-data:
   kaptanto-rust-data:
+  kaptanto-kafka-data:
   debezium-data:
     # Stores Debezium offset files so the connector resumes from the last
     # committed offset on restart (avoids full re-scan on compose restart)
