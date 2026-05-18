@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: fanout
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5437:5432"
+    volumes:
+      - ./api/sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - postgres
+    ports:
+      - "7164:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  api:
+    build:
+      context: ..
+      dockerfile: fanout/api/Dockerfile
+    environment:
+      PORT: "4006"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/fanout
+      KAPTANTO_BASE_URL: http://kaptanto:7654
+      ALLOWED_ORIGIN: http://localhost:3006
+    depends_on:
+      - postgres
+      - kaptanto
+    ports:
+      - "4006:4006"
+
+  web:
+    build:
+      context: ..
+      dockerfile: fanout/web/Dockerfile
+    environment:
+      VITE_API_URL: http://localhost:4006
+    depends_on:
+      - api
+    ports:
+      - "3006:3000"

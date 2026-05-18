@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-import { consumeKaptantoSse } from "../../../shared/src/cdc-sse.js";
-import type { JsonObject, KaptantoEvent } from "../../../shared/src/cdc-types.js";
+import { consumeKaptantoSse } from "../../../shared/src/cdc-sse.ts";
+import type { JsonObject, KaptantoEvent } from "../../../shared/src/cdc-types.ts";
 
 type SyncRecord = {
   sourceTable: string;
@@ -152,4 +152,3 @@ startConsumer().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-

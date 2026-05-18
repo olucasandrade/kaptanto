@@ -3,14 +3,62 @@ import { createRoot } from "react-dom/client";
 
 import "./styles.css";
 
+type User = { id: string; name: string };
+
+type Notification = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+};
+
 type Snapshot = {
-  users: { id: string; name: string }[];
-  notificationsByUser: Record<string, { id: string; title: string; body: string; createdAt: string }[]>;
+  users: User[];
+  notificationsByUser: Record<string, Notification[]>;
   unreadByUser: Record<string, number>;
   activity: string[];
 };
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4001";
+
+const AVATAR_CLASSES: Record<string, string> = {
+  ava: "avatar-ava",
+  jules: "avatar-jules",
+  morgan: "avatar-morgan",
+  priya: "avatar-priya",
+  sam: "avatar-sam",
+};
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((p) => p[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function getNotifIcon(title: string): string {
+  if (title.includes("mentioned")) return "@";
+  if (title.includes("followed")) return "+";
+  return "●";
+}
+
+function Avatar({ userId, name }: { userId: string; name: string }) {
+  const cls = AVATAR_CLASSES[userId] ?? "avatar-ava";
+  return <div className={`avatar ${cls}`}>{getInitials(name)}</div>;
+}
 
 function App() {
   const [data, setData] = useState<Snapshot>({
@@ -21,15 +69,15 @@ function App() {
   });
   const [authorId, setAuthorId] = useState("ava");
   const [mentionedUserId, setMentionedUserId] = useState("jules");
-  const [body, setBody] = useState("Ship it after legal review.");
+  const [body, setBody] = useState("Can you take a look at the rollout plan before EOD?");
 
   useEffect(() => {
     fetch(`${apiUrl}/api/bootstrap`)
-      .then((response) => response.json())
+      .then((r) => r.json())
       .then(setData);
 
     const stream = new EventSource(`${apiUrl}/api/events`);
-    stream.onmessage = (event) => setData(JSON.parse(event.data));
+    stream.onmessage = (e) => setData(JSON.parse(e.data));
     return () => stream.close();
   }, []);
 
@@ -37,7 +85,7 @@ function App() {
     await fetch(`${apiUrl}/api/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ authorId, mentionedUserId, body, postId: "roadmap-42" }),
+      body: JSON.stringify({ authorId, mentionedUserId, body, postId: "roadmap-q2" }),
     });
   }
 
@@ -57,81 +105,139 @@ function App() {
     });
   }
 
+  const userMap = Object.fromEntries(data.users.map((u) => [u.id, u]));
+
   return (
     <div className="page">
-      <section className="hero">
-        <span className="pill">Postgres to Kaptanto SSE to App Projection</span>
+      <header className="header">
+        <div className="header-kicker">
+          <span className="kicker-dot" />
+          Postgres · Kaptanto SSE · App Projection
+        </div>
         <h1>Real-time Notification Inbox</h1>
-        <p>
-          Comments and follows are written once. CDC turns them into user-facing notifications without
-          polling or cron reconciliation.
+        <p className="header-desc">
+          Comments and follows are written to Postgres once. CDC turns them into user-facing
+          notifications without polling or cron reconciliation.
         </p>
-      </section>
+      </header>
 
       <div className="layout">
-        <div className="grid">
-          <section className="card grid">
-            <h2>Trigger source writes</h2>
-            <label>
-              Actor
-              <select value={authorId} onChange={(event) => setAuthorId(event.target.value)}>
-                {data.users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Mention / target user
-              <select value={mentionedUserId} onChange={(event) => setMentionedUserId(event.target.value)}>
-                {data.users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Comment body
-              <textarea rows={4} value={body} onChange={(event) => setBody(event.target.value)} />
-            </label>
-            <div style={{ display: "flex", gap: 12 }}>
-              <button onClick={createComment}>Create comment + mention</button>
-              <button onClick={createFollow}>Create follow</button>
+        {/* Left column — controls */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Trigger source writes</span>
             </div>
-          </section>
+            <div className="panel-body">
+              <div className="form-group">
+                <label className="form-label">Actor</label>
+                <select value={authorId} onChange={(e) => setAuthorId(e.target.value)}>
+                  {data.users.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Mention / follow target</label>
+                <select value={mentionedUserId} onChange={(e) => setMentionedUserId(e.target.value)}>
+                  {data.users.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Comment body</label>
+                <textarea
+                  rows={3}
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                />
+              </div>
+              <div className="btn-row">
+                <button className="btn-primary" onClick={createComment}>
+                  @ Mention in comment
+                </button>
+                <button className="btn-primary" onClick={createFollow} style={{ background: "var(--bg3)", color: "var(--text2)", border: "1px solid var(--border-mid)", boxShadow: "none" }}>
+                  + Follow user
+                </button>
+              </div>
+            </div>
+          </div>
 
-          <section className="card">
-            <h2>Activity stream</h2>
-            <div className="grid">
-              {data.activity.map((item) => (
-                <div key={item}>{item}</div>
-              ))}
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Activity stream</span>
+              <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.62rem", color: "var(--text3)" }}>
+                {data.activity.length} events
+              </span>
             </div>
-          </section>
+            <div style={{ padding: "10px 16px" }}>
+              {data.activity.length === 0 ? (
+                <div className="activity-empty">No activity yet — trigger a write above.</div>
+              ) : (
+                <div className="activity-list">
+                  {data.activity.map((item, i) => (
+                    <div key={i} className="activity-row">
+                      <span className="activity-dot" />
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        <section className="card grid">
-          <h2>Inbox by user</h2>
-          {data.users.map((user) => (
-            <div key={user.id} className="grid">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <strong>
-                  {user.name} · unread {data.unreadByUser[user.id] ?? 0}
-                </strong>
-                <button onClick={() => markRead(user.id)}>Mark all read</button>
-              </div>
-              {(data.notificationsByUser[user.id] ?? []).map((notification) => (
-                <div key={notification.id} className="notification">
-                  <strong>{notification.title}</strong>
-                  <div>{notification.body}</div>
-                  <small>{new Date(notification.createdAt).toLocaleString()}</small>
-                </div>
-              ))}
+        {/* Right column — inbox */}
+        <div className="inbox-wrapper">
+          {data.users.length === 0 ? (
+            <div className="panel" style={{ padding: "32px", textAlign: "center", color: "var(--text3)", fontSize: "0.8rem" }}>
+              Loading…
             </div>
-          ))}
-        </section>
+          ) : (
+            data.users.map((user) => {
+              const notifs = data.notificationsByUser[user.id] ?? [];
+              const unread = data.unreadByUser[user.id] ?? 0;
+              return (
+                <div key={user.id} className="user-inbox">
+                  <div className="user-inbox-header">
+                    <Avatar userId={user.id} name={user.name} />
+                    <span className="user-name">{user.name}</span>
+                    {unread > 0 && <span className="unread-badge">{unread}</span>}
+                    <button
+                      className="btn-ghost"
+                      onClick={() => markRead(user.id)}
+                      style={{ marginLeft: "auto" }}
+                    >
+                      Mark read
+                    </button>
+                  </div>
+                  {notifs.length === 0 ? (
+                    <div className="empty-inbox">No notifications yet</div>
+                  ) : (
+                    <div className="notifications-list">
+                      {notifs.map((n, idx) => (
+                        <div
+                          key={n.id}
+                          className={`notif-row${idx < unread ? " unread" : ""}`}
+                        >
+                          <div className="notif-icon">
+                            {getNotifIcon(n.title)}
+                          </div>
+                          <div className="notif-content">
+                            <div className="notif-title">{n.title}</div>
+                            <div className="notif-body">{n.body}</div>
+                            <div className="notif-time">{timeAgo(n.createdAt)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

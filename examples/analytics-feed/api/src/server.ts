@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { MongoClient } from "mongodb";
 
-import { consumeKaptantoSse } from "../../../shared/src/cdc-sse.js";
-import type { JsonObject, KaptantoEvent } from "../../../shared/src/cdc-types.js";
+import { consumeKaptantoSse } from "../../../shared/src/cdc-sse.ts";
+import type { JsonObject, KaptantoEvent } from "../../../shared/src/cdc-types.ts";
 
 type EventRow = {
   id: string;
@@ -114,21 +114,26 @@ async function seedIfEmpty(): Promise<void> {
     return;
   }
 
+  const now = Date.now();
+  const min = (n: number) => new Date(now - n * 60 * 1000);
+
   await collection.insertMany([
-    {
-      type: "workspace.created",
-      actor: "ava",
-      workspace: "northwind",
-      createdAt: new Date(),
-      metadata: { source: "seed" },
-    },
-    {
-      type: "report.exported",
-      actor: "jules",
-      workspace: "northwind",
-      createdAt: new Date(),
-      metadata: { source: "seed" },
-    },
+    { type: "workspace.created",  actor: "ava.martin",    workspace: "northwind",   createdAt: min(87), metadata: { source: "seed" } },
+    { type: "user.signup",        actor: "jules.chen",    workspace: "northwind",   createdAt: min(74), metadata: { source: "seed" } },
+    { type: "report.exported",    actor: "ava.martin",    workspace: "northwind",   createdAt: min(62), metadata: { source: "seed" } },
+    { type: "workspace.invited",  actor: "morgan.lee",    workspace: "beacon-labs", createdAt: min(58), metadata: { source: "seed" } },
+    { type: "workspace.created",  actor: "priya.patel",   workspace: "beacon-labs", createdAt: min(51), metadata: { source: "seed" } },
+    { type: "comment.created",    actor: "jules.chen",    workspace: "northwind",   createdAt: min(44), metadata: { source: "seed" } },
+    { type: "dashboard.viewed",   actor: "sam.torres",    workspace: "vertex-io",   createdAt: min(38), metadata: { source: "seed" } },
+    { type: "report.exported",    actor: "morgan.lee",    workspace: "beacon-labs", createdAt: min(33), metadata: { source: "seed" } },
+    { type: "export.scheduled",   actor: "priya.patel",   workspace: "beacon-labs", createdAt: min(28), metadata: { source: "seed" } },
+    { type: "comment.created",    actor: "ava.martin",    workspace: "northwind",   createdAt: min(22), metadata: { source: "seed" } },
+    { type: "workspace.invited",  actor: "sam.torres",    workspace: "pacific-rim", createdAt: min(17), metadata: { source: "seed" } },
+    { type: "user.signup",        actor: "taylor.kim",    workspace: "pacific-rim", createdAt: min(14), metadata: { source: "seed" } },
+    { type: "dashboard.viewed",   actor: "jules.chen",    workspace: "northwind",   createdAt: min(11), metadata: { source: "seed" } },
+    { type: "report.exported",    actor: "sam.torres",    workspace: "vertex-io",   createdAt: min(7),  metadata: { source: "seed" } },
+    { type: "comment.created",    actor: "morgan.lee",    workspace: "atlas-co",    createdAt: min(4),  metadata: { source: "seed" } },
+    { type: "export.scheduled",   actor: "ava.martin",    workspace: "northwind",   createdAt: min(2),  metadata: { source: "seed" } },
   ]);
 }
 

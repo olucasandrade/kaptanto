@@ -2,8 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 
-import { consumeKaptantoSse } from "../../../shared/src/cdc-sse.js";
-import type { JsonObject, KaptantoEvent } from "../../../shared/src/cdc-types.js";
+import { consumeKaptantoSse } from "../../../shared/src/cdc-sse.ts";
+import type { JsonObject, KaptantoEvent } from "../../../shared/src/cdc-types.ts";
 
 type Notification = {
   id: string;
