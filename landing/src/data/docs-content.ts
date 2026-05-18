@@ -1,154 +1,7 @@
+export type DocItem = { title: string; sub: string; body: string };
 
-<nav class="nav"><div class="ni">
-<div class="nb" onclick="go('landing')"><img src="/logo.png" alt="Kaptanto logo" class="nlg">kaptanto</div>
-<div class="nl" id="navL">
-<a href="#" onclick="return go('landing')" data-p="landing" class="a">Home</a>
-<a href="/docs/docs-intro" onclick="return go('docs-intro')" data-p="docs">Docs</a>
-<a href="#features" onclick="go('landing')">Features</a>
-<a href="#compare" onclick="go('landing')">Compare</a>
-<a href="/docs/docs-benchmarks" onclick="return go('docs-benchmarks')" data-p="docs">Benchmarks</a>
-<a href="https://github.com/olucasandrade/kaptanto" class="ng" target="_blank" rel="noopener"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>GitHub<span class="ns" id="ghStars"></span></a>
-</div>
-<button class="nmob" onclick="document.getElementById('navL').classList.toggle('open')" aria-label="Menu"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h18M3 11h18M3 17h18"/></svg></button>
-</div></nav>
-
-<!-- ═══ LANDING ═══ -->
-<div class="pg vis" id="pg-landing">
-<div class="hw">
-<div class="ha sr"><img src="/logo.png" alt="Kaptanto logo"><span></span>Open source — Apache 2.0 — v0.1.0</div>
-<h1 class="sr">Turn every database write into a <em>real-time event.</em></h1>
-<p class="hs sr">kaptanto captures every insert, update, and delete from Postgres and MongoDB the moment it happens — and delivers it via stdout, SSE, or gRPC. One static binary. Self-contained. Deploys anywhere.</p>
-<div class="hact sr"><a href="#install" class="bg">Install now</a><a href="/docs/docs-intro" onclick="return go('docs-intro')" class="bo">Read the docs</a></div>
-<div class="ht sr">
-<div class="tb"><span class="td"></span><span class="td"></span><span class="td"></span><span class="tl">kaptanto</span></div>
-<div class="tt">
-<div class="tln"><span class="tc"># stream order changes to your services</span></div>
-<div class="tln"><span class="tg">$</span> <span class="tw">kaptanto</span> <span class="tbl">--source</span> <span class="ty">postgres://prod:5432/fintech</span> <span class="tw">\</span></div>
-<div class="tln" style="padding-left:1.1rem"><span class="tbl">--tables</span> <span class="ty">orders,payments</span> <span class="tbl">--output</span> <span class="ty">stdout</span></div>
-<div class="tln" style="margin-top:.35rem"><span class="to">{"op":"insert","table":"orders","after":{"id":1234,"status":"pending","amount":149.90}}</span></div>
-<div class="tln"><span class="to">{"op":"update","table":"orders","after":{"id":1234,"status":"settled","amount":149.90}}</span></div>
-<div class="tln"><span class="to">{"op":"insert","table":"payments","after":{"id":5678,"order_id":1234,"method":"pix"}}</span></div>
-</div></div></div>
-<div class="sb"><div class="st" id="stk"></div></div>
-
-<section class="sec" id="features">
-<div class="sl sr">Features</div>
-<div class="stt sr">Production CDC. Minus the complexity.</div>
-<div class="sd sr">Backfills, crash recovery, per-key ordering, and HA — built in. Nothing extra to operate.</div>
-<div class="fg sr">
-<div class="fc"><div class="fc-i">latency</div><h3>Sub-millisecond</h3><p>Events flow from the WAL as each transaction commits. No polling interval, no artificial delay.</p></div>
-<div class="fc"><div class="fc-i">schema</div><h3>One event schema</h3><p>The same JSON format across every source. Write your consumer once and connect to any database.</p></div>
-<div class="fc"><div class="fc-i">checkpoint</div><h3>Crash-safe cursors</h3><p>Per-consumer positions persist on every event. Reconnect and resume from exactly where you stopped.</p></div>
-<div class="fc"><div class="fc-i">backfill</div><h3>Consistent backfills</h3><p>Snapshot and stream run concurrently. Watermark coordination prevents stale or duplicate rows.</p></div>
-<div class="fc"><div class="fc-i">ordering</div><h3>Per-key ordering</h3><p>Events for the same primary key always arrive in commit order. Slow consumers never block other partitions.</p></div>
-<div class="fc"><div class="fc-i">ha</div><h3>Built-in HA</h3><p>Two instances, one leader. Advisory lock election — session-scoped, no clock skew, ~5-second failover.</p></div>
-</div></section>
-
-<section class="sec" id="sources">
-<div class="sl sr">Compatibility</div>
-<div class="stt sr">Works with the databases you already run.</div>
-<div class="cr sr">
-<div class="cc">
-<h3>Database sources</h3>
-<div class="ci"><div class="ci-i" style="background:rgba(110,125,247,.1);color:var(--bl)">PG</div><div><div class="ci-n">PostgreSQL</div><div class="ci-d">WAL logical replication · v14-17</div></div></div>
-<div class="ci"><div class="ci-i" style="background:var(--gm);color:var(--g)">MG</div><div><div class="ci-n">MongoDB</div><div class="ci-d">Change Streams · v4.0+</div></div></div>
-<div class="ci ci-dim"><div class="ci-i" style="background:rgba(255,178,36,.08);color:var(--am)">MY</div><div><div class="ci-n">MySQL <span style="font-size:.6rem;color:var(--am)">soon</span></div><div class="ci-d">binlog · GTID</div></div></div>
-</div>
-<div class="cc">
-<h3>Output modes</h3>
-<div class="ci"><div class="ci-i" style="background:var(--gm);color:var(--g)">&gt;</div><div><div class="ci-n">stdout</div><div class="ci-d">NDJSON · pipe anywhere</div></div></div>
-<div class="ci"><div class="ci-i" style="background:rgba(255,92,138,.08);color:var(--ro)">SE</div><div><div class="ci-n">Server-Sent Events</div><div class="ci-d">HTTP · auto-reconnect · Last-Event-ID</div></div></div>
-<div class="ci"><div class="ci-i" style="background:rgba(110,125,247,.1);color:var(--bl)">gR</div><div><div class="ci-n">gRPC Stream</div><div class="ci-d">Protobuf · HTTP/2 · backpressure</div></div></div>
-</div></div></section>
-
-<div class="ib" id="install"><div class="ii">
-<div class="sl sr">Get started</div>
-<div class="stt sr">From install to streaming in 90 seconds.</div>
-
-<div class="qs sr">
-
-<div class="qs-step">
-<div class="qs-num">1</div>
-<div class="qs-body">
-<div class="qs-label">Install</div>
-<div style="max-width:540px">
-<div class="its"><button class="it a" data-t="curl">curl</button><button class="it" data-t="docker">Docker</button><button class="it" data-t="brew">Homebrew</button><button class="it" data-t="src">Source</button></div>
-<div class="ic" id="ic-curl"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
-<div class="ic" id="ic-docker" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> docker run olucasandrade/kaptanto \<br>&nbsp;&nbsp;<span class="tbl">--source</span> <span class="ty">postgres://localhost:5432/mydb</span> \<br>&nbsp;&nbsp;<span class="tbl">--tables</span> <span class="ty">orders</span> <span class="tbl">--output</span> <span class="ty">stdout</span></div>
-<div class="ic" id="ic-brew" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> brew install kaptanto/tap/kaptanto</div>
-<div class="ic" id="ic-src" style="display:none"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto<br><span class="tg">$</span> cd kaptanto && go build -o kaptanto .</div>
-</div>
-</div>
-</div>
-
-<div class="qs-step">
-<div class="qs-num">2</div>
-<div class="qs-body">
-<div class="qs-label">Run — point at your database</div>
-<div class="ic" style="max-width:540px;position:relative"><button class="cpb" onclick="cpC(this)">copy</button><span class="tg">$</span> kaptanto \<br>&nbsp;&nbsp;<span class="tbl">--source</span> <span class="ty">postgres://localhost:5432/mydb</span> \<br>&nbsp;&nbsp;<span class="tbl">--tables</span> <span class="ty">orders,payments</span> \<br>&nbsp;&nbsp;<span class="tbl">--output</span> <span class="ty">stdout</span></div>
-<p class="qs-hint">Use <code>--output sse</code> or <code>--output grpc</code> for multi-consumer setups.</p>
-</div>
-</div>
-
-<div class="qs-step qs-step-last">
-<div class="qs-num">3</div>
-<div class="qs-body">
-<div class="qs-label">Events stream out — one JSON line per change</div>
-<div class="ic qs-out" style="max-width:540px"><span class="to">{"op":"insert","table":"orders","after":{"id":1,"status":"pending","amount":49.99}}</span><br><span class="to">{"op":"update","table":"orders","before":{"status":"pending"},"after":{"status":"shipped"}}</span><br><span class="to">{"op":"delete","table":"payments","key":{"id":88}}</span></div>
-<p class="qs-hint">Pipe to <code>jq</code>, a webhook, a queue, or anything that reads stdin.</p>
-</div>
-</div>
-
-</div>
-
-<div class="qs-links sr">
-<a href="/docs/docs-quickstart" onclick="return go('docs-quickstart')" class="bo">Full quick start →</a>
-<a href="/docs/docs-config" onclick="return go('docs-config')" class="qs-cfg">Config reference</a>
-</div>
-
-</div></div>
-
-<section class="sec" id="compare">
-<div class="sl sr">Why kaptanto</div>
-<div class="stt sr">A complete CDC stack that fits in a single binary.</div>
-<div class="cw sr"><table class="cmp">
-<thead><tr><th>Tool</th><th>Real-time</th><th>No Kafka</th><th>Multi-DB</th><th>Single binary</th><th>Free</th><th>Min cost</th></tr></thead>
-<tbody>
-<tr class="hi"><td>kaptanto</td><td class="ck">✓</td><td class="ck">✓</td><td class="ck">✓</td><td class="ck">✓</td><td class="ck">✓</td><td>$0</td></tr>
-<tr><td>Debezium</td><td class="ck">✓</td><td class="cx">✗</td><td class="ck">✓</td><td class="cx">✗</td><td class="ck">✓</td><td>$0+Kafka</td></tr>
-<tr><td>Confluent</td><td class="ck">✓</td><td class="cx">✗</td><td class="ck">✓</td><td class="cx">✗</td><td class="ca">~</td><td>~$200/mo</td></tr>
-<tr><td>Fivetran</td><td class="cx">✗</td><td class="ck">✓</td><td class="ck">✓</td><td class="cx">✗</td><td class="ca">~</td><td>$12K/yr</td></tr>
-<tr><td>Estuary</td><td class="ck">✓</td><td class="ck">✓</td><td class="ck">✓</td><td class="cx">✗</td><td class="ck">✓</td><td>$0</td></tr>
-<tr><td>AWS DMS</td><td class="ck">✓</td><td class="ck">✓</td><td class="ck">✓</td><td class="cx">✗</td><td class="cx">✗</td><td>~$70/mo</td></tr>
-</tbody></table></div></section>
-
-<div class="cta sr"><h2>Your first event in two minutes.</h2><p>Install kaptanto, point it at your database, and start streaming.</p><div class="cta-b"><a href="#install" class="bg">Install now</a><a href="/docs/docs-intro" onclick="return go('docs-intro')" class="bo">Read the docs</a></div></div>
-
-<footer class="ft"><div class="fi"><div class="fgr">
-<div><div class="fb"><img src="/logo.png" alt="Kaptanto logo" class="flg">kaptanto</div><p class="fdesc">Lightweight CDC for Postgres and MongoDB. Open source, Apache 2.0.</p><p class="fesp">"kaptanto" — who captures (Esperanto)</p></div>
-<div class="fcol"><h4>Product</h4><a href="#features">Features</a><a href="#sources">Sources</a><a href="#install">Install</a><a href="#compare">Compare</a></div>
-<div class="fcol"><h4>Resources</h4><a href="/docs/docs-intro" onclick="return go('docs-intro')">Docs</a><a href="/docs/docs-quickstart" onclick="return go('docs-quickstart')">Quick Start</a><a href="/docs/docs-config" onclick="return go('docs-config')">Config</a><a href="#">Blog</a></div>
-<div class="fcol"><h4>Community</h4><a href="https://github.com/olucasandrade/kaptanto">GitHub</a><a href="#">Discord</a><a href="#">X</a><a href="#">Contributing</a></div>
-</div><div class="fbot"><span>&copy; 2026 Kaptanto. Apache 2.0 License.</span><span>Made in Brazil &middot; <a href="https://github.com/olucasandrade/kaptanto">Source</a></span></div></div></footer>
-</div>
-
-<!-- ═══ DOCS ═══ -->
-<div class="pg" id="pg-docs">
-<div class="dl">
-<aside class="ds" id="docSidebar">
-<button class="mob-sb-close" onclick="document.getElementById('docSidebar').classList.remove('mob-open')">✕ Close menu</button>
-<nav id="docSidebarNav"></nav>
-</aside>
-<main class="dc">
-<button class="mob-docs-toggle" onclick="document.getElementById('docSidebar').classList.toggle('mob-open')">☰ Contents</button>
-<div id="docContent"></div>
-</main>
-</div>
-</div>
-
-<script>
-// ── DOCS DATA ──
-var docs = {
+// docs content
+export const DOCS_CONTENT: Record<string, DocItem> = {
 'docs-intro': {title:'What is Kaptanto?',sub:'The fastest way to stream changes from Postgres and MongoDB to your application. One binary, no infrastructure.',body:`
 <div class="dcards">
 <div class="dcard" onclick="go('docs-quickstart')"><h4>Quick Start</h4><p>Go from zero to streaming in 2 minutes.</p></div>
@@ -173,21 +26,15 @@ var docs = {
 <li><strong>Idempotency keys</strong> — Every event has a deterministic, stable key for exactly-once processing.</li>
 <li><strong>Poison pill isolation</strong> — Failed events block only their message group, not the pipeline. Exponential backoff with dead-letter queue.</li>
 <li><strong>High availability</strong> — Leader election via Postgres advisory locks. Automatic primary detection and failover.</li>
+<li><strong>Cluster mode</strong> — Active-active delivery across nodes with embedded NATS JetStream and shared partition ownership.</li>
+<li><strong>Queue sinks</strong> — Push CDC events to NATS JetStream, AWS SQS, Apache Kafka, Google Cloud Pub/Sub, or RabbitMQ with per-table routing and TLS/mTLS support.</li>
 <li><strong>Multi-source</strong> — Capture from multiple databases in one process.</li>
 <li><strong>Filtering</strong> — Table, operation, column, and SQL WHERE condition filters.</li>
-</ul>
-<h2 class="dh2">Next steps</h2>
-<div class="dcards">
-<div class="dcard" onclick="go('docs-quickstart')"><h4>Quick Start</h4><p>Install and stream your first events.</p></div>
-<div class="dcard" onclick="go('docs-config')"><h4>Configuration</h4><p>Full YAML reference for production.</p></div>
-<div class="dcard" onclick="go('docs-aws-setup')"><h4>AWS Deployment Guide</h4><p>Deploy on ECS Fargate + RDS with cost breakdown.</p></div>
-<div class="dcard" onclick="go('docs-benchmarks')"><h4>Benchmarks</h4><p>100× throughput vs. Debezium and Sequin.</p></div>
-<div class="dcard" onclick="go('docs-consistency')"><h4>Consistency Model</h4><p>Backfill coordination and guarantees.</p></div>
-</div>`},
+</ul>`},
 
 'docs-quickstart': {title:'Quick Start',sub:'Install kaptanto and stream your first events in under 2 minutes.',body:`
 <h2 class="dh2">1. Install</h2>
-<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
+<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh</div>
 <p class="dp">Or with Docker:</p>
 <div class="dcode"><span class="tg">$</span> docker pull olucasandrade/kaptanto:latest</div>
 
@@ -213,17 +60,11 @@ max_wal_senders = 4</div>
 
 <span class="tc"># gRPC server</span>
 <span class="tg">$</span> kaptanto --source postgres://... --output grpc --port 50051</div>
-<p class="dp">Each connected client gets an independent consumer with its own cursor and checkpoint.</p>
-
-<h2 class="dh2">Next steps</h2>
-<div class="dcards">
-<div class="dcard" onclick="go('docs-postgres')"><h4>Connect Postgres</h4><p>Detailed Postgres configuration and requirements.</p></div>
-<div class="dcard" onclick="go('docs-schema')"><h4>Event Schema</h4><p>Understand the event format.</p></div>
-</div>`},
+<p class="dp">Each connected client gets an independent consumer with its own cursor and checkpoint.</p>`},
 
 'docs-install': {title:'Installation',sub:'Install kaptanto on Linux, macOS, or Windows.',body:`
 <h2 class="dh2">Binary (recommended)</h2>
-<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
+<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh</div>
 <p class="dp">Downloads a statically-linked binary for your platform. No runtime dependencies.</p>
 
 <h2 class="dh2">Docker</h2>
@@ -393,7 +234,7 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654</div>
 
 <h2 class="dh2">Connecting</h2>
-<div class="dcode">GET http://localhost:7654/stream?tables=orders,payments&consumer=my-service</div>
+<div class="dcode">GET http://localhost:7654/events?tables=orders,payments&consumer=my-service</div>
 <p class="dp">Each HTTP connection is an independent consumer with its own cursor. Supports <code>Last-Event-ID</code> header for automatic resume on reconnect.</p>
 
 <h2 class="dh2">Event format</h2>
@@ -422,41 +263,55 @@ data: {"op":"insert","table":"payments","after":{"id":5678}}</div>`},
 <table class="dtbl"><thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>--source</code></td><td>required</td><td>Database connection string</td></tr>
 <tr><td><code>--tables</code></td><td>required</td><td>Comma-separated table names</td></tr>
-<tr><td><code>--output</code></td><td>stdout</td><td>Output mode: stdout, sse, grpc</td></tr>
+<tr><td><code>--output</code></td><td>stdout</td><td>Output mode: stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq</td></tr>
 <tr><td><code>--port</code></td><td>7654</td><td>Port for SSE/gRPC server</td></tr>
 <tr><td><code>--config</code></td><td>-</td><td>Path to YAML config file</td></tr>
 <tr><td><code>--data-dir</code></td><td>./data</td><td>Directory for Event Log and checkpoints</td></tr>
 <tr><td><code>--retention</code></td><td>1h</td><td>Event Log retention period</td></tr>
-<tr><td><code>--ha</code></td><td>false</td><td>Enable leader election</td></tr>
-<tr><td><code>--node-id</code></td><td>auto</td><td>Unique node identifier for HA</td></tr>
+<tr><td><code>--ha</code></td><td>false</td><td>Enable Postgres advisory lock leader election</td></tr>
+<tr><td><code>--node-id</code></td><td>auto</td><td>Unique node identifier for HA and cluster modes</td></tr>
+<tr><td><code>--cluster</code></td><td>false</td><td>Enable active-active cluster mode (embedded NATS JetStream)</td></tr>
+<tr><td><code>--cluster-dsn</code></td><td>-</td><td>Postgres DSN for shared cursor and backfill state in cluster mode</td></tr>
+<tr><td><code>--cluster-peers</code></td><td>-</td><td>Comma-separated NATS cluster peer addresses, e.g. node2:6222,node3:6222</td></tr>
+<tr><td><code>--nats-cluster-port</code></td><td>6222</td><td>NATS cluster route port for inter-node communication</td></tr>
 </tbody></table>
 
-<h2 class="dh2">YAML config</h2>
-<div class="dcode">data_dir: /var/lib/kaptanto
+<h2 class="dh2">YAML config (full example)</h2>
+<div class="dcode">source: postgres://user:pass@host:5432/db
+output: kafka
+data-dir: /var/lib/kaptanto
 retention: 4h
-partitions: 64
-ha:
-  enabled: true
-  node_id: node-1
-sources:
-  - id: main-pg
-    type: postgres
-    dsn: postgres://user:pass@host:5432/db
-    tables:
-      - name: orders
-        snapshot: snapshot_and_stream
-        group_by: [id]
-        operations: [insert, update, delete]
-      - name: users
-        columns: [id, email, status]
-        condition: "status != 'deleted'"
-output:
-  modes:
-    - type: grpc
-      port: 50051
+ha: true
+node-id: node-1
+
+tables:
+  orders:
+    columns: [id, status, amount]
+    where: "status != 'archived'"
+  users: {}
+
+sinks:
+  kafka:
+    bootstrap-servers: [broker1:9092, broker2:9092]
+    topic-template: "cdc.{{.Schema}}.{{.Table}}"
+    sasl-mechanism: PLAIN
+    sasl-username: kaptanto
+    sasl-password: secret
+    tls:
+      ca-file: /etc/ssl/kafka-ca.pem
+
 metrics:
   enabled: true
-  port: 9090</div>`},
+  port: 9090</div>
+
+<h2 class="dh2">CLI flags always win</h2>
+<p class="dp">CLI flags take precedence over YAML config values. This lets you use a shared config file and override specific settings per environment without editing the file.</p>
+
+<h2 class="dh2">See also</h2>
+<div class="dcards">
+<div class="dcard" onclick="go('docs-queue-sinks')"><h4>Queue Sinks</h4><p>YAML reference for NATS, SQS, Kafka, Pub/Sub, and RabbitMQ sinks.</p></div>
+<div class="dcard" onclick="go('docs-cluster')"><h4>Cluster Mode</h4><p>Active-active delivery with embedded NATS JetStream.</p></div>
+</div>`},
 
 'docs-filtering': {title:'Filtering',sub:'Control which events reach your consumers.',body:`
 <h2 class="dh2">Table filtering</h2>
@@ -560,6 +415,155 @@ metrics:
 <h2 class="dh2">Consumer falling behind</h2>
 <p class="dp">Check <code>kaptanto_consumer_lag_events</code>. Configure <code>slow_consumer_policy</code> to <code>disconnect</code> if a consumer exceeds <code>max_lag_before_disconnect</code>.</p>`},
 
+
+'docs-queue-sinks': {title:'Queue Sinks',sub:'Push CDC events to NATS, SQS, Kafka, Pub/Sub, or RabbitMQ.',body:`
+<p class="dp">Queue sinks let kaptanto publish each CDC event to a message broker instead of (or in addition to) serving SSE or gRPC consumers. At-least-once delivery is guaranteed. Per-table topic/subject/queue routing is supported on every sink via Go templates.</p>
+
+<h2 class="dh2">NATS JetStream</h2>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output nats</div>
+<div class="dcode">sinks:
+  nats:
+    url: nats://localhost:4222
+    subject-template: "cdc.{{.Schema}}.{{.Table}}"
+    stream-name: CDC          <span class="tc"># optional; validated at startup if set</span>
+    tls:
+      ca-file: /etc/ssl/nats-ca.pem
+      cert-file: /etc/ssl/client-cert.pem   <span class="tc"># mTLS</span>
+      key-file:  /etc/ssl/client-key.pem</div>
+<p class="dp">Events are published to the NATS JetStream subject derived from the template. The subject must fall within the stream's subject filter. If <code>stream-name</code> is set, kaptanto verifies the stream exists at startup and returns an error if not.</p>
+
+<h2 class="dh2">AWS SQS (FIFO)</h2>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sqs</div>
+<div class="dcode">sinks:
+  sqs:
+    region: us-east-1
+    queue-url: https://sqs.us-east-1.amazonaws.com/123456789/cdc.fifo
+    <span class="tc"># OR route each table to its own FIFO queue:</span>
+    queue-url-template: "https://sqs.us-east-1.amazonaws.com/123456789/cdc-{{.Schema}}-{{.Table}}.fifo"
+    access-key-id: AKIA...         <span class="tc"># optional; uses IAM role if omitted</span>
+    secret-access-key: ...
+    tls:
+      ca-file: /etc/ssl/vpc-ca.pem   <span class="tc"># useful for VPC endpoints</span>
+      cert-file: /etc/ssl/client.pem  <span class="tc"># mTLS</span>
+      key-file:  /etc/ssl/client.key</div>
+<p class="dp">Kaptanto uses FIFO queues with <code>MessageGroupId</code> set to the primary key, preserving per-key ordering. <code>queue-url-template</code> takes precedence over <code>queue-url</code> when both are set. Queue connections are pooled per resolved URL.</p>
+<div class="dcall"><p><strong>High-throughput FIFO mode</strong> is a queue-level AWS setting that does not require any config change in kaptanto. Enable it on the queue in the AWS console to exceed 300 TPS.</p></div>
+
+<h2 class="dh2">Apache Kafka</h2>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output kafka</div>
+<div class="dcode">sinks:
+  kafka:
+    bootstrap-servers: [broker1:9092, broker2:9092]
+    topic-template: "cdc.{{.Schema}}.{{.Table}}"
+    sasl-mechanism: SCRAM-SHA-256   <span class="tc"># PLAIN | SCRAM-SHA-256 | SCRAM-SHA-512 | "" (none)</span>
+    sasl-username: kaptanto
+    sasl-password: secret
+    tls:
+      ca-file: /etc/ssl/kafka-ca.pem
+      cert-file: /etc/ssl/client.pem
+      key-file:  /etc/ssl/client.key</div>
+<p class="dp">The event primary key is used as the Kafka message key, so partitioning by key is consistent with kaptanto's per-key ordering guarantee. Create topics in advance or enable auto-topic creation on the broker.</p>
+
+<h2 class="dh2">Google Cloud Pub/Sub</h2>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output pubsub</div>
+<div class="dcode">sinks:
+  pubsub:
+    project-id: my-gcp-project
+    topic-id: cdc-events          <span class="tc"># used when topic-template is empty</span>
+    topic-template: "cdc-{{.Schema}}-{{.Table}}"  <span class="tc"># optional; per-table routing</span>
+    credentials-file: /etc/gcp/sa-key.json  <span class="tc"># optional; uses ADC if omitted</span></div>
+<p class="dp">When <code>credentials-file</code> is omitted, Application Default Credentials are used — set <code>GOOGLE_APPLICATION_CREDENTIALS</code> or run <code>gcloud auth application-default login</code>. Publishers are lazily created and pooled per resolved topic.</p>
+
+<h2 class="dh2">RabbitMQ</h2>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output rabbitmq</div>
+<div class="dcode">sinks:
+  rabbitmq:
+    url: amqp://user:pass@broker:5672/
+    exchange: cdc-exchange         <span class="tc"># empty string = default exchange</span>
+    routing-key-template: "cdc.{{.Schema}}.{{.Table}}"
+    tls:
+      ca-file: /etc/ssl/rabbit-ca.pem
+      cert-file: /etc/ssl/client.pem   <span class="tc"># mTLS</span>
+      key-file:  /etc/ssl/client.key</div>
+<p class="dp">Kaptanto uses publisher confirms — delivery is not acknowledged until RabbitMQ confirms persistence. On connection failure, the sink reconnects automatically with exponential backoff.</p>
+
+<h2 class="dh2">Template variables</h2>
+<table class="dtbl"><thead><tr><th>Variable</th><th>Value</th><th>Example</th></tr></thead><tbody>
+<tr><td><code>{{.Schema}}</code></td><td>Table schema</td><td>public</td></tr>
+<tr><td><code>{{.Table}}</code></td><td>Table name</td><td>orders</td></tr>
+<tr><td><code>{{.Operation}}</code></td><td>Event operation</td><td>insert</td></tr>
+</tbody></table>
+
+<h2 class="dh2">TLS reference</h2>
+<table class="dtbl"><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>ca-file</code></td><td>Custom CA certificate for broker TLS verification (useful for private CAs or VPC endpoints)</td></tr>
+<tr><td><code>cert-file</code></td><td>Client certificate for mutual TLS (mTLS)</td></tr>
+<tr><td><code>key-file</code></td><td>Client private key for mutual TLS (mTLS)</td></tr>
+</tbody></table>
+<p class="dp">All TLS fields are optional. Omit the entire <code>tls:</code> block to use system CAs without mTLS.</p>`},
+
+'docs-cluster': {title:'Cluster Mode',sub:'Active-active delivery across multiple kaptanto nodes with embedded NATS JetStream.',body:`
+<p class="dp">Cluster mode runs multiple kaptanto nodes in an active-active configuration. Each node owns a subset of the 64 partitions and delivers events for those partitions. If a node fails, its partitions are claimed by remaining nodes within seconds.</p>
+<div class="dcall"><p><strong>Requires:</strong> Cluster mode uses an embedded NATS JetStream server for the distributed Event Log and a shared Postgres database for cursor and backfill state. No separate NATS installation is needed.</p></div>
+
+<h2 class="dh2">Quick start (3-node cluster)</h2>
+<div class="dcode"><span class="tc"># Node 1</span>
+<span class="tg">$</span> kaptanto \\
+    --source postgres://... \\
+    --output sse \\
+    --cluster \\
+    --node-id node-1 \\
+    --cluster-dsn postgres://user:pass@shared-pg:5432/kaptanto \\
+    --cluster-peers node2:6222,node3:6222
+
+<span class="tc"># Node 2</span>
+<span class="tg">$</span> kaptanto \\
+    --source postgres://... \\
+    --output sse \\
+    --cluster \\
+    --node-id node-2 \\
+    --cluster-dsn postgres://user:pass@shared-pg:5432/kaptanto \\
+    --cluster-peers node1:6222,node3:6222
+
+<span class="tc"># Node 3 (same pattern)</span></div>
+
+<h2 class="dh2">How it works</h2>
+<ul class="dul">
+<li><strong>Distributed Event Log</strong> — Each node runs an embedded NATS JetStream server. The three servers form a JetStream cluster and replicate the Event Log across all nodes.</li>
+<li><strong>Partition ownership</strong> — A <code>PartitionStore</code> (backed by the shared Postgres DSN) tracks which node owns each of the 64 partitions. Nodes claim partitions on startup and heartbeat to retain them.</li>
+<li><strong>Epoch fencing</strong> — Each ownership era is assigned a monotonically increasing epoch. A node that reconnects after a partition is stolen cannot deliver stale events to consumers — its WAL standby status message is fenced by the epoch check.</li>
+<li><strong>Shared cursor state</strong> — Consumer delivery positions are stored in Postgres (<code>--cluster-dsn</code>) so any node can resume a consumer after a failover.</li>
+<li><strong>Leader election for WAL</strong> — Only one node replicates from the Postgres WAL at a time. A <code>WalLeaderElector</code> uses NATS JetStream KV with a TTL lease (refreshed on each heartbeat). If the current WAL leader stops heartbeating, another node acquires the lease and begins replication.</li>
+</ul>
+
+<h2 class="dh2">Configuration reference</h2>
+<table class="dtbl"><thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>--cluster</code></td><td>false</td><td>Enable cluster mode</td></tr>
+<tr><td><code>--cluster-dsn</code></td><td>required</td><td>Postgres DSN for shared cursor, backfill, and partition state</td></tr>
+<tr><td><code>--cluster-peers</code></td><td>-</td><td>NATS route addresses of peer nodes, e.g. <code>node2:6222,node3:6222</code></td></tr>
+<tr><td><code>--nats-cluster-port</code></td><td>6222</td><td>Port this node listens on for NATS cluster routes</td></tr>
+<tr><td><code>--node-id</code></td><td>auto</td><td>Unique identifier for this node in the partition table</td></tr>
+</tbody></table>
+
+<h2 class="dh2">YAML config</h2>
+<div class="dcode">source: postgres://user:pass@primary:5432/mydb
+output: sse
+cluster: true
+cluster-dsn: postgres://user:pass@shared-pg:5432/kaptanto
+cluster-peers: [node2:6222, node3:6222]
+nats-cluster-port: 6222
+node-id: node-1</div>
+
+<h2 class="dh2">Failure scenarios</h2>
+<table class="dtbl"><thead><tr><th>Event</th><th>Behavior</th></tr></thead><tbody>
+<tr><td>WAL leader crashes</td><td>JetStream KV TTL expires; another node wins the lease and resumes WAL replication from last checkpoint</td></tr>
+<tr><td>Delivery node crashes</td><td>Partition ownership TTL expires; surviving nodes steal orphaned partitions and resume delivery</td></tr>
+<tr><td>Network partition</td><td>Epoch fencing prevents the isolated node from delivering stale events; it resigns ownership on reconnect</td></tr>
+<tr><td>Postgres DSN unreachable</td><td>Cluster state reads fail; node stops accepting new partition claims until connectivity is restored</td></tr>
+</tbody></table>
+
+<h2 class="dh2">vs. HA mode</h2>
+<p class="dp"><code>--ha</code> (Postgres advisory lock) is active-passive — one node captures and delivers, the other is a hot standby. <code>--cluster</code> is active-active — all nodes deliver events concurrently for different partitions. Use HA for simplicity; use cluster when you need horizontal throughput scaling.</p>`},
 
 'docs-aws-setup': {title:'AWS Deployment Guide',sub:'How to run kaptanto, Debezium, and Sequin alongside an API on AWS — and what each setup actually costs you.',body:`
 <div class="dcall"><p><strong>Scenario:</strong> An order management API (Node.js / Python / any language) running on ECS Fargate, backed by RDS Postgres. Every row written via the API must be streamed to downstream consumers in real time.</p></div>
@@ -787,113 +791,16 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <li><strong>Large Batch</strong> — single bulk insert of 100k+ rows</li>
 <li><strong>Crash Recovery</strong> — SIGKILL mid-stream, then restart and measure time to caught-up</li>
 </ul>
-<p class="dp">Throughput is measured as events-per-second at the consumer. Latency is end-to-end: row committed in Postgres to event received by consumer. Each tool ran in Docker with equivalent resource limits. Database state was reset between tools to eliminate cross-run contamination.</p>`},
-
-'docs-contributing': {title:'How to Contribute',sub:'Everything you need to open a PR, report a bug, or propose a feature.',body:`
-<h2 class="dh2">Getting started</h2>
-<p class="dp">Kaptanto is open source under the Apache 2.0 license. All contributions — bug fixes, features, docs, benchmarks — are welcome.</p>
-<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto<br><span class="tg">$</span> cd kaptanto && go build -o kaptanto ./cmd/kaptanto<br><span class="tg">$</span> go test ./... -count=1</div>
-
-<h2 class="dh2">Ways to contribute</h2>
-<ul class="dlist">
-<li><strong>Bug reports</strong> — open an issue with steps to reproduce, your OS, Go version, and database version.</li>
-<li><strong>Bug fixes</strong> — link the issue in your PR description. Add or update a test that fails before the fix.</li>
-<li><strong>New features</strong> — open an issue first to discuss the approach before writing code. Large changes without prior discussion may not be merged.</li>
-<li><strong>Docs</strong> — typo fixes and clarity improvements can go straight to a PR, no issue needed.</li>
-<li><strong>Benchmarks</strong> — improvements to the <code>bench/</code> harness are very welcome. See <a class="dl" href="#" onclick="return go('docs-benchmarks')">Benchmarks</a> for the clean-run procedure.</li>
-</ul>
-
-<h2 class="dh2">Development workflow</h2>
-<p class="dp">The pure-Go build (<code>CGO_ENABLED=0</code>) is required for all PRs. The Rust FFI path is optional and must not break the standard build.</p>
-<div class="dcode"><span class="tg">$</span> make build          <span class="tc"># CGO_ENABLED=0 static binary</span><br><span class="tg">$</span> make test           <span class="tc"># all tests, CGO_ENABLED=0</span><br><span class="tg">$</span> make test-race      <span class="tc"># race detector (requires CGO)</span><br><span class="tg">$</span> make verify-no-cgo  <span class="tc"># cross-compile linux + darwin</span></div>
-<p class="dp">CI runs <code>go vet ./...</code> and all tests on every push. Your PR must pass both before review.</p>
-
-<h2 class="dh2">Code conventions</h2>
-<ul class="dlist">
-<li>No CGO in the main build path. Cross-platform static binary is a hard requirement.</li>
-<li>Tests use fake implementations (<code>fakeConsumer</code>, <code>fakeEventLog</code>), not mocks.</li>
-<li>Each test creates its own <code>prometheus.Registry</code> — no shared global state.</li>
-<li>CLI tests call <code>cmd.ExecuteWithArgs(args, out)</code> — no shared cobra command.</li>
-<li>Do not advance the source checkpoint before <code>EventLog.Append()</code> returns (CHK-01).</li>
-<li>EventLog and WatermarkChecker must use the same partition count (64) — BKF-02.</li>
-</ul>
-
-<h2 class="dh2">Submitting a PR</h2>
-<ul class="dlist">
-<li>Keep PRs focused — one concern per PR.</li>
-<li>Write a clear description: what changed, why, and how to test it.</li>
-<li>If your change affects the data flow or critical invariants, update <code>kaptanto-technical-specification.md</code>.</li>
-<li>All PRs are reviewed by a maintainer. Expect feedback within a few days.</li>
-</ul>
-
-<h2 class="dh2">Community</h2>
-<p class="dp">Questions, ideas, and discussion live in <a class="dl" href="https://github.com/olucasandrade/kaptanto/issues" target="_blank">GitHub Issues</a>. For real-time chat, join the community on <a class="dl" href="https://github.com/olucasandrade/kaptanto" target="_blank">GitHub</a>.</p>
-`}
+<p class="dp">Throughput is measured as events-per-second at the consumer. Latency is end-to-end: row committed in Postgres to event received by consumer. Each tool ran in Docker with equivalent resource limits. Database state was reset between tools to eliminate cross-run contamination.</p>`}
 };
 
-// ── SIDEBAR ──
-var sidebar = [
-{label:'Get Started',items:[['docs-intro','Introduction'],['docs-quickstart','Quick Start'],['docs-install','Installation'],['docs-postgres','Connect Postgres'],['docs-mongo','Connect MongoDB']]},
-{label:'Core Concepts',items:[['docs-schema','Event Schema'],['docs-backfills','Backfills'],['docs-consistency','Consistency Model'],['docs-ordering','Ordering & Partitions']]},
-{label:'Output Modes',items:[['docs-stdout','stdout'],['docs-sse','Server-Sent Events'],['docs-grpc','gRPC']]},
-{label:'Configuration',items:[['docs-config','CLI & YAML'],['docs-filtering','Filtering'],['docs-grouping','Message Grouping']]},
-{label:'Production',items:[['docs-ha','High Availability'],['docs-metrics','Metrics & Monitoring'],['docs-api','Management API'],['docs-troubleshooting','Troubleshooting']]},
-{label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks'],['docs-contributing','How to Contribute']]}
+export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
+  {label:'Get Started',items:[['docs-intro','Introduction'],['docs-quickstart','Quick Start'],['docs-install','Installation'],['docs-postgres','Connect Postgres'],['docs-mongo','Connect MongoDB']]},
+  {label:'Core Concepts',items:[['docs-schema','Event Schema'],['docs-backfills','Backfills'],['docs-consistency','Consistency Model'],['docs-ordering','Ordering & Partitions']]},
+  {label:'Output Modes',items:[['docs-stdout','stdout'],['docs-sse','Server-Sent Events'],['docs-grpc','gRPC'],['docs-queue-sinks','Queue Sinks']]},
+  {label:'Configuration',items:[['docs-config','CLI & YAML'],['docs-filtering','Filtering'],['docs-grouping','Message Grouping']]},
+  {label:'Production',items:[['docs-ha','High Availability'],['docs-cluster','Cluster Mode'],['docs-metrics','Metrics & Monitoring'],['docs-api','Management API'],['docs-troubleshooting','Troubleshooting']]},
+  {label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
 ];
 
-function buildSidebar(active){
-var h='';sidebar.forEach(function(s){
-h+='<div class="dss"><div class="dsl">'+s.label+'</div>';
-s.items.forEach(function(i){h+='<a class="dsa'+(i[0]===active?' act':'')+'" onclick="return go(\''+i[0]+'\')">' +i[1]+'</a>'});
-h+='</div>';
-});
-document.getElementById('docSidebarNav').innerHTML=h;
-}
-
-function renderDoc(id){
-var d=docs[id];if(!d)return;
-document.getElementById('docContent').innerHTML='<h1>'+d.title+'</h1><p class="dsub">'+d.sub+'</p>'+d.body;
-buildSidebar(id);
-}
-
-// ── GITHUB STARS ──
-!function(){fetch('https://api.github.com/repos/olucasandrade/kaptanto').then(function(r){return r.json()}).then(function(d){var n=d.stargazers_count;if(!n)return;var el=document.getElementById('ghStars');if(el)el.textContent=n>=1000?(n/1000).toFixed(1)+'k':n})['catch'](function(){})}();
-
-// ── ROUTING ──
-function go(p){
-document.getElementById('navL').classList.remove('open');
-var sb=document.getElementById('docSidebar');if(sb)sb.classList.remove('mob-open');
-document.querySelectorAll('.pg').forEach(function(e){e.classList.remove('vis')});
-document.querySelectorAll('.nl a[data-p]').forEach(function(a){a.classList.remove('a')});
-if(p==='landing'){
-document.getElementById('pg-landing').classList.add('vis');
-document.querySelector('.nl a[data-p="landing"]').classList.add('a');
-}else{
-document.getElementById('pg-docs').classList.add('vis');
-document.querySelector('.nl a[data-p="docs"]').classList.add('a');
-renderDoc(p);
-}
-window.scrollTo(0,0);return false;
-}
-// close mobile overlays on resize or outside tap
-window.addEventListener('resize',function(){if(window.innerWidth>768){document.getElementById('navL').classList.remove('open');var sb=document.getElementById('docSidebar');if(sb)sb.classList.remove('mob-open')}});
-document.addEventListener('click',function(e){var nl=document.getElementById('navL');if(nl.classList.contains('open')&&!nl.contains(e.target)&&!e.target.closest('.nmob'))nl.classList.remove('open')});
-
-// ── INIT ──
-// Stream
-!function(){var e=[['si','INSERT','orders #4821'],['su','UPDATE','users #119'],['si','INSERT','payments #7703'],['sd','DELETE','sessions #3321'],['su','UPDATE','orders #4822'],['si','INSERT','invoices #902'],['su','UPDATE','inventory #445'],['sd','DELETE','tokens #8812'],['si','INSERT','audit_log #15590'],['su','UPDATE','accounts #77'],['si','INSERT','transfers #3320'],['su','UPDATE','shipments #663']];var h='';for(var r=0;r<2;r++)e.forEach(function(v){h+='<span class="se'+(v[0]==='sd'?' se-d':'')+'"><span class="'+v[0]+'">'+v[1]+'</span><span class="sn">'+v[2]+'</span></span>'});document.getElementById('stk').innerHTML=h}();
-
-// Tabs
-document.querySelectorAll('.it').forEach(function(t){t.addEventListener('click',function(){document.querySelectorAll('.it').forEach(function(x){x.classList.remove('a')});document.querySelectorAll('.ic').forEach(function(c){c.style.display='none'});t.classList.add('a');document.getElementById('ic-'+t.dataset.t).style.display='block'})});
-
-// Copy
-function cpC(b){var t=b.parentElement.textContent.replace('copy','').replace(/\$ /g,'').trim();navigator.clipboard.writeText(t).then(function(){b.textContent='copied!';setTimeout(function(){b.textContent='copy'},1400)})}
-
-// Glitch title
-var glitchH1=document.querySelector('.hw h1');
-if(glitchH1)glitchH1.setAttribute('data-text',glitchH1.textContent.trim());
-
-// Scroll reveal
-var obs=new IntersectionObserver(function(e){e.forEach(function(x){if(x.isIntersecting){x.target.classList.add('v');obs.unobserve(x.target)}})},{threshold:.06});
-document.querySelectorAll('.sr').forEach(function(el){obs.observe(el)});
-</script>
+export const DOC_FLOW = ['docs-intro','docs-quickstart','docs-install','docs-postgres','docs-mongo','docs-schema','docs-backfills','docs-consistency','docs-ordering','docs-stdout','docs-sse','docs-grpc','docs-queue-sinks','docs-config','docs-filtering','docs-grouping','docs-ha','docs-cluster','docs-metrics','docs-api','docs-troubleshooting','docs-aws-setup','docs-benchmarks'];
