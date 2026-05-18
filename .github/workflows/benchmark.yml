@@ -63,11 +63,12 @@ jobs:
           ARGS="--collector-bin ./cmd/collector/collector \
                 --loadgen-bin ./cmd/loadgen/loadgen \
                 --output-dir ./results \
-                --compose-dir ."
+                --compose-dir . \
+                --dsn postgres://bench:bench@localhost:5433/bench"
           if [ -n "$SCENARIOS" ]; then
             ARGS="$ARGS --scenarios $SCENARIOS"
           fi
-          go run ./cmd/scenarios -- $ARGS
+          go run ./cmd/scenarios $ARGS
 
       - name: Generate report
         working-directory: bench

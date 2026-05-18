@@ -165,35 +165,45 @@ func (r *Runner) runCrashRecovery(ctx context.Context, s ScenarioDef) error {
 		return ctx.Err()
 	}
 
-	containers := []string{"kaptanto", "kaptanto-rust", "debezium", "sequin", "peerdb"}
-	for _, container := range containers {
+	type target struct {
+		service string // docker compose service name (or bare container name in legacy mode)
+		tool    string // collector tool tag used for poll and metrics
+	}
+	targets := []target{
+		{"kaptanto", "kaptanto"},
+		{"kaptanto-rust", "kaptanto-rust"},
+		{"debezium", "debezium"},
+		{"sequin", "sequin"},
+		{"peerdb-server", "peerdb"},
+	}
+	for _, t := range targets {
 		killTime := time.Now()
 
-		log.Printf("scenarios: crash-recovery: killing %s", container)
+		log.Printf("scenarios: crash-recovery: killing %s", t.tool)
 		var killCmd, startCmd *exec.Cmd
 		if r.ComposeDir != "" {
-			killCmd = exec.CommandContext(ctx, "docker", "compose", "kill", container)
+			killCmd = exec.CommandContext(ctx, "docker", "compose", "kill", t.service)
 			killCmd.Dir = r.ComposeDir
-			startCmd = exec.CommandContext(ctx, "docker", "compose", "start", container)
+			startCmd = exec.CommandContext(ctx, "docker", "compose", "start", t.service)
 			startCmd.Dir = r.ComposeDir
 		} else {
-			killCmd = exec.CommandContext(ctx, "docker", "kill", "--signal", "SIGKILL", container)
-			startCmd = exec.CommandContext(ctx, "docker", "start", container)
+			killCmd = exec.CommandContext(ctx, "docker", "kill", "--signal", "SIGKILL", t.service)
+			startCmd = exec.CommandContext(ctx, "docker", "start", t.service)
 		}
 		if out, err := killCmd.CombinedOutput(); err != nil {
-			log.Printf("scenarios: crash-recovery: kill %s (ignored): %v: %s", container, err, out)
+			log.Printf("scenarios: crash-recovery: kill %s (ignored): %v: %s", t.tool, err, out)
 		}
 
 		if out, err := startCmd.CombinedOutput(); err != nil {
-			log.Printf("scenarios: crash-recovery: start %s (ignored): %v: %s", container, err, out)
+			log.Printf("scenarios: crash-recovery: start %s (ignored): %v: %s", t.tool, err, out)
 		}
 
-		recoverySecs := r.pollRecovery(ctx, container, killTime)
-		log.Printf("scenarios: crash-recovery: %s recovered in %.2fs", container, recoverySecs)
+		recoverySecs := r.pollRecovery(ctx, t.tool, killTime)
+		log.Printf("scenarios: crash-recovery: %s recovered in %.2fs", t.tool, recoverySecs)
 
 		rec := map[string]interface{}{
 			"scenario_event":   "recovery",
-			"tool":             container,
+			"tool":             t.tool,
 			"recovery_seconds": recoverySecs,
 			"ts":               time.Now().UTC(),
 		}
