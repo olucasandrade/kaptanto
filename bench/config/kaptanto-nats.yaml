@@ -1,0 +1,11 @@
+source: postgres://bench:bench@postgres:5432/bench
+output: nats
+port: 7658
+data-dir: /data
+source-id: bench_nats
+tables:
+  public.bench_events: {}
+sinks:
+  nats:
+    url: nats://nats:4222
+    subject-template: "cdc.{{.Schema}}.{{.Table}}"

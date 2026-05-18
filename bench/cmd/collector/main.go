@@ -29,6 +29,8 @@ func main() {
 	kafkaTopic := flag.String("kafka-topic", "public.bench_events", "PeerDB Kafka topic")
 	kaptantoKafkaBrokers := flag.String("kaptanto-kafka-brokers", "localhost:9092", "Redpanda brokers for kaptanto Kafka sink adapter")
 	kaptantoKafkaTopic := flag.String("kaptanto-kafka-topic", "public.bench_events", "Topic written by kaptanto Kafka sink")
+	kaptantoNATSURL := flag.String("kaptanto-nats-url", "nats://localhost:4222", "NATS server for kaptanto NATS sink adapter")
+	kaptantoNATSSubject := flag.String("kaptanto-nats-subject", "cdc.public.bench_events", "Subject written by kaptanto NATS sink")
 	managementPort := flag.Int("management-port", 8080, "HTTP port for scenario management API")
 	flag.Parse()
 
@@ -100,6 +102,8 @@ func main() {
 	kaptantoKafkaBrokerList := strings.Split(*kaptantoKafkaBrokers, ",")
 	go adapters.RunKaptantoKafka(ctx, kaptantoKafkaBrokerList, *kaptantoKafkaTopic, &scenario, adapterCh)
 
+	go adapters.RunKaptantoNATS(ctx, *kaptantoNATSURL, *kaptantoNATSSubject, &scenario, adapterCh)
+
 	mgmtMux := http.NewServeMux()
 
 	// POST /scenario?name=X — sets scenario tag.
@@ -157,7 +161,7 @@ func main() {
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "collector: ready (management=:%d, debezium=:%d, sequin=:%d, kaptanto-kafka=running)\n",
+	fmt.Fprintf(os.Stderr, "collector: ready (management=:%d, debezium=:%d, sequin=:%d, kaptanto-kafka=running, kaptanto-nats=running)\n",
 		*managementPort, *debeziumPort, *sequinPort)
 
 	<-ctx.Done()
