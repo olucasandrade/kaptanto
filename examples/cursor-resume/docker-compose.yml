@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: cursorresume
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - ./api/sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - postgres
+    ports:
+      - "7064:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  api:
+    build:
+      context: ..
+      dockerfile: cursor-resume/api/Dockerfile
+    environment:
+      PORT: "4005"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/cursorresume
+      KAPTANTO_URL: http://kaptanto:7654/events?consumer=cursor-api&tables=jobs
+      ALLOWED_ORIGIN: http://localhost:3005
+    depends_on:
+      - postgres
+      - kaptanto
+    ports:
+      - "4005:4005"
+
+  web:
+    build:
+      context: ..
+      dockerfile: cursor-resume/web/Dockerfile
+    environment:
+      VITE_API_URL: http://localhost:4005
+    depends_on:
+      - api
+    ports:
+      - "3005:3000"

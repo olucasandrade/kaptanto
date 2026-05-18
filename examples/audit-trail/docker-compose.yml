@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: audittrail
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5438:5432"
+    volumes:
+      - ./api/sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - postgres
+    ports:
+      - "7264:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  api:
+    build:
+      context: ..
+      dockerfile: audit-trail/api/Dockerfile
+    environment:
+      PORT: "4007"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/audittrail
+      KAPTANTO_URL: http://kaptanto:7654/events?consumer=audit-api&tables=employees
+      ALLOWED_ORIGIN: http://localhost:3007
+    depends_on:
+      - postgres
+      - kaptanto
+    ports:
+      - "4007:4007"
+
+  web:
+    build:
+      context: ..
+      dockerfile: audit-trail/web/Dockerfile
+    environment:
+      VITE_API_URL: http://localhost:4007
+    depends_on:
+      - api
+    ports:
+      - "3007:3000"

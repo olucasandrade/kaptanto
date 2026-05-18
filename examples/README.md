@@ -1,12 +1,13 @@
 # Examples
 
-This directory collects runnable examples that show Kaptanto powering both product features and backend automation.
+This directory now centers on two primary visual demos. Both are meant to make the downstream effects of CDC obvious on screen, not just prove that events exist.
 
-## Full-Stack Apps
+## Primary Demos
 
-- `notifications`: Postgres comments, mentions, and follows become a live notification inbox.
-- `orders-dashboard`: Postgres order, payment, and shipment writes become a live operations board.
-- `analytics-feed`: MongoDB activity documents become a live admin feed and rollup counters.
+- `fanout`: a search-and-cache control room where a single product change becomes searchable and cache-consistent almost immediately.
+- `audit-trail`: a user-facing recent changes feed where raw row updates become readable product activity.
+
+If you only want to understand what Kaptanto looks like in a real application, start with these two.
 
 These examples include:
 
@@ -15,11 +16,14 @@ These examples include:
 - `docker-compose.yml`: the source database, Kaptanto, app API, and web app
 - `kaptanto.yaml`: example-specific Kaptanto configuration
 
-## Backend Automation
+## Supporting Examples
 
 - `entitlements-sync`: a billing API writes subscription and payment changes to Postgres, and a separate sync API consumes Kaptanto SSE to update an entitlements API automatically.
+- `notifications`: Postgres comments, mentions, and follows become a live notification inbox.
+- `orders-dashboard`: Postgres order, payment, and shipment writes become a live operations board.
+- `analytics-feed`: MongoDB activity documents become a live admin feed and rollup counters.
 
-This example is intentionally API-to-API instead of UI-first. It demonstrates a common CDC pattern: one system owns the source of truth, and downstream systems stay in sync without polling or point-to-point coupling.
+These remain useful for narrower patterns, but they are no longer the main visual entry point.
 
 ## Common Flow
 
