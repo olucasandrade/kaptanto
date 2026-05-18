@@ -46,6 +46,11 @@ var Scenarios = []ScenarioDef{
 		LoadgenArgs: []string{"--mode", "idle", "--duration", "60s"},
 		PreWaitS:    0,
 	},
+	{
+		Name:        "cluster",
+		LoadgenArgs: []string{"--mode", "steady", "--rate", "10000", "--duration", "30s"},
+		PreWaitS:    30,
+	},
 }
 
 // Runner coordinates the collector subprocess, loadgen executions, and

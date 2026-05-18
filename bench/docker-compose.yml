@@ -202,6 +202,68 @@ services:
       start_period: 20s
 
   # ---------------------------------------------------------------------------
+  # Kaptanto cluster node 1 — coordinates with node 2 via NATS, Kafka sink output
+  # ---------------------------------------------------------------------------
+  kaptanto-cluster-node-1:
+    build:
+      context: ..
+      dockerfile: bench/Dockerfile.bench
+    ports:
+      - "7659:7659"
+    command:
+      - --config
+      - /config/kaptanto-cluster-node1.yaml
+      - --data-dir
+      - /data
+    volumes:
+      - kaptanto-cluster-node1-data:/data
+      - ./config/kaptanto-cluster-node1.yaml:/config/kaptanto-cluster-node1.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7659/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 25s
+
+  # ---------------------------------------------------------------------------
+  # Kaptanto cluster node 2 — coordinates with node 1 via NATS, Kafka sink output
+  # ---------------------------------------------------------------------------
+  kaptanto-cluster-node-2:
+    build:
+      context: ..
+      dockerfile: bench/Dockerfile.bench
+    ports:
+      - "7660:7660"
+    command:
+      - --config
+      - /config/kaptanto-cluster-node2.yaml
+      - --data-dir
+      - /data
+    volumes:
+      - kaptanto-cluster-node2-data:/data
+      - ./config/kaptanto-cluster-node2.yaml:/config/kaptanto-cluster-node2.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7660/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 25s
+
+  # ---------------------------------------------------------------------------
   # Debezium Server 3.4.2.Final — Postgres source, Redis sink
   # IMPORTANT: quay.io only — Docker Hub is frozen at 2.x for this image
   # Config mounted from ./config/debezium/application.properties
@@ -478,6 +540,8 @@ volumes:
   kaptanto-rust-data:
   kaptanto-kafka-data:
   kaptanto-nats-data:
+  kaptanto-cluster-node1-data:
+  kaptanto-cluster-node2-data:
   debezium-data:
     # Stores Debezium offset files so the connector resumes from the last
     # committed offset on restart (avoids full re-scan on compose restart)
