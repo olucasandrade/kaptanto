@@ -1,0 +1,96 @@
+name: Benchmark
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'Comma-separated scenarios (empty = all 5: steady,burst,large-batch,crash-recovery,idle)'
+        required: false
+        default: ''
+
+jobs:
+  benchmark:
+    name: CDC Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build bench binaries
+        working-directory: bench
+        run: |
+          go build -o cmd/collector/collector ./cmd/collector
+          go build -o cmd/loadgen/loadgen ./cmd/loadgen
+          go build -o cmd/reporter/reporter ./cmd/reporter
+
+      - name: Clean slate
+        working-directory: bench
+        run: docker compose down -v --remove-orphans 2>/dev/null || true
+
+      - name: Start stack
+        working-directory: bench
+        run: docker compose up --build -d
+
+      - name: Wait for all services healthy
+        working-directory: bench
+        timeout-minutes: 5
+        run: |
+          echo "Waiting for services to become healthy..."
+          for i in $(seq 1 30); do
+            starting=$(docker compose ps --format '{{.Health}}' | grep -c 'starting' || true)
+            if [ "$starting" = "0" ]; then
+              echo "All services settled after ${i}x10s"
+              break
+            fi
+            echo "  attempt $i: $starting service(s) still starting..."
+            sleep 10
+          done
+          docker compose ps
+
+      - name: Run benchmark scenarios
+        working-directory: bench
+        env:
+          SCENARIOS: ${{ github.event.inputs.scenarios }}
+        run: |
+          ARGS="--collector-bin ./cmd/collector/collector \
+                --loadgen-bin ./cmd/loadgen/loadgen \
+                --output-dir ./results \
+                --compose-dir ."
+          if [ -n "$SCENARIOS" ]; then
+            ARGS="$ARGS --scenarios $SCENARIOS"
+          fi
+          go run ./cmd/scenarios -- $ARGS
+
+      - name: Generate report
+        working-directory: bench
+        run: |
+          ./cmd/reporter/reporter \
+            --metrics ./results/metrics.jsonl \
+            --stats ./results/docker_stats.jsonl \
+            --output-dir ./results \
+            --hardware "GitHub Actions ubuntu-latest (4 vCPU, 16 GB RAM, x86_64)"
+
+      - name: Teardown
+        if: always()
+        working-directory: bench
+        run: docker compose down -v --remove-orphans
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.run_id }}-${{ github.sha }}
+          path: |
+            bench/results/metrics.jsonl
+            bench/results/docker_stats.jsonl
+            bench/results/REPORT.md
+            bench/results/report.html
+          retention-days: 90
