@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 )
 
@@ -185,36 +186,48 @@ func Defaults() *Config {
 func Merge(cfg *Config, cmd *cobra.Command) error {
 	flags := cmd.Flags()
 
-	if flags.Changed("source") {
-		v, err := flags.GetString("source")
-		if err != nil {
-			return fmt.Errorf("config: merge source: %w", err)
+	for _, f := range []struct {
+		name string
+		dest *string
+	}{
+		{"source", &cfg.Source},
+		{"output", &cfg.Output},
+		{"data-dir", &cfg.DataDir},
+		{"node-id", &cfg.NodeID},
+		{"source-id", &cfg.SourceID},
+		{"cluster-dsn", &cfg.ClusterDSN},
+	} {
+		if err := mergeString(flags, f.name, f.dest); err != nil {
+			return err
 		}
-		cfg.Source = v
 	}
 
-	if flags.Changed("output") {
-		v, err := flags.GetString("output")
-		if err != nil {
-			return fmt.Errorf("config: merge output: %w", err)
+	for _, f := range []struct {
+		name string
+		dest *int
+	}{
+		{"port", &cfg.Port},
+		{"nats-cluster-port", &cfg.NatsClusterPort},
+	} {
+		if err := mergeInt(flags, f.name, f.dest); err != nil {
+			return err
 		}
-		cfg.Output = v
 	}
 
-	if flags.Changed("port") {
-		v, err := flags.GetInt("port")
-		if err != nil {
-			return fmt.Errorf("config: merge port: %w", err)
+	for _, f := range []struct {
+		name string
+		dest *bool
+	}{
+		{"ha", &cfg.HA},
+		{"cluster", &cfg.Cluster},
+	} {
+		if err := mergeBool(flags, f.name, f.dest); err != nil {
+			return err
 		}
-		cfg.Port = v
 	}
 
-	if flags.Changed("data-dir") {
-		v, err := flags.GetString("data-dir")
-		if err != nil {
-			return fmt.Errorf("config: merge data-dir: %w", err)
-		}
-		cfg.DataDir = v
+	if err := mergeStringSlice(flags, "cluster-peers", &cfg.ClusterPeers); err != nil {
+		return err
 	}
 
 	if flags.Changed("retention") {
@@ -238,61 +251,53 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 		cfg.Tables = newTables
 	}
 
-	if flags.Changed("ha") {
-		v, err := flags.GetBool("ha")
-		if err != nil {
-			return fmt.Errorf("config: merge ha: %w", err)
-		}
-		cfg.HA = v
-	}
+	return nil
+}
 
-	if flags.Changed("node-id") {
-		v, err := flags.GetString("node-id")
-		if err != nil {
-			return fmt.Errorf("config: merge node-id: %w", err)
-		}
-		cfg.NodeID = v
+func mergeString(flags *pflag.FlagSet, name string, dest *string) error {
+	if !flags.Changed(name) {
+		return nil
 	}
-
-	if flags.Changed("source-id") {
-		v, err := flags.GetString("source-id")
-		if err != nil {
-			return fmt.Errorf("config: merge source-id: %w", err)
-		}
-		cfg.SourceID = v
+	v, err := flags.GetString(name)
+	if err != nil {
+		return fmt.Errorf("config: merge %s: %w", name, err)
 	}
+	*dest = v
+	return nil
+}
 
-	if flags.Changed("cluster") {
-		v, err := flags.GetBool("cluster")
-		if err != nil {
-			return fmt.Errorf("config: merge cluster: %w", err)
-		}
-		cfg.Cluster = v
+func mergeInt(flags *pflag.FlagSet, name string, dest *int) error {
+	if !flags.Changed(name) {
+		return nil
 	}
-
-	if flags.Changed("cluster-dsn") {
-		v, err := flags.GetString("cluster-dsn")
-		if err != nil {
-			return fmt.Errorf("config: merge cluster-dsn: %w", err)
-		}
-		cfg.ClusterDSN = v
+	v, err := flags.GetInt(name)
+	if err != nil {
+		return fmt.Errorf("config: merge %s: %w", name, err)
 	}
+	*dest = v
+	return nil
+}
 
-	if flags.Changed("cluster-peers") {
-		v, err := flags.GetStringSlice("cluster-peers")
-		if err != nil {
-			return fmt.Errorf("config: merge cluster-peers: %w", err)
-		}
-		cfg.ClusterPeers = v
+func mergeBool(flags *pflag.FlagSet, name string, dest *bool) error {
+	if !flags.Changed(name) {
+		return nil
 	}
-
-	if flags.Changed("nats-cluster-port") {
-		v, err := flags.GetInt("nats-cluster-port")
-		if err != nil {
-			return fmt.Errorf("config: merge nats-cluster-port: %w", err)
-		}
-		cfg.NatsClusterPort = v
+	v, err := flags.GetBool(name)
+	if err != nil {
+		return fmt.Errorf("config: merge %s: %w", name, err)
 	}
+	*dest = v
+	return nil
+}
 
+func mergeStringSlice(flags *pflag.FlagSet, name string, dest *[]string) error {
+	if !flags.Changed(name) {
+		return nil
+	}
+	v, err := flags.GetStringSlice(name)
+	if err != nil {
+		return fmt.Errorf("config: merge %s: %w", name, err)
+	}
+	*dest = v
 	return nil
 }
