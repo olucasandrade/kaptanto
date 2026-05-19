@@ -254,11 +254,6 @@ func restartStack(ctx context.Context, composeDir, pgDSN string) error {
 			log.Printf("scenarios: stack: %s not healthy within timeout (continuing): %v", svc, err)
 		}
 	}
-	// Debezium Connect (Kafka Connect JVM) takes longer to initialize.
-	if err := waitForContainer(ctx, "bench-debezium-connect-1", 180*time.Second); err != nil {
-		log.Printf("scenarios: stack: bench-debezium-connect-1 not healthy within timeout (continuing): %v", err)
-	}
-
 	log.Println("scenarios: stack: registering Debezium Connector")
 	if err := runDebeziumConnectorPreconditions(ctx); err != nil {
 		log.Printf("scenarios: Debezium Connector preconditions (continuing): %v", err)
@@ -300,10 +295,12 @@ func runDebeziumConnectorPreconditions(ctx context.Context) error {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	// Wait for the Connect REST API to be responsive (Kafka Connect takes 60–120s
-	// to start: JVM init + Kafka broker connection + internal topic creation).
-	log.Println("scenarios: Debezium Connector: waiting for REST API")
-	deadline := time.Now().Add(3 * time.Minute)
+	// Wait for the Connect REST API to be responsive. On GHA runners, Kafka Connect
+	// takes 5–8 min: JVM init + plugin scan (60+ connectors) + broker connection +
+	// internal topic creation. We skip the separate waitForContainer and let this
+	// loop cover the full startup window.
+	log.Println("scenarios: Debezium Connector: waiting for REST API (up to 10 min)")
+	deadline := time.Now().Add(10 * time.Minute)
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(connectBase + "/connectors")
 		if err == nil && resp.StatusCode == http.StatusOK {
