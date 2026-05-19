@@ -217,7 +217,7 @@ func restartStack(ctx context.Context, composeDir, pgDSN string) error {
 	// remain "starting" indefinitely so we skip it — its logs confirm it
 	// streams WAL correctly regardless.
 	log.Println("scenarios: stack: waiting for CDC services to be healthy")
-	for _, svc := range []string{"bench-kaptanto-1", "bench-kaptanto-rust-1", "bench-sequin-1"} {
+	for _, svc := range []string{"bench-kaptanto-1", "bench-kaptanto-rust-1", "bench-sequin-1", "bench-kaptanto-kafka-1", "bench-kaptanto-nats-1"} {
 		if err := waitForContainer(ctx, svc, 120*time.Second); err != nil {
 			log.Printf("scenarios: stack: %s not healthy within timeout (continuing): %v", svc, err)
 		}
