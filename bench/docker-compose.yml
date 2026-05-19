@@ -271,6 +271,8 @@ services:
   debezium:
     image: quay.io/debezium/server:3.4.2.Final
     restart: on-failure
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./config/debezium:/debezium/config
       - debezium-data:/debezium/data
@@ -310,6 +312,8 @@ services:
   # ---------------------------------------------------------------------------
   sequin:
     image: sequin/sequin:v0.14.6
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       PG_HOSTNAME: sequin-postgres
       PG_PORT: "5432"

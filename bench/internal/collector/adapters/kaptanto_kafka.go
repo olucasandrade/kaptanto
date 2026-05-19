@@ -17,6 +17,7 @@ func RunKaptantoKafka(ctx context.Context, brokers []string, topic string, scena
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup("bench-collector-kaptanto-kafka"),
 		kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 	)
 	if err != nil {
 		log.Printf("kaptanto-kafka adapter: create client: %v", err)
