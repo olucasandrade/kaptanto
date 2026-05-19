@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -242,17 +244,84 @@ func restartStack(ctx context.Context, composeDir, pgDSN string) error {
 	}
 
 	// Wait for the CDC services that have working healthchecks.
-	// Debezium's healthcheck uses wget which is absent in its image; it will
+	// Debezium Server's healthcheck uses wget which is absent in its image; it will
 	// remain "starting" indefinitely so we skip it — its logs confirm it
 	// streams WAL correctly regardless.
 	log.Println("scenarios: stack: waiting for CDC services to be healthy")
-	for _, svc := range []string{"bench-kaptanto-1", "bench-kaptanto-rust-1", "bench-sequin-1", "bench-kaptanto-kafka-1", "bench-kaptanto-nats-1"} {
+	for _, svc := range []string{"bench-kaptanto-1", "bench-kaptanto-rust-1", "bench-sequin-1", "bench-kaptanto-kafka-1", "bench-kaptanto-nats-1", "bench-debezium-connect-1"} {
 		if err := waitForContainer(ctx, svc, 120*time.Second); err != nil {
 			log.Printf("scenarios: stack: %s not healthy within timeout (continuing): %v", svc, err)
 		}
 	}
 
+	log.Println("scenarios: stack: registering Debezium Connector")
+	if err := runDebeziumConnectorPreconditions(ctx); err != nil {
+		log.Printf("scenarios: Debezium Connector preconditions (continuing): %v", err)
+	}
+
 	log.Println("scenarios: stack: ready")
+	return nil
+}
+
+// runDebeziumConnectorPreconditions registers the Debezium Postgres connector with
+// the Kafka Connect REST API. The connector streams WAL events from bench_events
+// to the bench-connect.public.bench_events Redpanda topic.
+func runDebeziumConnectorPreconditions(ctx context.Context) error {
+	const connectBase = "http://localhost:8083"
+	const connectorName = "bench-postgres-connector"
+	const connectorBody = `{
+		"name": "bench-postgres-connector",
+		"config": {
+			"connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+			"database.hostname": "postgres",
+			"database.port": "5432",
+			"database.user": "bench",
+			"database.password": "bench",
+			"database.dbname": "bench",
+			"topic.prefix": "bench-connect",
+			"plugin.name": "pgoutput",
+			"table.include.list": "public.bench_events",
+			"slot.name": "debezium_connect",
+			"publication.name": "bench_connect_pub",
+			"publication.autocreate.mode": "disabled",
+			"key.converter": "org.apache.kafka.connect.json.JsonConverter",
+			"value.converter": "org.apache.kafka.connect.json.JsonConverter",
+			"key.converter.schemas.enable": "false",
+			"value.converter.schemas.enable": "false",
+			"offset.flush.interval.ms": "0",
+			"tasks.max": "1"
+		}
+	}`
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// DELETE any existing connector registration (stack was just started fresh,
+	// but the Connect internal topics may persist in Redpanda across restarts).
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete,
+		connectBase+"/connectors/"+connectorName, nil)
+	if resp, err := client.Do(req); err == nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+
+	// POST the new connector config.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		connectBase+"/connectors",
+		bytes.NewBufferString(connectorBody))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("register connector: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("register connector: status %d: %s", resp.StatusCode, body)
+	}
+	log.Printf("scenarios: Debezium Connector registered (status %d)", resp.StatusCode)
 	return nil
 }
 
@@ -332,6 +401,9 @@ DO $$ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname='sequin_bench_pub') THEN
         CREATE PUBLICATION sequin_bench_pub FOR TABLE bench_events;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname='bench_connect_pub') THEN
+        CREATE PUBLICATION bench_connect_pub FOR TABLE bench_events;
     END IF;
 END $$;
 SELECT pg_create_logical_replication_slot('sequin_bench', 'pgoutput')

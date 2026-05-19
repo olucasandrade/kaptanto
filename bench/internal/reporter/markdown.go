@@ -32,9 +32,10 @@ func RenderMarkdown(data *ReportData, htmlPath string) string {
 	infraMap := map[string]string{
 		"kaptanto":       "1 binary (Go, ~15 MB)",
 		"kaptanto-rust":  "1 binary (Go+Rust FFI, ~15 MB)",
-		"kaptanto-kafka": "1 binary (Go, ~15 MB) + Redpanda",
-		"kaptanto-nats":  "1 binary (Go, ~15 MB) + NATS JetStream",
-		"debezium":       "JVM + config files",
+		"kaptanto-kafka":      "1 binary (Go, ~15 MB) + Redpanda",
+		"kaptanto-nats":       "1 binary (Go, ~15 MB) + NATS JetStream",
+		"debezium":            "JVM (Debezium Server, HTTP sink)",
+		"debezium-connector":  "JVM (Debezium + Kafka Connect, Redpanda sink)",
 		"sequin":         "Elixir + Redis + PG",
 		"peerdb":         "4 Go services + Temporal + Kafka + PG",
 	}
