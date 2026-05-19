@@ -16,6 +16,16 @@
 #   sequin-postgres (isolated metadata DB for Sequin)
 #   peerdb-postgres (isolated catalog DB for PeerDB + Temporal)
 
+# Cap all container logs at 10 MB (2 × 5 MB files) so repeated JVM restarts
+# (Debezium Server, Debezium Connect, Temporal) don't exhaust GHA runner disk
+# across 5 isolated docker-compose cycles.
+x-logging: &default-logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "5m"
+      max-file: "2"
+
 services:
 
   # ---------------------------------------------------------------------------
@@ -25,6 +35,7 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16.13-alpine
+    <<: *default-logging
     environment:
       POSTGRES_USER: bench
       POSTGRES_PASSWORD: bench
@@ -48,6 +59,7 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7.2.4-alpine
+    <<: *default-logging
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -63,6 +75,7 @@ services:
     build:
       context: ..
       dockerfile: bench/Dockerfile.bench
+    <<: *default-logging
     ports:
       - "7654:7654"
     command:
@@ -96,6 +109,7 @@ services:
     build:
       context: ..
       dockerfile: bench/Dockerfile.bench-rust
+    <<: *default-logging
     ports:
       - "7656:7656"
     command:
@@ -132,6 +146,7 @@ services:
     build:
       context: ..
       dockerfile: bench/Dockerfile.bench
+    <<: *default-logging
     ports:
       - "7657:7657"
     command:
@@ -160,6 +175,7 @@ services:
   # ---------------------------------------------------------------------------
   nats:
     image: nats:2.10-alpine
+    <<: *default-logging
     command: ["-js", "-m", "8222"]
     ports:
       - "4222:4222"
@@ -180,6 +196,7 @@ services:
     build:
       context: ..
       dockerfile: bench/Dockerfile.bench
+    <<: *default-logging
     ports:
       - "7658:7658"
     command:
@@ -209,6 +226,7 @@ services:
     build:
       context: ..
       dockerfile: bench/Dockerfile.bench
+    <<: *default-logging
     ports:
       - "7659:7659"
     command:
@@ -240,6 +258,7 @@ services:
     build:
       context: ..
       dockerfile: bench/Dockerfile.bench
+    <<: *default-logging
     ports:
       - "7660:7660"
     command:
@@ -271,7 +290,7 @@ services:
   # ---------------------------------------------------------------------------
   debezium:
     image: quay.io/debezium/server:3.4.2.Final
-    restart: on-failure
+    <<: *default-logging
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -297,6 +316,7 @@ services:
   # ---------------------------------------------------------------------------
   debezium-connect:
     image: quay.io/debezium/connect:3.4.2.Final
+    <<: *default-logging
     depends_on:
       redpanda:
         condition: service_healthy
@@ -328,6 +348,7 @@ services:
   # ---------------------------------------------------------------------------
   sequin-postgres:
     image: postgres:16.13-alpine
+    <<: *default-logging
     environment:
       POSTGRES_USER: sequin
       POSTGRES_PASSWORD: sequin
@@ -346,6 +367,7 @@ services:
   # ---------------------------------------------------------------------------
   sequin:
     image: sequin/sequin:v0.14.6
+    <<: *default-logging
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -381,6 +403,7 @@ services:
   # ---------------------------------------------------------------------------
   peerdb-postgres:
     image: postgres:16.13-alpine
+    <<: *default-logging
     environment:
       POSTGRES_USER: peerdb
       POSTGRES_PASSWORD: peerdb
@@ -398,6 +421,7 @@ services:
   # ---------------------------------------------------------------------------
   temporal:
     image: temporalio/auto-setup:1.29
+    <<: *default-logging
     environment:
       DB: postgres12
       DB_PORT: "5432"
@@ -424,6 +448,7 @@ services:
   # ---------------------------------------------------------------------------
   peerdb-server:
     image: ghcr.io/peerdb-io/peerdb-server:stable-v0.36.12
+    <<: *default-logging
     ports:
       - "9900:9900"
     environment:
@@ -447,6 +472,7 @@ services:
 
   flow-api:
     image: ghcr.io/peerdb-io/flow-api:stable-v0.36.12
+    <<: *default-logging
     environment:
       TEMPORAL_HOST_PORT: temporal:7233
       PEERDB_CATALOG_HOST: peerdb-postgres
@@ -468,6 +494,7 @@ services:
 
   flow-worker:
     image: ghcr.io/peerdb-io/flow-worker:stable-v0.36.12
+    <<: *default-logging
     environment:
       TEMPORAL_HOST_PORT: temporal:7233
       PEERDB_CATALOG_HOST: peerdb-postgres
@@ -489,6 +516,7 @@ services:
 
   flow-snapshot-worker:
     image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.36.12
+    <<: *default-logging
     environment:
       TEMPORAL_HOST_PORT: temporal:7233
       PEERDB_CATALOG_HOST: peerdb-postgres
@@ -510,6 +538,7 @@ services:
 
   peerdb-ui:
     image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.36.12
+    <<: *default-logging
     ports:
       - "3000:3000"
     environment:
@@ -535,6 +564,7 @@ services:
   # ---------------------------------------------------------------------------
   redpanda:
     image: redpandadata/redpanda:v24.3.10
+    <<: *default-logging
     command: >
       redpanda start
       --overprovisioned
@@ -563,6 +593,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.statsd
+    <<: *default-logging
     pid: "host"
     volumes:
       - ./results:/results
