@@ -26,9 +26,6 @@ http_endpoints:
 sinks:
   - name: bench-events-sink
     database: bench-postgres
-    batch_size: 100
-    batch_timeout: 100ms
-    message_grouping: false
     source:
       include_tables:
         - public.bench_events
