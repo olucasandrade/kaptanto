@@ -7,7 +7,8 @@
 # Service topology:
 #   postgres (shared benchmark source, wal_level=logical)
 #     ├── kaptanto (built from source via Dockerfile.bench)
-#     ├── debezium (quay.io, sink → redis)
+#     ├── debezium (quay.io/debezium/server, HTTP sink → collector)
+#     ├── debezium-connect (quay.io/debezium/connect, sink → redpanda)
 #     ├── sequin (needs sequin-postgres + redis)
 #     └── peerdb-server, flow-api, flow-worker, flow-snapshot-worker, peerdb-ui
 #         └── temporal (needs peerdb-postgres)
@@ -286,6 +287,39 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Debezium Connector (Kafka Connect) 3.4.2.Final — Postgres source, Redpanda sink
+  # Streams WAL events to bench-connect.public.bench_events Kafka topic in batches.
+  # The connector is registered via the REST API at port 8083 by the scenarios runner.
+  # IMPORTANT: quay.io only — Docker Hub is frozen at 2.x for this image
+  # ---------------------------------------------------------------------------
+  debezium-connect:
+    image: quay.io/debezium/connect:3.4.2.Final
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: redpanda:9092
+      GROUP_ID: bench-connect
+      CONFIG_STORAGE_TOPIC: bench-connect-configs
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_TOPIC: bench-connect-offsets
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_TOPIC: bench-connect-status
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
       start_period: 30s
 
   # ---------------------------------------------------------------------------

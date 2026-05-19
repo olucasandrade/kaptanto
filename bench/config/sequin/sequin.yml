@@ -32,4 +32,4 @@ sinks:
     destination:
       type: webhook
       http_endpoint: collector-sequin
-      batch: false
+      batch: true
