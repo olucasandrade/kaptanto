@@ -17,6 +17,7 @@ type ScenarioDef struct {
 	Name        string
 	LoadgenArgs []string // passed directly to loadgen binary
 	PreWaitS    int      // seconds to wait before starting loadgen (warmup)
+	PostWaitS   int      // seconds to wait after loadgen finishes, before writing the END marker
 }
 
 // Scenarios is the canonical ordered list of all five benchmark scenarios.
@@ -32,9 +33,13 @@ var Scenarios = []ScenarioDef{
 		PreWaitS:    0,
 	},
 	{
+		// PostWaitS keeps the scenario window open after the 100k-row commit so that
+		// slower CDC tools (debezium-connector ~200 eps) can catch up. Without this,
+		// the END marker is written 5s after commit and slow tools record 0 events.
 		Name:        "large-batch",
 		LoadgenArgs: []string{"--mode", "large-batch"},
 		PreWaitS:    0,
+		PostWaitS:   120,
 	},
 	{
 		Name:        "crash-recovery",
@@ -131,6 +136,15 @@ func (r *Runner) Run(ctx context.Context, scenarios []ScenarioDef) error {
 		}
 		if runErr != nil {
 			log.Printf("scenarios: %s loadgen error (ignored): %v", s.Name, runErr)
+		}
+
+		if s.PostWaitS > 0 {
+			log.Printf("scenarios: %s post-wait %ds for slow tools to catch up", s.Name, s.PostWaitS)
+			select {
+			case <-time.After(time.Duration(s.PostWaitS) * time.Second):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 
 		if err := r.writeMarker(s.Name, "end"); err != nil {
