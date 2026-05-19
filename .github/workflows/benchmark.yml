@@ -19,6 +19,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          # Remove large pre-installed SDKs that are unused by this workflow.
+          # Typically reclaims 20–25 GB on ubuntu-latest.
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo apt-get clean -q
+          docker image prune -af --filter "until=1h" 2>/dev/null || true
+          df -h /
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
