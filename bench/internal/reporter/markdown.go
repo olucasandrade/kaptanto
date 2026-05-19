@@ -30,11 +30,13 @@ func RenderMarkdown(data *ReportData, htmlPath string) string {
 	sb.WriteString("## Executive Summary\n\n")
 	summaryHeaders := []string{"Tool", "Peak Throughput (eps)", "p50 Latency (ms)", "p95 Latency (ms)", "Recovery (s)", "Infrastructure"}
 	infraMap := map[string]string{
-		"kaptanto":      "1 binary (Go, ~15 MB)",
-		"kaptanto-rust": "1 binary (Go+Rust FFI, ~15 MB)",
-		"debezium":      "JVM + config files",
-		"sequin":        "Elixir + Redis + PG",
-		"peerdb":        "4 Go services + Temporal + Kafka + PG",
+		"kaptanto":       "1 binary (Go, ~15 MB)",
+		"kaptanto-rust":  "1 binary (Go+Rust FFI, ~15 MB)",
+		"kaptanto-kafka": "1 binary (Go, ~15 MB) + Redpanda",
+		"kaptanto-nats":  "1 binary (Go, ~15 MB) + NATS JetStream",
+		"debezium":       "JVM + config files",
+		"sequin":         "Elixir + Redis + PG",
+		"peerdb":         "4 Go services + Temporal + Kafka + PG",
 	}
 	var summaryRows [][]string
 	for _, tool := range data.Tools {
