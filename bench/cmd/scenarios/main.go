@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/olucasandrade/kaptanto/bench/internal/scenarios"
 )
 
@@ -131,6 +133,9 @@ func runIsolated(ctx context.Context, selected []scenarios.ScenarioDef,
 			log.Printf("scenarios: run error for %s: %v", scenario.Name, err)
 		}
 
+		captureContainerLogs(ctx, "bench-kaptanto-kafka-1")
+		captureContainerLogs(ctx, "bench-kaptanto-nats-1")
+
 		stopProcess(collectorCmd)
 		stopProcess(statsdCmd)
 
@@ -216,6 +221,11 @@ func restartStack(ctx context.Context, composeDir, pgDSN string) error {
 	// Debezium's healthcheck uses wget which is absent in its image; it will
 	// remain "starting" indefinitely so we skip it — its logs confirm it
 	// streams WAL correctly regardless.
+	log.Println("scenarios: stack: creating NATS JetStream stream")
+	if err := runNATSPreconditions(ctx); err != nil {
+		log.Printf("scenarios: NATS preconditions (continuing): %v", err)
+	}
+
 	log.Println("scenarios: stack: waiting for CDC services to be healthy")
 	for _, svc := range []string{"bench-kaptanto-1", "bench-kaptanto-rust-1", "bench-sequin-1", "bench-kaptanto-kafka-1", "bench-kaptanto-nats-1"} {
 		if err := waitForContainer(ctx, svc, 120*time.Second); err != nil {
@@ -225,6 +235,48 @@ func restartStack(ctx context.Context, composeDir, pgDSN string) error {
 
 	log.Println("scenarios: stack: ready")
 	return nil
+}
+
+// runNATSPreconditions creates the JetStream stream bench_cdc for cdc.> subjects.
+// kaptanto-nats requires this stream to exist before it will start publishing.
+func runNATSPreconditions(ctx context.Context) error {
+	nc, err := nats.Connect("nats://localhost:4222",
+		nats.MaxReconnects(5),
+		nats.ReconnectWait(500*time.Millisecond),
+	)
+	if err != nil {
+		return fmt.Errorf("nats connect: %w", err)
+	}
+	defer nc.Close()
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return fmt.Errorf("nats jetstream: %w", err)
+	}
+
+	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name:     "bench_cdc",
+		Subjects: []string{"cdc.>"},
+		Storage:  jetstream.MemoryStorage,
+		MaxAge:   2 * time.Hour,
+	})
+	if err != nil {
+		return fmt.Errorf("nats create stream bench_cdc: %w", err)
+	}
+	log.Println("scenarios: NATS stream bench_cdc ready")
+	return nil
+}
+
+// captureContainerLogs prints the last 60 log lines of a container to stderr for diagnostics.
+func captureContainerLogs(ctx context.Context, container string) {
+	cmd := exec.CommandContext(ctx, "docker", "logs", "--tail", "60", container)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	log.Printf("scenarios: === logs: %s ===", container)
+	if err := cmd.Run(); err != nil {
+		log.Printf("scenarios: docker logs %s: %v", container, err)
+	}
+	log.Printf("scenarios: === end logs: %s ===", container)
 }
 
 // runPreconditions creates the bench_events table, the two publications, and
