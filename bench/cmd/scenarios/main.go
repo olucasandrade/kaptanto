@@ -137,6 +137,7 @@ func runIsolated(ctx context.Context, selected []scenarios.ScenarioDef,
 
 		captureContainerLogs(ctx, "bench-kaptanto-kafka-1")
 		captureContainerLogs(ctx, "bench-kaptanto-nats-1")
+		captureContainerLogs(ctx, "bench-debezium-connect-1")
 
 		stopProcess(collectorCmd)
 		stopProcess(statsdCmd)
@@ -248,10 +249,14 @@ func restartStack(ctx context.Context, composeDir, pgDSN string) error {
 	// remain "starting" indefinitely so we skip it — its logs confirm it
 	// streams WAL correctly regardless.
 	log.Println("scenarios: stack: waiting for CDC services to be healthy")
-	for _, svc := range []string{"bench-kaptanto-1", "bench-kaptanto-rust-1", "bench-sequin-1", "bench-kaptanto-kafka-1", "bench-kaptanto-nats-1", "bench-debezium-connect-1"} {
+	for _, svc := range []string{"bench-kaptanto-1", "bench-kaptanto-rust-1", "bench-sequin-1", "bench-kaptanto-kafka-1", "bench-kaptanto-nats-1"} {
 		if err := waitForContainer(ctx, svc, 120*time.Second); err != nil {
 			log.Printf("scenarios: stack: %s not healthy within timeout (continuing): %v", svc, err)
 		}
+	}
+	// Debezium Connect (Kafka Connect JVM) takes longer to initialize.
+	if err := waitForContainer(ctx, "bench-debezium-connect-1", 180*time.Second); err != nil {
+		log.Printf("scenarios: stack: bench-debezium-connect-1 not healthy within timeout (continuing): %v", err)
 	}
 
 	log.Println("scenarios: stack: registering Debezium Connector")
@@ -295,8 +300,28 @@ func runDebeziumConnectorPreconditions(ctx context.Context) error {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	// DELETE any existing connector registration (stack was just started fresh,
-	// but the Connect internal topics may persist in Redpanda across restarts).
+	// Wait for the Connect REST API to be responsive (Kafka Connect takes 60–120s
+	// to start: JVM init + Kafka broker connection + internal topic creation).
+	log.Println("scenarios: Debezium Connector: waiting for REST API")
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(connectBase + "/connectors")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			break
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+
+	// DELETE any existing connector registration (internal topics may survive
+	// a stack restart if Redpanda state persists).
 	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete,
 		connectBase+"/connectors/"+connectorName, nil)
 	if resp, err := client.Do(req); err == nil {

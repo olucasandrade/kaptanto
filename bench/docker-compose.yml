@@ -316,11 +316,11 @@ services:
     ports:
       - "8083:8083"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8083/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/ || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 30s
+      retries: 18
+      start_period: 60s
 
   # ---------------------------------------------------------------------------
   # Sequin internal Postgres — isolated metadata store for Sequin
