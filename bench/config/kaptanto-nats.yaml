@@ -9,3 +9,4 @@ sinks:
   nats:
     url: nats://nats:4222
     subject-template: "cdc.{{.Schema}}.{{.Table}}"
+    stream-name: bench_cdc
