@@ -195,9 +195,12 @@ func restartStack(ctx context.Context, composeDir, pgDSN string) error {
 
 	// Start infrastructure first: postgres must be healthy before we create
 	// the sequin_bench replication slot, which sequin reads at startup.
+	// nats and redpanda are also started here so we can pre-create the
+	// bench_cdc JetStream stream and public.bench_events Kafka topic before
+	// kaptanto-nats and kaptanto-kafka start (both validate at init time).
 	log.Println("scenarios: stack: starting infrastructure services")
 	if err := composeRun(ctx, composeDir, "up", "-d",
-		"postgres", "redis", "sequin-postgres", "peerdb-postgres"); err != nil {
+		"postgres", "redis", "sequin-postgres", "peerdb-postgres", "nats", "redpanda"); err != nil {
 		return fmt.Errorf("docker compose up infra: %w", err)
 	}
 
@@ -206,26 +209,42 @@ func restartStack(ctx context.Context, composeDir, pgDSN string) error {
 		return fmt.Errorf("postgres not healthy: %w", err)
 	}
 
+	log.Println("scenarios: stack: waiting for nats")
+	if err := waitForContainer(ctx, "bench-nats-1", 30*time.Second); err != nil {
+		log.Printf("scenarios: nats not healthy (continuing): %v", err)
+	}
+
+	log.Println("scenarios: stack: waiting for redpanda")
+	if err := waitForContainer(ctx, "bench-redpanda-1", 60*time.Second); err != nil {
+		log.Printf("scenarios: redpanda not healthy (continuing): %v", err)
+	}
+
 	log.Println("scenarios: stack: running pre-conditions SQL")
 	if err := runPreconditions(ctx, pgDSN); err != nil {
 		return fmt.Errorf("pre-conditions SQL: %w", err)
 	}
 
-	// Now start the full stack — sequin will find the slot already present.
-	log.Println("scenarios: stack: starting all services")
-	if err := composeRun(ctx, composeDir, "up", "-d"); err != nil {
-		return fmt.Errorf("docker compose up: %w", err)
-	}
-
-	// Wait for the three CDC services that have working healthchecks.
-	// Debezium's healthcheck uses wget which is absent in its image; it will
-	// remain "starting" indefinitely so we skip it — its logs confirm it
-	// streams WAL correctly regardless.
 	log.Println("scenarios: stack: creating NATS JetStream stream")
 	if err := runNATSPreconditions(ctx); err != nil {
 		log.Printf("scenarios: NATS preconditions (continuing): %v", err)
 	}
 
+	log.Println("scenarios: stack: creating Kafka topic")
+	if err := runKafkaPreconditions(ctx); err != nil {
+		log.Printf("scenarios: Kafka preconditions (continuing): %v", err)
+	}
+
+	// Now start the full stack — sequin will find the slot already present,
+	// kaptanto-nats will find bench_cdc stream, kaptanto-kafka will find the topic.
+	log.Println("scenarios: stack: starting all services")
+	if err := composeRun(ctx, composeDir, "up", "-d"); err != nil {
+		return fmt.Errorf("docker compose up: %w", err)
+	}
+
+	// Wait for the CDC services that have working healthchecks.
+	// Debezium's healthcheck uses wget which is absent in its image; it will
+	// remain "starting" indefinitely so we skip it — its logs confirm it
+	// streams WAL correctly regardless.
 	log.Println("scenarios: stack: waiting for CDC services to be healthy")
 	for _, svc := range []string{"bench-kaptanto-1", "bench-kaptanto-rust-1", "bench-sequin-1", "bench-kaptanto-kafka-1", "bench-kaptanto-nats-1"} {
 		if err := waitForContainer(ctx, svc, 120*time.Second); err != nil {
@@ -277,6 +296,24 @@ func captureContainerLogs(ctx context.Context, container string) {
 		log.Printf("scenarios: docker logs %s: %v", container, err)
 	}
 	log.Printf("scenarios: === end logs: %s ===", container)
+}
+
+// runKafkaPreconditions creates the public.bench_events Kafka topic on Redpanda.
+// kaptanto-kafka fails with UNKNOWN_TOPIC_OR_PARTITION if the topic is absent at startup.
+func runKafkaPreconditions(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "docker", "exec", "bench-redpanda-1",
+		"rpk", "topic", "create", "public.bench_events",
+		"-p", "10", "-r", "1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(out), "TOPIC_ALREADY_EXISTS") || strings.Contains(string(out), "already exists") {
+			log.Println("scenarios: Kafka topic public.bench_events already exists")
+			return nil
+		}
+		return fmt.Errorf("rpk topic create: %w: %s", err, out)
+	}
+	log.Printf("scenarios: Kafka topic public.bench_events created: %s", strings.TrimSpace(string(out)))
+	return nil
 }
 
 // runPreconditions creates the bench_events table, the two publications, and
