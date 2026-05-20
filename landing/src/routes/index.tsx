@@ -119,7 +119,7 @@ export const head: DocumentHead = {
     {
       name: 'description',
       content:
-        'Open-source universal CDC for Postgres and MongoDB. Stream real-time database changes via stdout, SSE, gRPC, or push directly to NATS, SQS, Kafka, Pub/Sub, and RabbitMQ — one lightweight binary.',
+        'Open-source universal CDC for Postgres and MongoDB. Stream real-time database changes via stdout, SSE, gRPC, or push directly to NATS, SQS, Kafka, Pub/Sub, and RabbitMQ — one binary, no infrastructure.',
     },
     {
       name: 'robots',
