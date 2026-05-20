@@ -115,6 +115,23 @@ code,.ic{font-family:var(--mono);font-size:.85em;color:var(--g);background:var(-
 .cmp .hi td:first-child{color:var(--g);font-family:var(--mono)}
 .ck{color:var(--g)}.cx{color:var(--t5)}.ca{color:var(--am)}
 
+/* changelog */
+.chlog{display:flex;flex-direction:column;margin-top:2.5rem;max-width:720px;position:relative}
+.chlog::before{content:'';position:absolute;left:0;top:10px;bottom:10px;width:1px;background:var(--b1)}
+.chver{padding:0 0 2.8rem 2.2rem;position:relative}
+.chver:last-child{padding-bottom:0}
+.chver::before{content:'';position:absolute;left:-4px;top:10px;width:9px;height:9px;border-radius:50%;background:var(--g);border:2px solid var(--bg)}
+.chver-old::before{background:var(--b2)}
+.chver-h{display:flex;align-items:center;gap:.65rem;margin-bottom:1.1rem;flex-wrap:wrap}
+.chtag{font-family:var(--mono);font-size:.7rem;color:var(--g);background:var(--gm);border:1px solid rgba(0,229,153,.18);border-radius:4px;padding:.18rem .55rem;letter-spacing:.04em;white-space:nowrap}
+.chtag-old{color:var(--t4);background:var(--s2);border-color:var(--b1)}
+.chdate{font-family:var(--mono);font-size:.7rem;color:var(--t4);letter-spacing:.04em}
+.chname{font-size:.9rem;color:var(--t2);letter-spacing:-.01em}
+.chlist{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.6rem}
+.chlist li{font-size:.82rem;color:var(--t3);line-height:1.7;padding-left:1.1rem;position:relative}
+.chlist li::before{content:'–';position:absolute;left:0;color:var(--b3);font-family:var(--mono)}
+.chlist li code{font-family:var(--mono);font-size:.8em;color:var(--g);background:var(--s2);padding:.1em .35em;border-radius:3px}
+
 /* cta */
 .cta{text-align:center;padding:5.5rem 2rem}
 .cta h2{font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:700;letter-spacing:-.03em;margin-bottom:.6rem}
