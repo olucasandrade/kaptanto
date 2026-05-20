@@ -22,10 +22,10 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
         <div class="fg sr">
           <div class="fc">
             <div class="fc-i">latency</div>
-            <h3>Sub-millisecond</h3>
+            <h3>Low-latency streaming</h3>
             <p>
-              Events flow from the WAL as each transaction commits. No polling interval, no artificial
-              delay.
+              Events flow from the WAL as each transaction commits. Steady-state p50 latency: 1.1s at
+              10K eps load. No polling interval.
             </p>
           </div>
           <div class="fc">
@@ -82,6 +82,45 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <p>
               Route events from different tables to different topics or queues via a Go template —{' '}
               <code style="font-size:.78em">{'cdc.{{.Schema}}.{{.Table}}'}</code>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Use Cases */}
+      <section class="sec" id="use-cases">
+        <div class="sl sr">Use Cases</div>
+        <div class="stt sr">Built for event-driven pipelines at product scale.</div>
+        <div class="sd sr">
+          Best fit: notification fan-out, search index sync, cache invalidation, audit trails. Up to ~5k eps steady state.
+        </div>
+        <div class="fg sr">
+          <div class="fc">
+            <div class="fc-i">notify</div>
+            <h3>Notification pipelines</h3>
+            <p>
+              Order inserted → push notification fan-out in under 2 seconds. No polling, no webhook delay.
+            </p>
+          </div>
+          <div class="fc">
+            <div class="fc-i">search</div>
+            <h3>Live search sync</h3>
+            <p>
+              Product catalog change → Elasticsearch or Typesense index update within seconds, automatically.
+            </p>
+          </div>
+          <div class="fc">
+            <div class="fc-i">cache</div>
+            <h3>Cache invalidation</h3>
+            <p>
+              Row updated → Redis key evicted before the next read hits the database. Consistent by design.
+            </p>
+          </div>
+          <div class="fc">
+            <div class="fc-i">audit</div>
+            <h3>Audit trail</h3>
+            <p>
+              Every insert, update, and delete captured in order, with idempotency keys. Append-only and crash-safe.
             </p>
           </div>
         </div>
@@ -405,7 +444,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
                 kaptanto
               </div>
               <p class="fdesc">
-                Lightweight CDC for Postgres and MongoDB. Open source, Apache 2.0.
+                Simple, fast CDC for Postgres and MongoDB. One binary. Open source, Apache 2.0.
               </p>
               <p class="fesp">"kaptanto" — who captures (Esperanto)</p>
             </div>
