@@ -99,6 +99,13 @@ Recent decisions affecting current work:
 
 - Plan Phase 19 (run `/gsd:plan-phase 19`)
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 001 | benchmark harness update for v2.1 queue sinks and cluster mode | 2026-05-18 | a113a78 | [001-benchmark-harness-update](./quick/001-benchmark-harness-update-for-v2-1-queue-sinks-and-cluster-mode/) |
+| 002 | update landing page with realistic benchmark numbers and honest positioning | 2026-05-19 | ce5b60a | [2-update-landing-page-with-realistic-bench](./quick/2-update-landing-page-with-realistic-bench/) |
+
 ### Blockers/Concerns
 
 - **Pub/Sub emulator setup (Phase 22):** Exact local integration test harness for Pub/Sub ordering-key correctness not fully resolved. Address at start of Phase 22 planning.
@@ -108,7 +115,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-09
-Stopped at: Completed 28-02-PLAN.md — SQS routing tests (3 config YAML + 5 consumer routing/pool/error), Phase 28 complete
+Last session: 2026-05-19
+Stopped at: Quick task 002 complete — landing page updated with accurate April 2026 benchmark numbers and honest positioning
 Resume file: None
-Next action: Phase 28 complete — proceed to next phase
+Next action: Push benchmark changes to mirror, then start /gsd:new-milestone for v2.2
