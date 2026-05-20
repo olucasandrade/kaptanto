@@ -567,6 +567,14 @@ node-id: node-1</div>
 
 'docs-aws-setup': {title:'AWS Deployment Guide',sub:'How to run kaptanto, Debezium, and Sequin alongside an API on AWS — and what each setup actually costs you.',body:`
 <div class="dcall"><p><strong>Scenario:</strong> An order management API (Node.js / Python / any language) running on ECS Fargate, backed by RDS Postgres. Every row written via the API must be streamed to downstream consumers in real time.</p></div>
+<h2 class="dh2">Best use cases for kaptanto</h2>
+<ul class="dul">
+<li><strong>Notification pipelines</strong> — new order row → push notification fan-out in &lt;2s</li>
+<li><strong>Live search sync</strong> — product catalog changes → Elasticsearch/Typesense index update</li>
+<li><strong>Cache invalidation</strong> — row update → Redis key eviction before the next read</li>
+<li><strong>Audit trail</strong> — every write captured and appended to an append-only audit log</li>
+</ul>
+<p class="dp">These patterns share a common shape: low-to-medium write rate (&lt;5k eps steady state), consumers that need events within 2–5s, and no requirement for exactly-once semantics or petabyte-scale sink connectors.</p>
 
 <h2 class="dh2">The common baseline</h2>
 <p class="dp">All tools read from the same Postgres source. You need logical replication enabled on RDS. That is the only change common to every option:</p>
@@ -611,7 +619,8 @@ es.onmessage = (e) =&gt; {
     reserveInventory(evt.after.sku, evt.after.qty);
   }
 };</div>
-<p class="dp"><strong>AWS cost:</strong> ~$9/mo for a 0.25 vCPU / 0.5 GB Fargate task. EFS volume for the event log (~$0.30/GB/mo). Total overhead: roughly <strong>$10–15/mo</strong>.</p>
+<div class="dcall"><p><strong>Instance sizing:</strong> kaptanto uses ~1.1 GB RSS at sustained load. Allocate at least 1 vCPU / 4 GB memory. A 0.25 vCPU / 0.5 GB task will OOM under production traffic.</p></div>
+<p class="dp"><strong>AWS cost:</strong> ~$85/mo for a 1 vCPU / 4 GB Fargate task (t3.medium equivalent — minimum viable for 1.1 GB RSS at load). EFS volume for the event log (~$0.30/GB/mo). Total overhead: roughly <strong>$85–100/mo</strong> with EFS.</p>
 <div class="dcall"><p><strong>Failure model:</strong> If kaptanto restarts, it replays from its last checkpoint. The consumer reconnects with the same consumer ID and resumes from where it left off. No events lost.</p></div>
 
 <h2 class="dh2">Option 2 — kaptanto-rust on ECS Fargate</h2>
@@ -698,10 +707,10 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <thead><tr><th>Dimension</th><th>kaptanto</th><th>kaptanto-rust</th><th>Debezium + MSK</th><th>Sequin</th></tr></thead>
 <tbody>
 <tr><td>Extra AWS services</td><td class="ck">None</td><td class="ck">None</td><td class="cx">MSK + Connect</td><td class="ca">Redis + RDS</td></tr>
-<tr><td>Monthly overhead</td><td class="ck">~$15</td><td class="ck">~$15</td><td class="cx">$300–500+</td><td class="ca">$50–80</td></tr>
+<tr><td>Monthly overhead</td><td class="ck">~$85</td><td class="ck">~$85</td><td class="cx">$300–500+</td><td class="ca">$50–80</td></tr>
 <tr><td>Consumer protocol</td><td>SSE / gRPC</td><td>SSE / gRPC</td><td>Kafka</td><td>HTTP push</td></tr>
-<tr><td>Throughput ceiling</td><td>~36k eps</td><td>~32k eps</td><td>Kafka-bound</td><td class="cx">~500 eps</td></tr>
-<tr><td>Post-crash drain (p50)</td><td>~30s</td><td class="ck">~8s</td><td class="cx">145s lag</td><td class="cx">172s lag</td></tr>
+<tr><td>Throughput ceiling</td><td>~5k eps steady / 36k eps peak</td><td>~4k eps steady / 32k eps peak</td><td>Kafka-bound</td><td class="cx">~500 eps</td></tr>
+<tr><td>Post-crash drain (p50)</td><td>~4s restart / up to 140s p99 drain</td><td class="ck">~3s restart / up to 39s p99 drain</td><td class="cx">~2.7s restart / 145s+ event backlog drain</td><td class="cx">81.8s to re-sync</td></tr>
 <tr><td>Consumer reconnects</td><td>Auto, by ID</td><td>Auto, by ID</td><td>Kafka group</td><td>Retry queue</td></tr>
 <tr><td>Delivery guarantee</td><td>At-least-once</td><td>At-least-once</td><td class="ck">Exactly-once¹</td><td>At-least-once</td></tr>
 <tr><td>Team expertise needed</td><td>Go/HTTP</td><td>Go/HTTP</td><td class="cx">Kafka ops</td><td>HTTP</td></tr>
@@ -730,13 +739,14 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dtable-wrap"><table class="dtable">
 <thead><tr><th>Tool</th><th>Peak Throughput</th><th>p50 Latency</th><th>p95 Latency</th><th>Recovery</th><th>Infrastructure</th></tr></thead>
 <tbody>
-<tr><td><strong>kaptanto</strong></td><td>36,267 eps</td><td>1,147 ms</td><td>16,864 ms</td><td>4.3 s</td><td>1 binary (Go, ~15 MB)</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td>31,883 eps</td><td>993 ms</td><td>6,727 ms</td><td>3.1 s</td><td>1 binary (Go+Rust FFI, ~15 MB)</td></tr>
-<tr><td>Debezium</td><td>351 eps</td><td>6,004 ms</td><td>7,371 ms</td><td>2.7 s</td><td>JVM + config files</td></tr>
-<tr><td>Sequin</td><td>357 eps</td><td>1,579 ms</td><td>13,458 ms</td><td>81.8 s</td><td>Elixir + Redis + PG</td></tr>
+<tr><td><strong>kaptanto</strong></td><td>4,805 eps (steady) / 36,267 eps (large-batch peak)</td><td>1.1 s</td><td>16.9 s</td><td>4.3 s</td><td>1 binary (Go) · 1.1 GB RSS at load</td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td>3,559 eps (steady) / 31,883 eps (large-batch peak)</td><td>0.99 s</td><td>6.7 s</td><td>3.1 s</td><td>1 binary (Go+Rust FFI) · 1.3 GB RSS at load</td></tr>
+<tr><td>Debezium</td><td>128 eps (steady) / 150 eps (large-batch)</td><td>34.6 s</td><td>62.3 s</td><td>2.7 s</td><td>JVM + Kafka Connect + Kafka broker</td></tr>
+<tr><td>Sequin</td><td>220 eps (steady) / 324 eps (large-batch)</td><td>23.6 s</td><td>60.1 s</td><td>81.8 s</td><td>Elixir app + Redis + second RDS instance</td></tr>
 </tbody>
 </table></div>
 <p class="dp">kaptanto delivers <strong>100&times; the peak throughput</strong> of Debezium and Sequin with no additional infrastructure.</p>
+<div class="dcall"><p><strong>Memory note:</strong> At sustained 10K eps load, kaptanto uses ~1.1 GB RSS and kaptanto-rust ~1.3 GB RSS. This is not edge-suitable — minimum instance is a t3.medium (4 GB). Plan for this in your capacity model. Debezium uses ~365 MB (JVM heap), Sequin ~775 MB.</p></div>
 
 <h2 class="dh2">Throughput by Scenario (eps)</h2>
 <div class="dtable-wrap"><table class="dtable">
@@ -753,10 +763,10 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dtable-wrap"><table class="dtable">
 <thead><tr><th>Tool</th><th>Steady</th><th>Burst</th><th>Large Batch</th><th>Crash Recovery</th></tr></thead>
 <tbody>
-<tr><td><strong>kaptanto</strong></td><td>1,147 / 16,864 / 19,997</td><td>2,858 / 9,823 / 11,658</td><td>2,656 / 6,953 / 7,391</td><td>29,851 / 124,989 / 140,213</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td>993 / 6,727 / 10,062</td><td>4,563 / 12,520 / 14,177</td><td>2,731 / 6,929 / 7,373</td><td>7,590 / 34,166 / 39,436</td></tr>
-<tr><td>Debezium</td><td>34,617 / 62,340 / 64,071</td><td>7,001 / 27,506 / 29,275</td><td>6,004 / 7,371 / 7,458</td><td>145,060 / 237,226 / 242,707</td></tr>
-<tr><td>Sequin</td><td>23,638 / 60,133 / 62,574</td><td>1,579 / 13,458 / 14,338</td><td>5,034 / 7,305 / 7,464</td><td>172,153 / 242,202 / 245,573</td></tr>
+<tr><td><strong>kaptanto</strong></td><td>1,100 / 16,900 / 20,000</td><td>2,858 / 9,823 / 11,658</td><td>2,656 / 6,953 / 7,391</td><td>29,851 / 124,989 / 140,213</td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td>990 / 6,700 / 10,100</td><td>4,563 / 12,520 / 14,177</td><td>2,731 / 6,929 / 7,373</td><td>7,590 / 34,166 / 39,436</td></tr>
+<tr><td>Debezium</td><td>34,600 / 62,300 / 64,100</td><td>7,001 / 27,506 / 29,275</td><td>6,004 / 7,371 / 7,458</td><td>145,060 / 237,226 / 242,707</td></tr>
+<tr><td>Sequin</td><td>23,600 / 60,100 / 62,600</td><td>1,579 / 13,458 / 14,338</td><td>5,034 / 7,305 / 7,464</td><td>172,153 / 242,202 / 245,573</td></tr>
 </tbody>
 </table></div>
 
@@ -791,7 +801,14 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <li><strong>Large Batch</strong> — single bulk insert of 100k+ rows</li>
 <li><strong>Crash Recovery</strong> — SIGKILL mid-stream, then restart and measure time to caught-up</li>
 </ul>
-<p class="dp">Throughput is measured as events-per-second at the consumer. Latency is end-to-end: row committed in Postgres to event received by consumer. Each tool ran in Docker with equivalent resource limits. Database state was reset between tools to eliminate cross-run contamination.</p>`}
+<p class="dp">Throughput is measured as events-per-second at the consumer. Latency is end-to-end: row committed in Postgres to event received by consumer. Each tool ran in Docker with equivalent resource limits. Database state was reset between tools to eliminate cross-run contamination.</p>
+<h2 class="dh2">When kaptanto is not the right fit</h2>
+<ul class="dul">
+<li><strong>Edge / IoT deployments</strong> — 1.1 GB RSS at load requires at least a t3.medium. Not suitable for constrained environments.</li>
+<li><strong>Petabyte-scale ETL</strong> — kaptanto streams continuously; it is not an atomic batch system and does not write to S3/Snowflake natively. Use Debezium with Kafka connectors for data warehouse pipelines.</li>
+<li><strong>Sub-100ms p99 SLAs at high volume</strong> — steady-state p99 is 20 s. If your pipeline requires guaranteed low tail latency under sustained load, evaluate purpose-built streaming systems.</li>
+<li><strong>Large-burst-only workloads with crash-recovery SLAs</strong> — kaptanto Go p99 crash-recovery is 140 s. Use kaptanto-rust (39 s p99) or accept this tradeoff explicitly.</li>
+</ul>`}
 };
 
 export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
