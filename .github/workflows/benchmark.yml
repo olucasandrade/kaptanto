@@ -3,6 +3,7 @@ name: Benchmark
 on:
   push:
     branches: ["main"]
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       scenarios:

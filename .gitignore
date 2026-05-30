@@ -26,6 +26,9 @@ dist-ssr
 # GSD planning
 .planning/
 
+# Local Claude review reports
+.claude/reports/
+
 # Go binaries (the compiled binary at root, not the source directory)
 /kaptanto
 /kaptanto-*
