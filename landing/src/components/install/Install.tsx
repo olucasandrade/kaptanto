@@ -96,14 +96,14 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
               <div class="qs-label">Events stream out — one JSON line per change</div>
               <div class="ic qs-out" style="max-width:540px">
                 <span class="to">
-                  {'{"op":"insert","table":"orders","after":{"id":1,"status":"pending","amount":49.99}}'}
+                  {'{"operation":"insert","table":"orders","after":{"id":1,"status":"pending","amount":49.99}}'}
                 </span>
                 <br />
                 <span class="to">
-                  {'{"op":"update","table":"orders","before":{"status":"pending"},"after":{"status":"shipped"}}'}
+                  {'{"operation":"update","table":"orders","before":{"status":"pending"},"after":{"status":"shipped"}}'}
                 </span>
                 <br />
-                <span class="to">{'{"op":"delete","table":"payments","key":{"id":88}}'}</span>
+                <span class="to">{'{"operation":"delete","table":"payments","key":{"id":88}}'}</span>
               </div>
               <p class="qs-hint">
                 Pipe to <code>jq</code>, a webhook, a queue, or anything that reads stdin.
