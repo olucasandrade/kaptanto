@@ -122,8 +122,9 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <h2 class="dh2">Connection string</h2>
 <div class="dcode"><span class="tg">$</span> kaptanto \\
     --source mongodb://user:pass@rs1:27017,rs2:27017/analytics?replicaSet=rs0 \\
-    --collections page_views,user_sessions \\
+    --tables page_views,user_sessions \\
     --output stdout</div>
+<p class="dp">For MongoDB, <code>--tables</code> names the collections to capture.</p>
 
 <h2 class="dh2">Failover</h2>
 <p class="dp">Handled natively by the MongoDB driver. Replica set elections trigger automatic reconnection. Resume tokens survive elections, so kaptanto resumes exactly where it left off.</p>
