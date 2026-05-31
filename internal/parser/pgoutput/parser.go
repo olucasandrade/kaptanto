@@ -3,6 +3,7 @@ package pgoutput
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -213,14 +214,28 @@ func (p *Parser) newEvent(
 	afterJSON json.RawMessage,
 ) *event.ChangeEvent {
 	lsn := p.currentLSN
-	idempotencyKey := fmt.Sprintf("%s:%s.%s:%s:%s:%s",
-		p.sourceID,
-		rel.Namespace,
-		rel.RelationName,
-		pkStr,
-		string(op),
-		lsn.String(),
-	)
+	lsnStr := lsn.String()
+
+	// Build the idempotency key by concatenation rather than fmt.Sprintf — all
+	// parts are already strings, so a strings.Builder avoids the reflection and
+	// per-arg boxing cost on the source-parse hot path. Format unchanged:
+	//   sourceID:namespace.relationName:pkStr:op:lsn
+	var sb strings.Builder
+	opStr := string(op)
+	sb.Grow(len(p.sourceID) + len(rel.Namespace) + len(rel.RelationName) +
+		len(pkStr) + len(opStr) + len(lsnStr) + 5)
+	sb.WriteString(p.sourceID)
+	sb.WriteByte(':')
+	sb.WriteString(rel.Namespace)
+	sb.WriteByte('.')
+	sb.WriteString(rel.RelationName)
+	sb.WriteByte(':')
+	sb.WriteString(pkStr)
+	sb.WriteByte(':')
+	sb.WriteString(opStr)
+	sb.WriteByte(':')
+	sb.WriteString(lsnStr)
+	idempotencyKey := sb.String()
 
 	return &event.ChangeEvent{
 		ID:             p.idGen.New(),
@@ -234,7 +249,7 @@ func (p *Parser) newEvent(
 		Before:         beforeJSON,
 		After:          afterJSON,
 		Metadata: map[string]any{
-			"lsn":      lsn.String(),
+			"lsn":      lsnStr,
 			"snapshot": false,
 		},
 	}
