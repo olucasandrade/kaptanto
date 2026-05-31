@@ -22,6 +22,30 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
+// httpServerReadHeaderTimeout bounds how long a client may take to send request
+// headers. It defends the SSE and observability endpoints against Slowloris-style
+// slow-header attacks that would otherwise hold connections (and, for SSE, router
+// subscriptions) open indefinitely.
+const httpServerReadHeaderTimeout = 10 * time.Second
+
+// httpServerIdleTimeout closes idle keep-alive connections so abandoned clients
+// do not accumulate. It does not affect an active SSE stream, which is
+// continuously writing.
+const httpServerIdleTimeout = 120 * time.Second
+
+// newHTTPServer builds an *http.Server with hardened timeouts shared by every
+// network endpoint kaptanto exposes. WriteTimeout is intentionally left at 0:
+// the SSE handler holds a single long-lived response open for the life of the
+// stream, and a WriteTimeout would terminate it.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: httpServerReadHeaderTimeout,
+		IdleTimeout:       httpServerIdleTimeout,
+	}
+}
+
 // messageSink is the common interface shared by all external-broker sinks.
 type messageSink interface {
 	router.Consumer
@@ -55,7 +79,7 @@ func buildOutputServer(
 		mux.Handle("/events", sseServer)
 		mux.Handle("/metrics", metrics.Handler())
 		mux.Handle("/healthz", healthHandler)
-		srv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: mux}
+		srv := newHTTPServer(fmt.Sprintf(":%d", cfg.Port), mux)
 		return func(ctx context.Context) error {
 			go func() {
 				<-ctx.Done()
@@ -79,7 +103,7 @@ func buildOutputServer(
 		obsMux := http.NewServeMux()
 		obsMux.Handle("/metrics", metrics.Handler())
 		obsMux.Handle("/healthz", healthHandler)
-		obsSrv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port+1), Handler: obsMux}
+		obsSrv := newHTTPServer(fmt.Sprintf(":%d", cfg.Port+1), obsMux)
 		return func(ctx context.Context) error {
 			go func() {
 				<-ctx.Done()
@@ -171,7 +195,7 @@ func buildSinkServer(
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics.Handler())
 	mux.Handle("/healthz", observability.NewHealthHandler(probes))
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
+	srv := newHTTPServer(fmt.Sprintf(":%d", port), mux)
 	return func(ctx context.Context) error {
 		go func() {
 			<-ctx.Done()
