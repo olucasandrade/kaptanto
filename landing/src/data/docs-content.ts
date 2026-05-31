@@ -385,18 +385,18 @@ sinks:
 GET http://localhost:7654/healthz
 <span class="tc"># 200 = healthy, 503 = unhealthy with diagnostic JSON</span></div>`},
 
-'docs-api': {title:'Management API',sub:'REST API for programmatic control of kaptanto.',body:`
-<h2 class="dh2">Endpoints</h2>
-<table class="dtbl"><thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead><tbody>
-<tr><td><code>GET</code></td><td>/api/sources</td><td>List configured sources</td></tr>
-<tr><td><code>GET</code></td><td>/api/sources/:id</td><td>Source details and status</td></tr>
-<tr><td><code>POST</code></td><td>/api/sources/:id/tables</td><td>Add a table to capture</td></tr>
-<tr><td><code>DELETE</code></td><td>/api/sources/:id/tables/:name</td><td>Remove a table</td></tr>
-<tr><td><code>GET</code></td><td>/api/consumers</td><td>List active consumers</td></tr>
-<tr><td><code>POST</code></td><td>/api/backfills</td><td>Trigger a backfill</td></tr>
-<tr><td><code>GET</code></td><td>/api/backfills/:id</td><td>Backfill progress</td></tr>
+'docs-api': {title:'HTTP Endpoints',sub:'The HTTP surface kaptanto exposes today.',body:`
+<p class="dp">Kaptanto runs a single HTTP server alongside the selected output mode. The endpoints below are everything it serves — there is no dynamic management API yet.</p>
+<h2 class="dh2">Available endpoints</h2>
+<table class="dtbl"><thead><tr><th>Method</th><th>Path</th><th>Mode</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>GET</code></td><td>/events</td><td>sse</td><td>Subscribe to the change stream — filters <code>?tables=</code>, <code>?operations=</code>, <code>?consumer=</code></td></tr>
+<tr><td><code>GET</code></td><td>/metrics</td><td>sse, grpc, sinks</td><td>Prometheus metrics</td></tr>
+<tr><td><code>GET</code></td><td>/healthz</td><td>sse, grpc, sinks</td><td>Health check — 200 healthy, 503 unhealthy</td></tr>
 </tbody></table>
-<p class="dp">The management API is available when any output mode is running. It shares the same HTTP server as SSE and health endpoints.</p>`},
+<p class="dp">In SSE and queue-sink modes these bind to <code>--port</code>; in gRPC mode <code>/metrics</code> and <code>/healthz</code> bind to <code>--port</code> + 1. stdout mode serves no HTTP endpoints. See <a onclick="go('docs-sse')">Server-Sent Events</a> and <a onclick="go('docs-metrics')">Metrics &amp; Monitoring</a>.</p>
+
+<h2 class="dh2">Roadmap: management API</h2>
+<p class="dp">A REST API for managing sources, tables, and backfills at runtime is not yet implemented. Today, sources and tables are fixed at startup via <code>--source</code>/<code>--tables</code> or the YAML config, and changing them requires a restart. Programmatic management (<code>/api/sources</code>, <code>/api/backfills</code>, …) is planned but not available in the current binary.</p>`},
 
 'docs-troubleshooting': {title:'Troubleshooting',sub:'Common issues and how to resolve them.',body:`
 <h2 class="dh2">WAL bloat</h2>
@@ -812,7 +812,7 @@ export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
   {label:'Core Concepts',items:[['docs-schema','Event Schema'],['docs-backfills','Backfills'],['docs-consistency','Consistency Model'],['docs-ordering','Ordering & Partitions']]},
   {label:'Output Modes',items:[['docs-stdout','stdout'],['docs-sse','Server-Sent Events'],['docs-grpc','gRPC'],['docs-queue-sinks','Queue Sinks']]},
   {label:'Configuration',items:[['docs-config','CLI & YAML'],['docs-filtering','Filtering'],['docs-grouping','Message Grouping']]},
-  {label:'Production',items:[['docs-ha','High Availability'],['docs-cluster','Cluster Mode'],['docs-metrics','Metrics & Monitoring'],['docs-api','Management API'],['docs-troubleshooting','Troubleshooting']]},
+  {label:'Production',items:[['docs-ha','High Availability'],['docs-cluster','Cluster Mode'],['docs-metrics','Metrics & Monitoring'],['docs-api','HTTP Endpoints'],['docs-troubleshooting','Troubleshooting']]},
   {label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
 ];
 

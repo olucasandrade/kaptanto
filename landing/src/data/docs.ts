@@ -24,7 +24,7 @@ export const SEO_DOCS: SeoDoc[] = [
   { slug: 'docs-grouping', title: 'Message Grouping', description: 'Tune grouping keys for strict ordering and throughput.' },
   { slug: 'docs-ha', title: 'High Availability', description: 'Leader election and automatic failover behavior.' },
   { slug: 'docs-metrics', title: 'Metrics & Monitoring', description: 'Prometheus metrics and health checks for observability.' },
-  { slug: 'docs-api', title: 'Management API', description: 'Programmatic management of sources, tables and backfills.' },
+  { slug: 'docs-api', title: 'HTTP Endpoints', description: 'The HTTP endpoints kaptanto serves: /events, /metrics, and /healthz.' },
   { slug: 'docs-troubleshooting', title: 'Troubleshooting', description: 'Fix common CDC issues quickly in production.' },
   { slug: 'docs-aws-setup', title: 'AWS Deployment Guide', description: 'How to run kaptanto, Debezium, and Sequin alongside an API on AWS — infrastructure, cost, and consumer code compared.' },
   { slug: 'docs-benchmarks', title: 'Benchmarks', description: 'Independent throughput and latency comparison of kaptanto vs. Debezium and Sequin across steady, burst, large-batch, and crash-recovery scenarios.' },
