@@ -128,6 +128,14 @@ func ExecuteWithArgs(args []string, out io.Writer) error {
 	return root.Execute()
 }
 
+// ensureDataDir creates the runtime state directory with owner-only permissions
+// (0o700). The directory holds the Badger event log and the SQLite
+// checkpoint/cursor/backfill stores, all of which contain captured row data
+// (potential PII at rest), so it must not be traversable by other local users.
+func ensureDataDir(dir string) error {
+	return os.MkdirAll(dir, 0o700)
+}
+
 func runPipeline(ctx context.Context, cfg *config.Config) error {
 	slog.Info("kaptanto starting",
 		"source", cfg.Source,
@@ -165,7 +173,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		defer pgStore.Close()
 	}
 
-	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
+	if err := ensureDataDir(cfg.DataDir); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
