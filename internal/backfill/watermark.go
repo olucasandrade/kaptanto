@@ -28,6 +28,11 @@ func NewWatermarkChecker(el eventlog.EventLog, numPartitions uint32) *WatermarkC
 	}
 }
 
+// watermarkPageSize is the number of partition entries fetched per ReadPartition
+// call. ShouldEmit pages through the entire partition so a superseding WAL event
+// is never missed, no matter how many events the partition has accumulated.
+const watermarkPageSize = 10000
+
 // ShouldEmit returns true if the snapshot row for (table, pk) should be emitted.
 //
 // It returns false if any entry in the event log for the same (table, pk) has
@@ -35,32 +40,44 @@ func NewWatermarkChecker(el eventlog.EventLog, numPartitions uint32) *WatermarkC
 // this snapshot row.
 //
 // The partition is computed via eventlog.PartitionOf(pk, numPartitions) to avoid
-// scanning all partitions.
+// scanning all partitions. The partition is paged through to completion: a single
+// capped read would miss the newest (highest-seq) events, which are exactly the
+// ones most likely to supersede the snapshot row (BKF-02).
 func (w *WatermarkChecker) ShouldEmit(ctx context.Context, table string, pk json.RawMessage, snapshotLSN uint64) (bool, error) {
 	partition := eventlog.PartitionOf(pk, w.numPartitions)
 
-	entries, err := w.eventLog.ReadPartition(ctx, partition, 0, 10000)
-	if err != nil {
-		return false, fmt.Errorf("watermark: read partition %d: %w", partition, err)
-	}
-
-	for _, entry := range entries {
-		ev := entry.Event
-		if ev.Table != table {
-			continue
-		}
-		if string(ev.Key) != string(pk) {
-			continue
-		}
-
-		lsn, err := lsnFromMetadata(ev)
+	fromSeq := uint64(0)
+	for {
+		entries, err := w.eventLog.ReadPartition(ctx, partition, fromSeq, watermarkPageSize)
 		if err != nil {
-			// If we can't parse the LSN, skip this entry conservatively
-			continue
+			return false, fmt.Errorf("watermark: read partition %d: %w", partition, err)
 		}
-		if lsn > snapshotLSN {
-			return false, nil
+
+		for _, entry := range entries {
+			ev := entry.Event
+			if ev.Table != table {
+				continue
+			}
+			if string(ev.Key) != string(pk) {
+				continue
+			}
+
+			lsn, err := lsnFromMetadata(ev)
+			if err != nil {
+				// If we can't parse the LSN, skip this entry conservatively
+				continue
+			}
+			if lsn > snapshotLSN {
+				return false, nil
+			}
 		}
+
+		// Fewer than a full page means the partition is exhausted.
+		if len(entries) < watermarkPageSize {
+			break
+		}
+		// Advance past the last entry read (ReadPartition is fromSeq-inclusive).
+		fromSeq = entries[len(entries)-1].Seq + 1
 	}
 
 	return true, nil

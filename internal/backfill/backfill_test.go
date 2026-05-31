@@ -94,7 +94,19 @@ func (m *mockEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 }
 
 func (m *mockEventLog) ReadPartition(_ context.Context, partition uint32, fromSeq uint64, limit int) ([]eventlog.LogEntry, error) {
-	return m.entries, nil
+	// Honor fromSeq (inclusive) and limit so paging callers are exercised.
+	// m.entries are assumed sorted ascending by Seq.
+	var page []eventlog.LogEntry
+	for _, e := range m.entries {
+		if e.Seq < fromSeq {
+			continue
+		}
+		page = append(page, e)
+		if len(page) >= limit {
+			break
+		}
+	}
+	return page, nil
 }
 
 func (m *mockEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
@@ -156,6 +168,40 @@ func TestWatermarkChecker_ShouldEmit_DifferentTable(t *testing.T) {
 	emit, err := checker.ShouldEmit(context.Background(), "orders", pk, 100)
 	require.NoError(t, err)
 	assert.True(t, emit, "should emit when superseding entry is for a different table")
+}
+
+func TestWatermarkChecker_ShouldEmit_SupersedingEntryBeyondFirstPage(t *testing.T) {
+	// Regression for the 10000-entry cap: the superseding WAL event sits past
+	// the first page (highest seq), so a single capped read would miss it.
+	const total = 25000
+	entries := make([]eventlog.LogEntry, 0, total+1)
+	for i := 1; i <= total; i++ {
+		// Filler events for a different key, all with low LSN.
+		entries = append(entries, eventlog.LogEntry{
+			Seq: uint64(i),
+			Event: &event.ChangeEvent{
+				Table:    "orders",
+				Key:      json.RawMessage(`{"id":999}`),
+				Metadata: map[string]any{"lsn": "0/1"},
+			},
+		})
+	}
+	// Superseding event for the target key at the highest seq (LSN 200 > 100).
+	entries = append(entries, eventlog.LogEntry{
+		Seq: uint64(total + 1),
+		Event: &event.ChangeEvent{
+			Table:    "orders",
+			Key:      json.RawMessage(`{"id":1}`),
+			Metadata: map[string]any{"lsn": "0/C8"}, // 200 decimal
+		},
+	})
+
+	mock := &mockEventLog{entries: entries}
+	checker := backfill.NewWatermarkChecker(mock, 64)
+	pk := json.RawMessage(`{"id":1}`)
+	emit, err := checker.ShouldEmit(context.Background(), "orders", pk, 100)
+	require.NoError(t, err)
+	assert.False(t, emit, "should not emit when a superseding entry exists beyond the first page")
 }
 
 // --- BKF-03: Crash-resumable state ---
