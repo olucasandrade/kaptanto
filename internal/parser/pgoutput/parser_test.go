@@ -365,12 +365,13 @@ func TestIdempotencyKeyFormat(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ev)
 
-	// Expected format: "sourceID:schema.table:pkStr:op:lsn"
+	// Expected format: "sourceID:schema.table:pkStr:op:lsn:changeSeq"
 	// pkStr is JSON-marshaled primary key map, e.g. {"id":"42"}
+	// changeSeq is the per-transaction counter (0 for the first change).
 	// NOTE: pkStr may contain colons (JSON syntax), so we validate by known prefix/suffix anchors.
 	key := ev.IdempotencyKey
 	prefix := fmt.Sprintf("main-pg:%s.%s:", testNamespace, testRelName)
-	suffix := fmt.Sprintf(":insert:%s", lsn.String())
+	suffix := fmt.Sprintf(":insert:%s:0", lsn.String())
 	require.True(t, strings.HasPrefix(key, prefix), "idempotency key must start with %q, got: %q", prefix, key)
 	require.True(t, strings.HasSuffix(key, suffix), "idempotency key must end with %q, got: %q", suffix, key)
 
@@ -379,6 +380,36 @@ func TestIdempotencyKeyFormat(t *testing.T) {
 	var pkMap map[string]any
 	require.NoError(t, json.Unmarshal([]byte(pkStr), &pkMap), "pkStr must be valid JSON, got: %q", pkStr)
 	assert.Equal(t, "42", pkMap["id"])
+}
+
+// TestIdempotencyKeyUniquePerChangeInTransaction verifies that two changes to
+// the same (pk, op) within one transaction get distinct idempotency keys. Both
+// share the commit LSN, so without a per-transaction change counter the second
+// change would dedup against the first in the EventLog and be silently dropped.
+func TestIdempotencyKeyUniquePerChangeInTransaction(t *testing.T) {
+	p := newParser()
+	sendRelation(t, p, testRelID, testNamespace, testRelName, testCols)
+	sendBegin(t, p, pglogrepl.LSN(0x1A2B3C4))
+
+	// Two updates to id=1 in the same transaction.
+	ev1, err := p.Parse(encodeUpdate(testRelID, []tupleCol{textCol("1"), textCol("first"), textCol("a")}), false)
+	require.NoError(t, err)
+	require.NotNil(t, ev1)
+	ev2, err := p.Parse(encodeUpdate(testRelID, []tupleCol{textCol("1"), textCol("second"), textCol("b")}), false)
+	require.NoError(t, err)
+	require.NotNil(t, ev2)
+
+	assert.NotEqual(t, ev1.IdempotencyKey, ev2.IdempotencyKey,
+		"two changes to the same (pk, op) in one transaction must have distinct idempotency keys")
+	assert.True(t, strings.HasSuffix(ev1.IdempotencyKey, ":0"), "first change should end with changeSeq 0, got %q", ev1.IdempotencyKey)
+	assert.True(t, strings.HasSuffix(ev2.IdempotencyKey, ":1"), "second change should end with changeSeq 1, got %q", ev2.IdempotencyKey)
+
+	// A new transaction resets the counter to 0.
+	sendBegin(t, p, pglogrepl.LSN(0x1A2B3D0))
+	ev3, err := p.Parse(encodeUpdate(testRelID, []tupleCol{textCol("1"), textCol("third"), textCol("c")}), false)
+	require.NoError(t, err)
+	require.NotNil(t, ev3)
+	assert.True(t, strings.HasSuffix(ev3.IdempotencyKey, ":0"), "first change of a new transaction should reset changeSeq to 0, got %q", ev3.IdempotencyKey)
 }
 
 // encodeUpdateWithOldTuple builds an Update message with both old and new tuples.

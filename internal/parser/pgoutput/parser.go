@@ -3,6 +3,7 @@ package pgoutput
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +32,8 @@ type Parser struct {
 	relations  *RelationCache
 	toast      *TOASTCache
 	currentLSN pglogrepl.LSN
-	inStream   bool // true between StreamStartMessageV2 and StreamStopMessageV2
+	changeSeq  uint64 // per-transaction monotonic counter, reset on BeginMessage
+	inStream   bool   // true between StreamStartMessageV2 and StreamStopMessageV2
 }
 
 // New creates a Parser for the given source identifier.
@@ -59,6 +61,12 @@ func (p *Parser) Parse(walData []byte, _ bool) (*event.ChangeEvent, error) {
 	switch m := msg.(type) {
 	case *pglogrepl.BeginMessage:
 		p.currentLSN = m.FinalLSN
+		// Reset the per-transaction change counter. pgoutput emits one message
+		// per row change and reuses the commit LSN for every change in the
+		// transaction, so the counter is what makes each change's idempotency
+		// key unique. It is deterministic across restart/resend because Postgres
+		// re-streams the transaction in the same order from the same LSN.
+		p.changeSeq = 0
 		return nil, nil
 
 	case *pglogrepl.CommitMessage:
@@ -216,14 +224,23 @@ func (p *Parser) newEvent(
 	lsn := p.currentLSN
 	lsnStr := lsn.String()
 
+	// changeSeq disambiguates multiple changes to the same (pk, op) within one
+	// transaction, which all share the commit LSN. Without it the second such
+	// change would dedup against the first in the EventLog and be silently lost.
+	// It is deterministic across restart/resend because Postgres re-streams the
+	// transaction in the same order from the same LSN.
+	changeSeq := p.changeSeq
+	p.changeSeq++
+	changeSeqStr := strconv.FormatUint(changeSeq, 10)
+
 	// Build the idempotency key by concatenation rather than fmt.Sprintf — all
 	// parts are already strings, so a strings.Builder avoids the reflection and
-	// per-arg boxing cost on the source-parse hot path. Format unchanged:
-	//   sourceID:namespace.relationName:pkStr:op:lsn
+	// per-arg boxing cost on the source-parse hot path. Format:
+	//   sourceID:namespace.relationName:pkStr:op:lsn:changeSeq
 	var sb strings.Builder
 	opStr := string(op)
 	sb.Grow(len(p.sourceID) + len(rel.Namespace) + len(rel.RelationName) +
-		len(pkStr) + len(opStr) + len(lsnStr) + 5)
+		len(pkStr) + len(opStr) + len(lsnStr) + len(changeSeqStr) + 6)
 	sb.WriteString(p.sourceID)
 	sb.WriteByte(':')
 	sb.WriteString(rel.Namespace)
@@ -235,6 +252,8 @@ func (p *Parser) newEvent(
 	sb.WriteString(opStr)
 	sb.WriteByte(':')
 	sb.WriteString(lsnStr)
+	sb.WriteByte(':')
+	sb.WriteString(changeSeqStr)
 	idempotencyKey := sb.String()
 
 	return &event.ChangeEvent{
