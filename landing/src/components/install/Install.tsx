@@ -37,7 +37,7 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
                 {activeTab.value === 'curl' && (
                   <div class="ic">
                     <CopyButton />
-                    <span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh
+                    <span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh
                   </div>
                 )}
                 {activeTab.value === 'docker' && (
