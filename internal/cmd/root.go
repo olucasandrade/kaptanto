@@ -138,14 +138,14 @@ func ensureDataDir(dir string) error {
 
 func runPipeline(ctx context.Context, cfg *config.Config) error {
 	slog.Info("kaptanto starting",
-		"source", cfg.Source,
+		"source", redactDSN(cfg.Source),
 		"output", cfg.Output,
 		"port", cfg.Port,
 		"data_dir", cfg.DataDir,
 	)
 
 	if cfg.HA && cfg.SourceType() == "mongodb" {
-		return fmt.Errorf("ha: --ha requires a Postgres source DSN; MongoDB source detected (%s)", cfg.Source)
+		return fmt.Errorf("ha: --ha requires a Postgres source DSN; MongoDB source detected (%s)", redactDSN(cfg.Source))
 	}
 	if cfg.Cluster && cfg.ClusterDSN == "" {
 		return fmt.Errorf("--cluster-dsn is required when --cluster is set")
