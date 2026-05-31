@@ -14,9 +14,10 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://localhost:5432/mydb \\
     --tables orders,payments --output stdout
 
-<span class="tc"># Events stream as newline-delimited JSON</span>
-{"op":"insert","table":"orders","after":{"id":1,"status":"pending"}}
-{"op":"update","table":"orders","before":{"status":"pending"},"after":{"status":"paid"}}</div>
+<span class="tc"># Events stream as newline-delimited JSON (simplified — see Event Schema)</span>
+{"operation":"insert","table":"orders","after":{"id":1,"status":"pending"}}
+{"operation":"update","table":"orders","before":{"status":"pending"},"after":{"status":"paid"}}</div>
+<p class="dp">Each real line carries the full event — <code>operation</code>, <code>id</code>, <code>idempotency_key</code>, <code>timestamp</code>, <code>key</code>, <code>before</code>, <code>after</code>, and <code>metadata</code>. See the <a onclick="go('docs-schema')">Event Schema</a> for the complete shape.</p>
 <p class="dp">It runs as a single binary with zero external dependencies. No Kafka, no ZooKeeper, no JVM. Handles backfills, checkpointing, per-key ordering, and database failover natively.</p>
 <div class="dcall"><p><strong>Critical invariant:</strong> The source checkpoint is never advanced until the event is durably written to the internal Event Log. If kaptanto crashes, the source re-sends from the last acknowledged position. Zero events lost.</p></div>
 <h2 class="dh2">Key features</h2>
@@ -241,10 +242,11 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 
 <h2 class="dh2">Event format</h2>
 <div class="dcode">id: 01HX7K9M3N4P5Q6R7S8T9U0V
-data: {"op":"update","table":"orders","after":{"id":1234,"status":"settled"}}
+data: {"operation":"update","table":"orders","after":{"id":1234,"status":"settled"}}
 
 id: 01HX7K9M3N4P5Q6R7S8T9U0W
-data: {"op":"insert","table":"payments","after":{"id":5678}}</div>`},
+data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
+<p class="dp">The <code>data:</code> payload is the full event JSON (simplified above for readability) — see the <a onclick="go('docs-schema')">Event Schema</a>.</p>`},
 
 'docs-grpc': {title:'gRPC Output',sub:'High-performance streaming with Protocol Buffers.',body:`
 <h2 class="dh2">Usage</h2>

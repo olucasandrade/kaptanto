@@ -95,17 +95,17 @@ export const Hero = component$<HeroProps>(({ currentDoc }) => {
             </div>
             <div class="tln" style="margin-top:.35rem">
               <span class="to">
-                {'{"op":"insert","table":"orders","after":{"id":1234,"status":"pending","amount":149.90}}'}
+                {'{"operation":"insert","table":"orders","after":{"id":1234,"status":"pending","amount":149.90}}'}
               </span>
             </div>
             <div class="tln">
               <span class="to">
-                {'{"op":"update","table":"orders","after":{"id":1234,"status":"settled","amount":149.90}}'}
+                {'{"operation":"update","table":"orders","after":{"id":1234,"status":"settled","amount":149.90}}'}
               </span>
             </div>
             <div class="tln">
               <span class="to">
-                {'{"op":"insert","table":"payments","after":{"id":5678,"order_id":1234,"method":"pix"}}'}
+                {'{"operation":"insert","table":"payments","after":{"id":5678,"order_id":1234,"method":"pix"}}'}
               </span>
             </div>
           </div>
