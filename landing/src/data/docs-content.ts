@@ -199,7 +199,7 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <p class="dp">True exactly-once delivery across a network boundary is impossible. Kaptanto provides at-least-once delivery with deterministic idempotency keys, enabling exactly-once processing on the consumer side.</p>
 
 <h2 class="dh2">Event Log durability</h2>
-<p class="dp">Every event is durably written to the embedded Event Log (Badger) before the source checkpoint is advanced. If kaptanto crashes between receiving a WAL message and writing it, the source re-sends on reconnection. The Event Log deduplicates by event ID.</p>
+<p class="dp">Every event is durably written to the embedded Event Log (Badger) before the source checkpoint is advanced. If kaptanto crashes between receiving a WAL message and writing it, the source re-sends on reconnection. The Event Log deduplicates by the deterministic <code>idempotency_key</code>, so replayed messages collapse to a single event.</p>
 
 <h2 class="dh2">Poison pill handling</h2>
 <p class="dp">Failed events are retried with exponential backoff (1s, 5s, 30s, 2min, 10min). After max retries, events move to a dead-letter partition. A failed event blocks only its own message group, not other groups in the same partition.</p>`},
