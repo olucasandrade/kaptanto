@@ -15,10 +15,16 @@ import (
 )
 
 type kaptantoEvent struct {
-	ID        string          `json:"id"`
-	Operation string          `json:"operation"`
-	Table     string          `json:"table"`
-	After     json.RawMessage `json:"after"`
+	ID        string `json:"id"`
+	Operation string `json:"operation"`
+	Table     string `json:"table"`
+	// Decode only the _bench_ts field from the after-image. Decoding into a
+	// typed struct rather than a second map[string]any unmarshal keeps the
+	// per-event parse to a single pass, so the collector goroutine does not
+	// become the throughput/latency bottleneck for the fastest tool.
+	After struct {
+		BenchTS string `json:"_bench_ts"`
+	} `json:"after"`
 }
 
 // ParseKaptantoLine parses a single SSE line from the Kaptanto stream.
@@ -41,13 +47,8 @@ func ParseKaptantoLine(line string) (collector.EventRecord, bool) {
 		return collector.EventRecord{}, false
 	}
 
-	var after map[string]any
-	if err := json.Unmarshal(evt.After, &after); err != nil {
-		return collector.EventRecord{}, false
-	}
-
-	benchTSStr, ok := after["_bench_ts"].(string)
-	if !ok || benchTSStr == "" {
+	benchTSStr := evt.After.BenchTS
+	if benchTSStr == "" {
 		return collector.EventRecord{}, false
 	}
 
