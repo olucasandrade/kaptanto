@@ -114,6 +114,10 @@ func (p *Parser) handleInsert(m *pglogrepl.InsertMessageV2) (*event.ChangeEvent,
 		return nil, fmt.Errorf("pgoutput: unknown relation ID %d", m.RelationID)
 	}
 
+	if m.Tuple == nil {
+		return nil, fmt.Errorf("pgoutput: insert for relation %d has no tuple", m.RelationID)
+	}
+
 	pkMap := extractPK(rel, m.Tuple.Columns)
 	pkStr := marshalPK(pkMap)
 	afterJSON, err := decodeAndSerializeRow(rel, m.Tuple.Columns, nil)
@@ -143,6 +147,10 @@ func (p *Parser) handleUpdate(m *pglogrepl.UpdateMessageV2) (*event.ChangeEvent,
 	rel, ok := p.relations.Get(m.RelationID)
 	if !ok {
 		return nil, fmt.Errorf("pgoutput: unknown relation ID %d", m.RelationID)
+	}
+
+	if m.NewTuple == nil {
+		return nil, fmt.Errorf("pgoutput: update for relation %d has no new tuple", m.RelationID)
 	}
 
 	// For TOAST merge: look up the cached row by primary key from new tuple.
@@ -187,6 +195,10 @@ func (p *Parser) handleDelete(m *pglogrepl.DeleteMessageV2) (*event.ChangeEvent,
 	rel, ok := p.relations.Get(m.RelationID)
 	if !ok {
 		return nil, fmt.Errorf("pgoutput: unknown relation ID %d", m.RelationID)
+	}
+
+	if m.OldTuple == nil {
+		return nil, fmt.Errorf("pgoutput: delete for relation %d has no old tuple (REPLICA IDENTITY NOTHING?)", m.RelationID)
 	}
 
 	pkMap := extractPK(rel, m.OldTuple.Columns)
