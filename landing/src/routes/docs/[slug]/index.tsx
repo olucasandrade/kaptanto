@@ -48,7 +48,7 @@ export const head: DocumentHead = ({ params }) => {
     };
   }
 
-  const canonical = `https://kaptanto.dev/docs/${doc.slug}`;
+  const canonical = `https://kaptan.to/docs/${doc.slug}`;
   return {
     title: `${doc.title} | Kaptanto Docs`,
     meta: [
@@ -57,7 +57,7 @@ export const head: DocumentHead = ({ params }) => {
       { property: 'og:title', content: `${doc.title} | Kaptanto Docs` },
       { property: 'og:description', content: doc.description },
       { property: 'og:url', content: canonical },
-      { property: 'og:image', content: 'https://kaptanto.dev/logo.png' },
+      { property: 'og:image', content: 'https://kaptan.to/logo.png' },
       { name: 'twitter:card', content: 'summary' },
     ],
   };

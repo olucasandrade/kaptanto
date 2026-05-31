@@ -10,14 +10,14 @@ const jsonLd = {
     {
       '@type': 'WebSite',
       name: 'Kaptanto',
-      url: 'https://kaptanto.dev/',
+      url: 'https://kaptan.to/',
       inLanguage: 'en',
     },
     {
       '@type': 'Organization',
       name: 'Kaptanto',
-      url: 'https://kaptanto.dev',
-      logo: 'https://kaptanto.dev/logo.png',
+      url: 'https://kaptan.to',
+      logo: 'https://kaptan.to/logo.png',
       sameAs: ['https://github.com/olucasandrade/kaptanto'],
     },
     {
@@ -28,7 +28,7 @@ const jsonLd = {
       description:
         'Universal change data capture for Postgres and MongoDB with real-time event streaming.',
       license: 'https://opensource.org/licenses/MIT',
-      downloadUrl: 'https://get.kaptanto.dev',
+      downloadUrl: 'https://get.kaptan.to',
       softwareVersion: '0.2.0',
     },
     {
@@ -139,8 +139,8 @@ export const head: DocumentHead = {
       content:
         'Stream every insert, update, and delete from Postgres and MongoDB with one binary.',
     },
-    { property: 'og:url', content: 'https://kaptanto.dev/' },
-    { property: 'og:image', content: 'https://kaptanto.dev/logo.png' },
+    { property: 'og:url', content: 'https://kaptan.to/' },
+    { property: 'og:image', content: 'https://kaptan.to/logo.png' },
     { property: 'og:image:alt', content: 'Kaptanto logo' },
     { property: 'og:image:type', content: 'image/png' },
     { name: 'twitter:card', content: 'summary_large_image' },
@@ -151,7 +151,7 @@ export const head: DocumentHead = {
       content:
         'Open-source CDC with 8 output modes: stdout, SSE, gRPC, NATS, SQS, Kafka, Pub/Sub, and RabbitMQ.',
     },
-    { name: 'twitter:image', content: 'https://kaptanto.dev/logo.png' },
+    { name: 'twitter:image', content: 'https://kaptan.to/logo.png' },
   ],
   links: [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -162,8 +162,8 @@ export const head: DocumentHead = {
     },
     { rel: 'stylesheet', href: '/legacy.css' },
     { rel: 'icon', type: 'image/png', href: '/logo.png' },
-    { rel: 'alternate', hreflang: 'en', href: 'https://kaptanto.dev/' },
-    { rel: 'alternate', hreflang: 'x-default', href: 'https://kaptanto.dev/' },
+    { rel: 'alternate', hreflang: 'en', href: 'https://kaptan.to/' },
+    { rel: 'alternate', hreflang: 'x-default', href: 'https://kaptan.to/' },
     { rel: 'sitemap', type: 'application/xml', href: '/sitemap.xml' },
   ],
   scripts: [
