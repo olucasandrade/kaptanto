@@ -104,3 +104,51 @@ func TestApplyColumnFilter_NonObjectJSON(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildAllowSet verifies set construction and the nil-for-empty contract.
+func TestBuildAllowSet(t *testing.T) {
+	if set := output.BuildAllowSet(nil); set != nil {
+		t.Errorf("nil list should produce nil set, got %v", set)
+	}
+	if set := output.BuildAllowSet([]string{}); set != nil {
+		t.Errorf("empty list should produce nil set, got %v", set)
+	}
+	set := output.BuildAllowSet([]string{"id", "status"})
+	if len(set) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(set))
+	}
+	if _, ok := set["id"]; !ok {
+		t.Error("'id' missing from set")
+	}
+	if _, ok := set["status"]; !ok {
+		t.Error("'status' missing from set")
+	}
+}
+
+// TestApplyColumnFilterSet_MatchesApplyColumnFilter verifies the precomputed-set
+// variant produces byte-identical results to the convenience wrapper across the
+// same inputs Deliver sees: nil/empty sets, object filtering, and non-objects.
+func TestApplyColumnFilterSet_MatchesApplyColumnFilter(t *testing.T) {
+	inputs := []json.RawMessage{
+		nil,
+		json.RawMessage(`{"id":1,"status":"ok","internal":"x"}`),
+		json.RawMessage(`[1,2,3]`),
+		json.RawMessage(`null`),
+		json.RawMessage(`"hello"`),
+	}
+	allowLists := [][]string{nil, {}, {"id"}, {"id", "status"}}
+
+	for _, allowed := range allowLists {
+		set := output.BuildAllowSet(allowed)
+		for _, raw := range inputs {
+			want, werr := output.ApplyColumnFilter(raw, allowed)
+			got, gerr := output.ApplyColumnFilterSet(raw, set)
+			if (werr == nil) != (gerr == nil) {
+				t.Fatalf("allowed=%v raw=%s: err mismatch: want %v got %v", allowed, raw, werr, gerr)
+			}
+			if string(want) != string(got) {
+				t.Errorf("allowed=%v raw=%s: want %q got %q", allowed, raw, want, got)
+			}
+		}
+	}
+}

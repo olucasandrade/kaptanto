@@ -25,9 +25,12 @@ type GRPCConsumer struct {
 	filter     *output.EventFilter
 	cs         router.ConsumerCursorStore
 	m          *observability.KaptantoMetrics
-	done       chan struct{}                  // closed when Subscribe handler exits
-	rowFilters map[string]*output.RowFilter  // CFG-06: per-table WHERE-expression filter; nil map = pass-through
-	colFilters map[string][]string           // CFG-05: per-table column allow-list; nil map = pass-through
+	done       chan struct{}                // closed when Subscribe handler exits
+	rowFilters map[string]*output.RowFilter // CFG-06: per-table WHERE-expression filter; nil map = pass-through
+	colFilters map[string][]string          // CFG-05: per-table column allow-list; nil map = pass-through
+	// colFilterSets is colFilters precomputed into per-table allow-sets so
+	// Deliver does not rebuild a map[string]struct{} on every event (CFG-05).
+	colFilterSets map[string]map[string]struct{}
 }
 
 // Compile-time assertion: GRPCConsumer implements router.Consumer.
@@ -46,15 +49,22 @@ func NewGRPCConsumer(
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
 ) *GRPCConsumer {
+	colFilterSets := make(map[string]map[string]struct{}, len(colFilters))
+	for table, cols := range colFilters {
+		if set := output.BuildAllowSet(cols); set != nil {
+			colFilterSets[table] = set
+		}
+	}
 	return &GRPCConsumer{
-		id:         "grpc:" + consumerID,
-		ch:         make(chan *proto.ChangeEvent, bufSize),
-		filter:     filter,
-		cs:         cs,
-		m:          m,
-		done:       make(chan struct{}),
-		rowFilters: rowFilters,
-		colFilters: colFilters,
+		id:            "grpc:" + consumerID,
+		ch:            make(chan *proto.ChangeEvent, bufSize),
+		filter:        filter,
+		cs:            cs,
+		m:             m,
+		done:          make(chan struct{}),
+		rowFilters:    rowFilters,
+		colFilters:    colFilters,
+		colFilterSets: colFilterSets,
 	}
 }
 
@@ -85,12 +95,12 @@ func (c *GRPCConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) err
 	// ApplyColumnFilter is a no-op when cols is nil/empty.
 	// IMPORTANT: entry.Event is a shared pointer — copy into a new struct, never mutate.
 	ev := entry.Event
-	cols := c.colFilters[entry.Event.Table] // nil if table not configured
-	filteredBefore, err := output.ApplyColumnFilter(ev.Before, cols)
+	colSet := c.colFilterSets[entry.Event.Table] // nil if table not configured
+	filteredBefore, err := output.ApplyColumnFilterSet(ev.Before, colSet)
 	if err != nil {
 		return fmt.Errorf("grpc consumer: column filter before: %w", err)
 	}
-	filteredAfter, err := output.ApplyColumnFilter(ev.After, cols)
+	filteredAfter, err := output.ApplyColumnFilterSet(ev.After, colSet)
 	if err != nil {
 		return fmt.Errorf("grpc consumer: column filter after: %w", err)
 	}
