@@ -23,7 +23,7 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 <h2 class="dh2">Key features</h2>
 <ul class="dul">
 <li><strong>Consistent backfills</strong> — Watermark-coordinated snapshots that merge seamlessly with the live WAL stream. Crash-resumable keyset cursors.</li>
-<li><strong>Per-key ordering</strong> — Events for the same primary key always arrive in commit order. Configurable message grouping per table.</li>
+<li><strong>Per-key ordering</strong> — Events for the same primary key always arrive in commit order, hashed across 64 partitions for parallel throughput.</li>
 <li><strong>Idempotency keys</strong> — Every event has a deterministic, stable key for exactly-once processing.</li>
 <li><strong>Poison pill isolation</strong> — Failed events block only their message group, not the pipeline. Exponential backoff with dead-letter queue.</li>
 <li><strong>High availability</strong> — Leader election via Postgres advisory locks. Automatic primary detection and failover.</li>
@@ -209,14 +209,8 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 
 'docs-ordering': {title:'Ordering and Partitions',sub:'How kaptanto maintains per-key order while maximizing throughput.',body:`
 <h2 class="dh2">Message groups</h2>
-<p class="dp">Events are partitioned by a configurable grouping key. By default, this is the primary key. All events for the same key land in the same partition and are delivered sequentially.</p>
-<div class="dcode">tables:
-  - name: orders
-    group_by: [id]           # per-row ordering (default)
-  - name: order_items
-    group_by: [order_id]     # group by parent
-  - name: metrics
-    group_by: null           # no ordering, max throughput</div>
+<p class="dp">Events are hashed into 64 partitions by their primary key. All events for the same key land in the same partition and are delivered sequentially in commit order.</p>
+<div class="dcall"><p><strong>Note:</strong> The grouping key is currently the table's primary key (<code>id</code>) and is not yet configurable per table. Custom grouping keys are on the roadmap.</p></div>
 
 <h2 class="dh2">Partition isolation</h2>
 <p class="dp">Each partition is served by a dedicated goroutine. If consumer A is slow on partition 7, partitions 0-6 and 8-63 continue at full speed for all consumers.</p>`},
@@ -315,37 +309,29 @@ sinks:
 
 'docs-filtering': {title:'Filtering',sub:'Control which events reach your consumers.',body:`
 <h2 class="dh2">Table filtering</h2>
-<p class="dp">Specify which tables to capture with <code>--tables</code> or in the YAML config.</p>
-
-<h2 class="dh2">Operation filtering</h2>
-<div class="dcode">tables:
-  - name: audit_log
-    operations: [insert]     # ignore updates and deletes</div>
+<p class="dp">Specify which tables to capture with <code>--tables</code> or as keys under <code>tables:</code> in the YAML config (the config is a map keyed by table name).</p>
 
 <h2 class="dh2">Column filtering</h2>
+<p class="dp">Restrict which columns appear in each event with a per-table allow-list:</p>
 <div class="dcode">tables:
-  - name: users
+  users:
     columns: [id, email, status, created_at]   # exclude PII columns</div>
 
 <h2 class="dh2">Row filtering (WHERE condition)</h2>
 <div class="dcode">tables:
-  - name: orders
-    condition: "status != 'draft' AND amount > 0"</div>
-<p class="dp">For Postgres, row filters are applied at the publication level when possible, so filtered rows never leave the database.</p>`},
+  orders:
+    where: "status != 'draft' AND amount > 0"</div>
+<p class="dp">Row filters are evaluated in-process against each change event before delivery to SSE/gRPC consumers.</p>
+
+<h2 class="dh2">Operation filtering</h2>
+<p class="dp">Operation filtering is a consumer-side subscription filter, not table config. Pass <code>operations</code> as a query parameter when subscribing over SSE (or in the gRPC <code>SubscribeRequest</code>):</p>
+<div class="dcode">GET http://localhost:7654/events?tables=audit_log&operations=insert
+<span class="tc"># only inserts — updates and deletes are not delivered</span></div>`},
 
 'docs-grouping': {title:'Message Grouping',sub:'Configure how events are partitioned for ordering.',body:`
-<h2 class="dh2">Default: primary key</h2>
-<p class="dp">By default, events are grouped by primary key. All events for the same row are delivered in order.</p>
-
-<h2 class="dh2">Custom grouping</h2>
-<div class="dcode">tables:
-  - name: order_items
-    group_by: [order_id]     # all items for same order are ordered
-  - name: events
-    group_by: [account_id]   # all events for same account
-  - name: metrics
-    group_by: null           # no ordering — maximum throughput</div>
-<div class="dcall"><p><strong>Tradeoff:</strong> Coarse-grained grouping (e.g., account_id) reduces parallelism. Fine-grained grouping (e.g., primary key) maximizes throughput.</p></div>`},
+<h2 class="dh2">Grouping by primary key</h2>
+<p class="dp">Events are grouped by primary key. All events for the same row are delivered in order within their partition, and the 64 partitions are processed in parallel for throughput.</p>
+<div class="dcall"><p><strong>Roadmap:</strong> Custom grouping keys — for example, grouping all rows of a child table by a parent <code>order_id</code> — are not yet exposed via flag or YAML. The grouping key is fixed to the primary key today. The tradeoff when it ships: coarse-grained grouping (e.g. <code>account_id</code>) reduces parallelism; fine-grained grouping (primary key) maximizes throughput.</p></div>`},
 
 'docs-ha': {title:'High Availability',sub:'Run kaptanto in HA mode with automatic failover.',body:`
 <h2 class="dh2">Agent failover</h2>
