@@ -75,7 +75,7 @@ max_wal_senders = 4</div>
 <div class="dcode"><span class="tg">$</span> brew install kaptanto/tap/kaptanto</div>
 
 <h2 class="dh2">From source</h2>
-<p class="dp">Requires Go 1.22+:</p>
+<p class="dp">Requires Go 1.25+:</p>
 <div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
 <span class="tg">$</span> cd kaptanto && go build -o kaptanto ./cmd/kaptanto</div>
 
