@@ -314,6 +314,7 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 	type consumerSnap struct {
 		consumer Consumer
 		blocked  bool
+		cursor   uint64 // this consumer's next-seq for the partition at snapshot time
 	}
 	snaps := make([]consumerSnap, len(r.consumers))
 	for i, cs := range r.consumers {
@@ -321,16 +322,26 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 			consumer: cs.consumer,
 			// IsBlocked acquires its own mutex — safe to call under RLock.
 			blocked: r.rs.IsBlocked(cs.consumer.ID(), groupKey),
+			cursor:  cs.cursorByPartition[partitionID],
 		}
 	}
 	r.mu.RUnlock()
 
 	// Phase 2: deliver outside the lock. Concurrent partitions can deliver
 	// independently; SSE flush latency no longer serialises all goroutines.
+	//
+	// ReadPartition fetches from the minimum cursor across all consumers, so a
+	// lagging or blocked consumer can rewind the read window below an entry that
+	// a healthy consumer has already acked. Skip delivery to any consumer whose
+	// own cursor is already past entry.Seq — otherwise an unrelated slow consumer
+	// causes repeated duplicate delivery to every other consumer in the partition.
 	deliveryErrs := make([]error, len(snaps))
 	for i, snap := range snaps {
 		if snap.blocked || ctx.Err() != nil {
 			continue
+		}
+		if entry.Seq < snap.cursor {
+			continue // already delivered and acked by this consumer
 		}
 		deliveryErrs[i] = snap.consumer.Deliver(ctx, entry)
 	}
@@ -353,6 +364,12 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 			if r.metrics != nil {
 				r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
 			}
+			continue
+		}
+
+		// Skipped in Phase 2 because this consumer already acked entry.Seq.
+		// Do not touch the cursor — advancing toward entry.Seq+1 would regress it.
+		if entry.Seq < snap.cursor {
 			continue
 		}
 

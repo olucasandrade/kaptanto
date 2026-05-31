@@ -204,6 +204,52 @@ func TestPoisonPillIsolation(t *testing.T) {
 	}
 }
 
+// TestNoDuplicateDeliveryWhenAnotherConsumerLags verifies consumer isolation:
+// when consumer A blocks on a key — stalling its partition cursor — the read
+// window (minCursorForPartition) keeps rewinding to A's low cursor, but healthy
+// consumer B must still receive each seq exactly once, not once per poll cycle.
+//
+// Partition 0 contains two entries, both key "A":
+//
+//	seq=1 key="A" → A fails (bad key) and stays blocked; B succeeds
+//	seq=2 key="A" → A blocked (same group); B succeeds
+//
+// A's cursor stays at 1, so ReadPartition re-reads seq=1 and seq=2 every cycle.
+// Without per-consumer cursor gating, B re-receives both seqs on every poll.
+func TestNoDuplicateDeliveryWhenAnotherConsumerLags(t *testing.T) {
+	entries := []eventlog.LogEntry{
+		makeEntry(1, `"A"`),
+		makeEntry(2, `"A"`),
+	}
+	el := newFakeEventLog(map[uint32][]eventlog.LogEntry{
+		0: entries,
+	})
+
+	consumerA := &fakeConsumer{id: "a", badKey: `"A"`} // always fails → cursor stalls
+	consumerB := &fakeConsumer{id: "b"}                 // healthy
+	r := router.NewRouter(el, 1, nil)
+	r.Register(consumerA)
+	r.Register(consumerB)
+
+	// Run for many 10ms poll cycles; without the fix B accumulates duplicates.
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if err := r.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	counts := map[uint64]int{}
+	for _, e := range consumerB.delivered() {
+		counts[e.Seq]++
+	}
+	if counts[1] != 1 {
+		t.Errorf("consumer B should receive seq=1 exactly once, got %d", counts[1])
+	}
+	if counts[2] != 1 {
+		t.Errorf("consumer B should receive seq=2 exactly once, got %d", counts[2])
+	}
+}
+
 func seqs(entries []eventlog.LogEntry) []uint64 {
 	out := make([]uint64, len(entries))
 	for i, e := range entries {
