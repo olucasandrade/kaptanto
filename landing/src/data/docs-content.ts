@@ -302,11 +302,7 @@ sinks:
     sasl-username: kaptanto
     sasl-password: secret
     tls:
-      ca-file: /etc/ssl/kafka-ca.pem
-
-metrics:
-  enabled: true
-  port: 9090</div>
+      ca-file: /etc/ssl/kafka-ca.pem</div>
 
 <h2 class="dh2">CLI flags always win</h2>
 <p class="dp">CLI flags take precedence over YAML config values. This lets you use a shared config file and override specific settings per environment without editing the file.</p>
@@ -376,21 +372,31 @@ metrics:
 
 'docs-metrics': {title:'Metrics and Monitoring',sub:'Prometheus metrics and health check endpoints.',body:`
 <h2 class="dh2">Prometheus endpoint</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --metrics-port 9090
-<span class="tc"># GET http://localhost:9090/metrics</span></div>
+<p class="dp">There is no separate metrics flag or port. <code>/metrics</code> and <code>/healthz</code> are served by the output server and follow <code>--port</code>:</p>
+<table class="dtbl"><thead><tr><th>Output mode</th><th>Metrics / health bind</th></tr></thead><tbody>
+<tr><td><code>sse</code></td><td><code>--port</code> (shared with <code>/events</code>)</td></tr>
+<tr><td><code>nats</code>, <code>sqs</code>, <code>kafka</code>, <code>pubsub</code>, <code>rabbitmq</code></td><td><code>--port</code></td></tr>
+<tr><td><code>grpc</code></td><td><code>--port</code> + 1 (gRPC owns <code>--port</code>)</td></tr>
+<tr><td><code>stdout</code></td><td>not served</td></tr>
+</tbody></table>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654
+<span class="tc"># GET http://localhost:7654/metrics</span></div>
 
 <h2 class="dh2">Key metrics</h2>
 <table class="dtbl"><thead><tr><th>Metric</th><th>Type</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>kaptanto_source_lag_bytes</code></td><td>Gauge</td><td>WAL replication lag per source</td></tr>
-<tr><td><code>kaptanto_events_captured_total</code></td><td>Counter</td><td>Events by source, table, operation</td></tr>
-<tr><td><code>kaptanto_events_delivered_total</code></td><td>Counter</td><td>Events by consumer</td></tr>
+<tr><td><code>kaptanto_events_delivered_total</code></td><td>Counter</td><td>Events delivered by consumer, table, operation</td></tr>
 <tr><td><code>kaptanto_consumer_lag_events</code></td><td>Gauge</td><td>Events behind per consumer</td></tr>
-<tr><td><code>kaptanto_backfill_progress_pct</code></td><td>Gauge</td><td>Snapshot progress 0-100</td></tr>
-<tr><td><code>kaptanto_errors_total</code></td><td>Counter</td><td>Errors by type</td></tr>
+<tr><td><code>kaptanto_errors_total</code></td><td>Counter</td><td>Errors by consumer and kind</td></tr>
+<tr><td><code>kaptanto_checkpoint_flushes_total</code></td><td>Counter</td><td>Source checkpoint flushes</td></tr>
+<tr><td><code>queue_publish_total</code></td><td>Counter</td><td>Queue-sink publishes by sink</td></tr>
+<tr><td><code>queue_publish_errors_total</code></td><td>Counter</td><td>Queue-sink publish errors by sink</td></tr>
+<tr><td><code>queue_publish_latency_seconds</code></td><td>Histogram</td><td>Queue-sink publish latency by sink</td></tr>
 </tbody></table>
 
 <h2 class="dh2">Health check</h2>
-<div class="dcode">GET http://localhost:8080/healthz
+<div class="dcode"><span class="tc"># same host:port as /metrics for the mode above</span>
+GET http://localhost:7654/healthz
 <span class="tc"># 200 = healthy, 503 = unhealthy with diagnostic JSON</span></div>`},
 
 'docs-api': {title:'Management API',sub:'REST API for programmatic control of kaptanto.',body:`
