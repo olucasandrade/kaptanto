@@ -350,6 +350,19 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 			return fmt.Errorf("snapshot query: %w", queryErr)
 		}
 
+		// Field descriptions, column names, and PK-column positions are constant
+		// for the entire result set — compute them once per page instead of
+		// reallocating a map and re-deriving column-name strings on every row.
+		fieldDescs := rows.FieldDescriptions()
+		colNames := make([]string, len(fieldDescs))
+		for i, fd := range fieldDescs {
+			colNames[i] = string(fd.Name)
+		}
+		pkColIdx := make(map[string]int, len(cfg.PKCols))
+		for i, col := range cfg.PKCols {
+			pkColIdx[col] = i
+		}
+
 		var rowCount int
 		var lastPKValues []any
 
@@ -361,19 +374,11 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 			}
 
 			// Build column-name → value map for JSON marshalling.
-			fieldDescs := rows.FieldDescriptions()
-			rowMap := make(map[string]any, len(fieldDescs))
+			rowMap := make(map[string]any, len(colNames))
 			pkValues := make([]any, len(cfg.PKCols))
 			pkMap := make(map[string]any, len(cfg.PKCols))
 
-			// Build a lookup for PK column positions.
-			pkColIdx := make(map[string]int, len(cfg.PKCols))
-			for i, col := range cfg.PKCols {
-				pkColIdx[col] = i
-			}
-
-			for i, fd := range fieldDescs {
-				colName := string(fd.Name)
+			for i, colName := range colNames {
 				rowMap[colName] = values[i]
 				if idx, ok := pkColIdx[colName]; ok {
 					pkValues[idx] = values[i]
