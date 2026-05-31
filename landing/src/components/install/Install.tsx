@@ -62,7 +62,7 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
                     <CopyButton />
                     <span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
                     <br />
-                    <span class="tg">$</span> cd kaptanto &amp;&amp; go build -o kaptanto .
+                    <span class="tg">$</span> cd kaptanto &amp;&amp; go build -o kaptanto ./cmd/kaptanto
                   </div>
                 )}
               </div>
