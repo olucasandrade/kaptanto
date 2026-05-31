@@ -35,7 +35,7 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 
 'docs-quickstart': {title:'Quick Start',sub:'Install kaptanto and stream your first events in under 2 minutes.',body:`
 <h2 class="dh2">1. Install</h2>
-<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh</div>
+<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <p class="dp">Or with Docker:</p>
 <div class="dcode"><span class="tg">$</span> docker pull olucasandrade/kaptanto:latest</div>
 
@@ -65,7 +65,7 @@ max_wal_senders = 4</div>
 
 'docs-install': {title:'Installation',sub:'Install kaptanto on Linux, macOS, or Windows.',body:`
 <h2 class="dh2">Binary (recommended)</h2>
-<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptanto.dev | sh</div>
+<div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <p class="dp">Downloads a statically-linked binary for your platform. No runtime dependencies.</p>
 
 <h2 class="dh2">Docker</h2>
