@@ -168,12 +168,13 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 
 'docs-backfills': {title:'Backfills',sub:'How kaptanto snapshots existing data and coordinates with real-time streaming.',body:`
 <h2 class="dh2">Strategies</h2>
+<p class="dp">Kaptanto currently runs the <code>snapshot_and_stream</code> strategy for every table — it is the default and is not yet selectable per table via a flag or YAML field. The remaining strategies exist in the backfill engine and are documented here for completeness; per-table strategy selection is on the roadmap.</p>
 <table class="dtbl"><thead><tr><th>Strategy</th><th>Behavior</th></tr></thead><tbody>
-<tr><td><code>snapshot_and_stream</code></td><td>Snapshot existing rows, then stream changes. Default.</td></tr>
-<tr><td><code>stream_only</code></td><td>Skip snapshot. Only new changes.</td></tr>
+<tr><td><code>snapshot_and_stream</code></td><td>Snapshot existing rows, then stream changes. <strong>Default — the only strategy currently used.</strong></td></tr>
+<tr><td><code>stream_only</code></td><td>Skip the snapshot. Only stream new changes.</td></tr>
 <tr><td><code>snapshot_only</code></td><td>Snapshot then stop. One-time export.</td></tr>
-<tr><td><code>snapshot_deferred</code></td><td>Stream immediately, snapshot on cron schedule.</td></tr>
-<tr><td><code>snapshot_partial</code></td><td>Snapshot rows matching a WHERE condition.</td></tr>
+<tr><td><code>snapshot_deferred</code></td><td>Record snapshot intent now; run the snapshot on the next restart.</td></tr>
+<tr><td><code>snapshot_partial</code></td><td>Resume an in-progress snapshot from the last saved cursor if one exists.</td></tr>
 </tbody></table>
 
 <h2 class="dh2">Watermark coordination</h2>
