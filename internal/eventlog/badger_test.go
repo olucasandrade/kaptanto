@@ -253,3 +253,46 @@ func TestBadgerEventLog_Close(t *testing.T) {
 	err = el.Close()
 	assert.NoError(t, err, "Close should complete without error")
 }
+
+// TestReadPartition_RawPopulated verifies that ReadPartition populates LogEntry.Raw
+// with the exact bytes that were stored by Append (raw-bytes-passthrough fix).
+func TestReadPartition_RawPopulated(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer el.Close()
+
+	ev := makeEvent("src:raw:1:insert:0/1", `{"id": 1}`)
+	_, err = el.Append(ev)
+	require.NoError(t, err)
+
+	// Find the entry across all partitions.
+	ctx := context.Background()
+	var found *eventlog.LogEntry
+	for p := uint32(0); p < 64; p++ {
+		entries, err := el.ReadPartition(ctx, p, 0, 100)
+		require.NoError(t, err)
+		for i := range entries {
+			if entries[i].Event.IdempotencyKey == ev.IdempotencyKey {
+				e := entries[i]
+				found = &e
+				break
+			}
+		}
+		if found != nil {
+			break
+		}
+	}
+	require.NotNil(t, found, "event not found after Append")
+
+	// Raw must be non-empty and valid JSON.
+	require.NotEmpty(t, found.Raw, "LogEntry.Raw must be populated by ReadPartition")
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(found.Raw, &decoded), "LogEntry.Raw must be valid JSON")
+
+	// Raw must round-trip to the same key value as the stored event.
+	rawKey, ok := decoded["key"]
+	require.True(t, ok, "key field must exist in Raw JSON")
+	rawKeyJSON, err := json.Marshal(rawKey)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(ev.Key), string(rawKeyJSON), "Raw JSON must contain the correct key")
+}

@@ -134,6 +134,38 @@ func TestStdoutWriterMetricsIncrement(t *testing.T) {
 	}
 }
 
+// TestStdoutWriterRawPassThrough verifies that when entry.Raw is set, Deliver
+// writes the raw bytes directly (plus a newline) rather than re-marshalling Event.
+// This is the raw-bytes-passthrough fast path that avoids redundant json.Marshal.
+func TestStdoutWriterRawPassThrough(t *testing.T) {
+	var buf bytes.Buffer
+	w := stdout.NewStdoutWriter(&buf)
+
+	id := ulid.MustNew(ulid.Timestamp(time.Now()), ulid.DefaultEntropy())
+	ev := &event.ChangeEvent{
+		ID:        id,
+		Operation: event.OpInsert,
+		Table:     "orders",
+		Key:       json.RawMessage(`{"id":7}`),
+	}
+	// Provide pre-encoded raw bytes (simulating ReadPartition output).
+	rawBytes, err := json.Marshal(ev)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	entry := eventlog.LogEntry{Seq: 1, Event: ev, Raw: rawBytes}
+
+	if err := w.Deliver(context.Background(), entry); err != nil {
+		t.Fatalf("Deliver error: %v", err)
+	}
+
+	out := buf.String()
+	// Output must be the raw bytes followed by a newline.
+	if got, want := out, string(rawBytes)+"\n"; got != want {
+		t.Errorf("raw passthrough output mismatch\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
 // TestStdoutWriterEncodeErrorNoIncrement verifies that an encode error (write
 // to a closed PipeWriter) does NOT increment EventsDelivered.
 func TestStdoutWriterEncodeErrorNoIncrement(t *testing.T) {
