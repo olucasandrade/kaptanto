@@ -2,10 +2,12 @@ package grpcoutput
 
 import (
 	"context"
+	"crypto/tls"
 	"time"
 
 	grpclib "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
@@ -41,14 +43,19 @@ func NewGRPCServer(
 
 // NewGRPCNetServer creates and configures the grpc.Server.
 // Call Serve(lis) on the returned server to start accepting connections.
-func NewGRPCNetServer(svc *GRPCServer) *grpclib.Server {
-	srv := grpclib.NewServer(
+// tlsCfg is optional: when non-nil the server uses TLS transport credentials.
+func NewGRPCNetServer(svc *GRPCServer, tlsCfg *tls.Config) *grpclib.Server {
+	opts := []grpclib.ServerOption{
 		grpclib.MaxConcurrentStreams(1000),
 		grpclib.KeepaliveParams(keepalive.ServerParameters{
 			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,
 		}),
-	)
+	}
+	if tlsCfg != nil {
+		opts = append(opts, grpclib.Creds(credentials.NewTLS(tlsCfg)))
+	}
+	srv := grpclib.NewServer(opts...)
 	proto.RegisterCdcStreamServer(srv, svc)
 	return srv
 }
