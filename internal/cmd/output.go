@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -46,6 +49,61 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	}
 }
 
+// buildServerTLSConfig builds a *tls.Config from ServerTLSConfig fields.
+// Returns nil, nil when no cert/key are configured (plaintext mode).
+// Returns an error when cert/key paths are set but cannot be loaded.
+// When clientCAFile is set, mTLS is enabled: client certificates are required
+// and verified against the given CA. MinVersion is always TLS 1.2.
+func buildServerTLSConfig(cfg config.ServerTLSConfig) (*tls.Config, error) {
+	if cfg.CertFile == "" && cfg.KeyFile == "" {
+		return nil, nil
+	}
+	if cfg.CertFile == "" || cfg.KeyFile == "" {
+		return nil, fmt.Errorf("server TLS: both --tls-cert and --tls-key must be set together")
+	}
+	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("server TLS: load cert/key: %w", err)
+	}
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+	if cfg.ClientCAFile != "" {
+		caPEM, err := os.ReadFile(cfg.ClientCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("server TLS: read client CA: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("server TLS: no valid certificates found in client CA file %q", cfg.ClientCAFile)
+		}
+		tlsCfg.ClientCAs = pool
+		tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return tlsCfg, nil
+}
+
+// requireServerTLS validates the TLS policy for network outputs (sse, grpc).
+// Returns an error when no TLS is configured and --insecure is not set.
+// Logs a loud warning when insecure mode is explicitly requested.
+func requireServerTLS(output string, tlsCfg *tls.Config, insecure bool) error {
+	if tlsCfg != nil {
+		return nil // TLS is configured — all good
+	}
+	if insecure {
+		slog.Warn("SECURITY WARNING: running "+output+" output in plaintext (--insecure). "+
+			"Change stream data is transmitted without encryption. "+
+			"Use --tls-cert / --tls-key to enable TLS.",
+			"output", output)
+		return nil
+	}
+	return fmt.Errorf(
+		"%s output requires TLS: provide --tls-cert and --tls-key, or pass --insecure to opt out (not recommended for production)",
+		output,
+	)
+}
+
 // messageSink is the common interface shared by all external-broker sinks.
 type messageSink interface {
 	router.Consumer
@@ -74,12 +132,22 @@ func buildOutputServer(
 		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
 
 	case "sse":
+		tlsCfg, err := buildServerTLSConfig(cfg.ServerTLS)
+		if err != nil {
+			return nil, err
+		}
+		if err := requireServerTLS("sse", tlsCfg, cfg.Insecure); err != nil {
+			return nil, err
+		}
 		sseServer := sse.NewSSEServer(rtr, metrics, cfg.CORSOrigin, 15*time.Second, rowFilters, colFilters)
 		mux := http.NewServeMux()
 		mux.Handle("/events", sseServer)
 		mux.Handle("/metrics", metrics.Handler())
 		mux.Handle("/healthz", healthHandler)
 		srv := newHTTPServer(fmt.Sprintf(":%d", cfg.Port), mux)
+		if tlsCfg != nil {
+			srv.TLSConfig = tlsCfg
+		}
 		return func(ctx context.Context) error {
 			go func() {
 				<-ctx.Done()
@@ -87,15 +155,30 @@ func buildOutputServer(
 				defer cancel()
 				_ = srv.Shutdown(shutdownCtx)
 			}()
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				return fmt.Errorf("sse server: %w", err)
+			if tlsCfg != nil {
+				// TLS: cert/key are already loaded into srv.TLSConfig; pass ""
+				// so ListenAndServeTLS uses the pre-loaded config.
+				if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+					return fmt.Errorf("sse server: %w", err)
+				}
+			} else {
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					return fmt.Errorf("sse server: %w", err)
+				}
 			}
 			return nil
 		}, nil
 
 	case "grpc":
+		tlsCfg, err := buildServerTLSConfig(cfg.ServerTLS)
+		if err != nil {
+			return nil, err
+		}
+		if err := requireServerTLS("grpc", tlsCfg, cfg.Insecure); err != nil {
+			return nil, err
+		}
 		grpcSvc := grpcoutput.NewGRPCServer(rtr, cursorStore, metrics, rowFilters, colFilters)
-		grpcSrv := grpcoutput.NewGRPCNetServer(grpcSvc)
+		grpcSrv := grpcoutput.NewGRPCNetServer(grpcSvc, tlsCfg)
 		lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
 		if err != nil {
 			return nil, fmt.Errorf("grpc listen: %w", err)
