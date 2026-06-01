@@ -69,4 +69,12 @@ type LogEntry struct {
 
 	// Event is the deserialized ChangeEvent stored at this sequence position.
 	Event *event.ChangeEvent
+
+	// Raw holds the exact JSON bytes that were written to the store by Append.
+	// Pass-through consumers (no column filter active for this event's table)
+	// should write Raw directly to the wire instead of re-marshalling Event,
+	// avoiding the unmarshal → re-marshal round-trip.
+	//
+	// Raw is always set by ReadPartition. Consumers must not modify the slice.
+	Raw []byte
 }
