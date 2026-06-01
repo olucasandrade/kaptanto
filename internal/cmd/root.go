@@ -405,7 +405,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	openConnFn := func(ctx context.Context) (*pgx.Conn, error) {
 		return pgx.Connect(ctx, cfg.Source)
 	}
-	bkEng := backfill.NewBackfillEngine(bkConfigs, bkStore, idGen, connector.AppendAndQueue, openConnFn)
+	bkEng := backfill.NewBackfillEngineWithBatch(bkConfigs, bkStore, idGen, connector.AppendAndQueue, connector.AppendAndQueueBatch, openConnFn)
 	bkEng.SetWatermark(backfill.NewWatermarkChecker(el, numEventLogPartitions))
 	connector.SetBackfillEngine(bkEng)
 
