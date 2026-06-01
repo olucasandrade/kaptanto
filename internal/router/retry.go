@@ -83,9 +83,13 @@ type RetryRecord struct {
 }
 
 // consumerRetryState is the per-consumer blocked map used by RetryScheduler.
+// Each groupKey maps to an ordered queue of RetryRecords. The head of the queue
+// (index 0) is the record currently being retried; subsequent entries are
+// follow-on events that arrived while the group was blocked. They are queued in
+// arrival order and delivered head-first to preserve RTR-04 per-key ordering.
 type consumerRetryState struct {
 	consumer      Consumer
-	blockedGroups map[string]*RetryRecord
+	blockedGroups map[string][]*RetryRecord
 }
 
 // RetryScheduler manages retry state for an arbitrary set of consumers.
@@ -114,20 +118,25 @@ func (rs *RetryScheduler) ensureStateLocked(c Consumer) *consumerRetryState {
 	}
 	s := &consumerRetryState{
 		consumer:      c,
-		blockedGroups: make(map[string]*RetryRecord),
+		blockedGroups: make(map[string][]*RetryRecord),
 	}
 	rs.states[id] = s
 	return s
 }
 
-// AddBlocked registers a RetryRecord under the given groupKey for consumer c.
-// This is called by Router.dispatch when initial delivery fails, and is also
-// used directly by tests.
+// AddBlocked enqueues a RetryRecord for consumer c under the given groupKey.
+//
+// - First failure: creates a new queue with rec as the head (retry candidate).
+// - Follow-on entries while already blocked: appends rec to the existing queue
+//   so that all events for the key are preserved in order (RTR-04).
+//
+// The head of the queue is the record being actively retried by Tick; only
+// after the head succeeds does Tick promote the next entry to head.
 func (rs *RetryScheduler) AddBlocked(c Consumer, groupKey string, rec *RetryRecord) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 	s := rs.ensureStateLocked(c)
-	s.blockedGroups[groupKey] = rec
+	s.blockedGroups[groupKey] = append(s.blockedGroups[groupKey], rec)
 }
 
 // BlockedCount returns the number of blocked groups for consumer c.
@@ -153,11 +162,11 @@ func (rs *RetryScheduler) ForceRetryNow(c Consumer, groupKey string) {
 	if !ok {
 		return
 	}
-	rec, ok := s.blockedGroups[groupKey]
-	if !ok {
+	queue, ok := s.blockedGroups[groupKey]
+	if !ok || len(queue) == 0 {
 		return
 	}
-	rec.NextRetryAt = time.Now().Add(-time.Second)
+	queue[0].NextRetryAt = time.Now().Add(-time.Second)
 }
 
 // IsBlocked reports whether the given (consumerID, groupKey) pair is currently
@@ -170,36 +179,54 @@ func (rs *RetryScheduler) IsBlocked(consumerID, groupKey string) bool {
 	if !ok {
 		return false
 	}
-	_, blocked := s.blockedGroups[groupKey]
-	return blocked
+	return len(s.blockedGroups[groupKey]) > 0
 }
 
-// Tick iterates all consumers' blocked groups and re-attempts delivery for
-// entries whose NextRetryAt is in the past. On success the entry is removed.
-// On failure the attempt counter is incremented and NextRetryAt is pushed
-// forward. After maxRetries failures the entry is dead-lettered.
+// Tick iterates all consumers' blocked groups and re-attempts delivery for the
+// head entry of each group whose NextRetryAt is in the past.
+//
+// On success the head entry is removed. If the queue still has remaining
+// entries, the next entry's NextRetryAt is set to now so it will be attempted
+// on the very next Tick — the group key remains blocked until all queued
+// entries have been successfully delivered.
+//
+// On failure the attempt counter on the head is incremented and NextRetryAt is
+// pushed forward. After maxRetries failures the head entry is dead-lettered and
+// the next entry (if any) becomes the new head.
 func (rs *RetryScheduler) Tick(ctx context.Context) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 	now := time.Now()
 	for _, s := range rs.states {
-		for groupKey, rec := range s.blockedGroups {
+		for groupKey, queue := range s.blockedGroups {
+			if len(queue) == 0 {
+				delete(s.blockedGroups, groupKey)
+				continue
+			}
+			rec := queue[0] // only retry the head
 			if now.Before(rec.NextRetryAt) {
 				continue
 			}
 			err := s.consumer.Deliver(ctx, rec.Entry)
 			if err == nil {
-				delete(s.blockedGroups, groupKey)
+				// Head delivered successfully — pop it.
+				if len(queue) == 1 {
+					delete(s.blockedGroups, groupKey)
+				} else {
+					// Promote next entry; make it immediately eligible.
+					queue[1].NextRetryAt = time.Now()
+					s.blockedGroups[groupKey] = queue[1:]
+				}
 				continue
 			}
-			// Permanent error → dead-letter immediately.
+			// Permanent error → dead-letter the head immediately.
 			if isPermanentError(err) {
-				deadLetter(s, groupKey, rec)
+				deadLetterHead(s, groupKey, queue)
 				continue
 			}
 			rec.Attempts++
 			if rec.Attempts >= maxRetries {
-				deadLetter(s, groupKey, rec)
+				deadLetterHead(s, groupKey, queue)
 				continue
 			}
 			rec.NextRetryAt = time.Now().Add(NextDelay(rec.Attempts))
@@ -221,9 +248,12 @@ func (rs *RetryScheduler) Run(ctx context.Context) {
 	}
 }
 
-// deadLetter logs a slog.Error for a dead-lettered entry and removes it from
-// the consumer's blocked groups.
-func deadLetter(s *consumerRetryState, groupKey string, rec *RetryRecord) {
+// deadLetterHead logs a slog.Error for the head entry of a blocked group and
+// pops it. If the queue has more entries the next one becomes the new head and
+// is made immediately eligible (NextRetryAt = now). If the queue is now empty
+// the group key is removed from blockedGroups.
+func deadLetterHead(s *consumerRetryState, groupKey string, queue []*RetryRecord) {
+	rec := queue[0]
 	slog.Error("router: dead-letter",
 		"consumer_id", rec.ConsumerID,
 		"event_id", rec.Entry.Event.ID.String(),
@@ -231,5 +261,10 @@ func deadLetter(s *consumerRetryState, groupKey string, rec *RetryRecord) {
 		"key", string(rec.Entry.Event.Key),
 		"attempts", rec.Attempts,
 	)
-	delete(s.blockedGroups, groupKey)
+	if len(queue) == 1 {
+		delete(s.blockedGroups, groupKey)
+	} else {
+		queue[1].NextRetryAt = time.Now()
+		s.blockedGroups[groupKey] = queue[1:]
+	}
 }
