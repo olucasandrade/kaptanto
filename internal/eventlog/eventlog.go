@@ -21,6 +21,21 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/event"
 )
 
+// PartitionNotifier provides per-partition notify channels so consumers can
+// block instead of polling when no events are available. A depth-1 buffered
+// channel is used per partition; the sender uses a non-blocking send so a
+// slow or absent reader never stalls Append/AppendBatch (CHK-01 is safe).
+//
+// EventLog implementations that do not support notify (e.g. fakes in tests)
+// need not implement this interface; Router falls back to timer-only polling
+// when the EventLog does not implement PartitionNotifier.
+type PartitionNotifier interface {
+	// NotifyCh returns the notify channel for the given partition.
+	// The returned channel is read-only; the implementation owns the write end.
+	// Callers must never close the channel.
+	NotifyCh(partition uint32) <-chan struct{}
+}
+
 // EventLog is the append-only durable event store interface.
 // Implementations must be safe for sequential calls from a single goroutine.
 // Callers must serialize concurrent Append calls externally if needed.
