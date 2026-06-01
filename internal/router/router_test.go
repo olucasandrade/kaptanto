@@ -374,6 +374,50 @@ func TestWriterNeverBlocksOnFullNotifyChannel(t *testing.T) {
 	}
 }
 
+// TestHealthyConsumerNoDuplicatesUnderBlockedPeer exercises the lazy groupKey
+// optimisation: with consumer A permanently blocking on key "bad", consumer B
+// must still receive every other-key event exactly once across many poll cycles,
+// even though HasBlocked() will return true after A's first failure.
+// This validates that the lazy path correctly computes groupKey when needed and
+// that scratch-buffer reuse does not leak stale blocked/cursor values between events.
+func TestHealthyConsumerNoDuplicatesUnderBlockedPeer(t *testing.T) {
+	// Build 20 events: seq 1 is "bad" (A will fail), seqs 2-20 are "good".
+	var entries []eventlog.LogEntry
+	entries = append(entries, makeEntry(1, `"bad"`))
+	for i := uint64(2); i <= 20; i++ {
+		entries = append(entries, makeEntry(i, `"good"`))
+	}
+	el := newFakeEventLog(map[uint32][]eventlog.LogEntry{0: entries})
+
+	consumerA := &fakeConsumer{id: "blocked-peer", badKey: `"bad"`}
+	consumerB := &fakeConsumer{id: "healthy"}
+	r := router.NewRouter(el, 1, nil)
+	r.Register(consumerA)
+	r.Register(consumerB)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	if err := r.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	counts := map[uint64]int{}
+	for _, e := range consumerB.delivered() {
+		counts[e.Seq]++
+	}
+	for seq := uint64(2); seq <= 20; seq++ {
+		if counts[seq] != 1 {
+			t.Errorf("consumer B: seq=%d delivered %d times, want exactly 1", seq, counts[seq])
+		}
+	}
+	// seq=1 (bad key) should not be delivered to B (B has no bad key but A's
+	// cursor stall causes the partition to re-read seq=1 every cycle).
+	// B's own cursor gate prevents duplicate delivery of seq=1.
+	if counts[1] != 1 {
+		t.Errorf("consumer B: seq=1 delivered %d times, want exactly 1", counts[1])
+	}
+}
+
 func seqs(entries []eventlog.LogEntry) []uint64 {
 	out := make([]uint64, len(entries))
 	for i, e := range entries {
