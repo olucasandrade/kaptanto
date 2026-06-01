@@ -99,6 +99,10 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().StringSlice("cluster-peers", nil, "NATS JetStream cluster peer addresses (e.g. node2:6222,node3:6222); required when --cluster is set for 3-node Raft")
 	root.PersistentFlags().Int("nats-cluster-port", 6222, "NATS JetStream cluster route port for this node (default 6222)")
 	root.PersistentFlags().String("log-level", "info", "log verbosity: debug | info | warn | error")
+	root.PersistentFlags().String("tls-cert", "", "path to TLS certificate PEM for SSE/gRPC server")
+	root.PersistentFlags().String("tls-key", "", "path to TLS private key PEM for SSE/gRPC server")
+	root.PersistentFlags().String("tls-client-ca", "", "path to CA PEM for client certificate verification (mTLS); requires --tls-cert and --tls-key")
+	root.PersistentFlags().Bool("insecure", false, "allow plaintext SSE/gRPC without TLS (not recommended for production; logs a security warning)")
 
 	root.Version = version.Version
 	root.AddCommand(newVersionCmd())

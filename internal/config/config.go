@@ -118,6 +118,21 @@ type SinksConfig struct {
 	RabbitMQ *RabbitMQSinkConfig `yaml:"rabbitmq"`
 }
 
+// ServerTLSConfig holds TLS settings for Kaptanto's own inbound servers
+// (SSE and gRPC). This is distinct from TLSConfig which applies to outbound
+// sink connections.
+//
+// CertFile and KeyFile are required to enable TLS. ClientCAFile is optional
+// and enables mutual TLS (mTLS): when set, client certificates are required
+// and verified against the given CA PEM.
+//
+// Cert rotation is not supported in v1; restart the process to reload certs.
+type ServerTLSConfig struct {
+	CertFile    string `yaml:"cert-file"`    // path to server certificate PEM; required for TLS
+	KeyFile     string `yaml:"key-file"`     // path to server private key PEM; required for TLS
+	ClientCAFile string `yaml:"client-ca-file"` // path to CA PEM for client cert verification (mTLS); optional
+}
+
 // Config is the complete runtime configuration for a kaptanto pipeline.
 // YAML tags match the locked schema described in the project specification.
 type Config struct {
@@ -136,6 +151,8 @@ type Config struct {
 	ClusterPeers    []string               `yaml:"cluster-peers"`     // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
 	NatsClusterPort int                    `yaml:"nats-cluster-port"` // NATS cluster route port; 0 → 6222 applied at runtime
 	Sinks           SinksConfig            `yaml:"sinks"`             // queue sink connection settings
+	ServerTLS       ServerTLSConfig        `yaml:"server-tls"`        // inbound server TLS (SSE / gRPC); distinct from sink-side TLS
+	Insecure        bool                   `yaml:"insecure"`          // allow plaintext for sse/grpc without TLS (loud warning at startup)
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
@@ -198,6 +215,9 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 		{"node-id", &cfg.NodeID},
 		{"source-id", &cfg.SourceID},
 		{"cluster-dsn", &cfg.ClusterDSN},
+		{"tls-cert", &cfg.ServerTLS.CertFile},
+		{"tls-key", &cfg.ServerTLS.KeyFile},
+		{"tls-client-ca", &cfg.ServerTLS.ClientCAFile},
 	} {
 		if err := mergeString(flags, f.name, f.dest); err != nil {
 			return err
@@ -222,6 +242,7 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 	}{
 		{"ha", &cfg.HA},
 		{"cluster", &cfg.Cluster},
+		{"insecure", &cfg.Insecure},
 	} {
 		if err := mergeBool(flags, f.name, f.dest); err != nil {
 			return err
