@@ -3,6 +3,7 @@ package rabbitmqsink_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -12,6 +13,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	rabbitmqsink "github.com/olucasandrade/kaptanto/internal/output/rabbitmq"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 // fakeDeferred is a fake implementation of deferredConfirmAPI (exported for test).
@@ -81,8 +83,8 @@ func makeConsumerWithChannel(t *testing.T, ch rabbitmqsink.AMQPChannelAPI, routi
 	return c
 }
 
-// TestRabbitMQSink_Deliver_Ack verifies that a broker ack returns nil and
-// increments QueuePublishTotal.
+// TestRabbitMQSink_Deliver_Ack verifies that Deliver publishes synchronously
+// and FlushBatch returns nil when broker acks.
 func TestRabbitMQSink_Deliver_Ack(t *testing.T) {
 	ch := &fakeAMQPChannel{
 		deferred: &fakeDeferred{acked: true, err: nil},
@@ -93,15 +95,20 @@ func TestRabbitMQSink_Deliver_Ack(t *testing.T) {
 
 	entry := makeEntry(0, "key-ack")
 	if err := c.Deliver(context.Background(), entry); err != nil {
-		t.Fatalf("expected nil error on ack, got: %v", err)
+		t.Fatalf("expected nil error from Deliver, got: %v", err)
 	}
+	// Deliver issues the publish call; confirm channel was invoked.
 	if ch.callCount != 1 {
-		t.Fatalf("expected 1 publish call, got %d", ch.callCount)
+		t.Fatalf("expected 1 publish call after Deliver, got %d", ch.callCount)
+	}
+	// FlushBatch awaits deferred confirms.
+	if err := c.FlushBatch(context.Background()); err != nil {
+		t.Fatalf("expected nil error from FlushBatch on ack, got: %v", err)
 	}
 }
 
-// TestRabbitMQSink_Deliver_Nack verifies that a broker nack returns a non-nil
-// error containing the exchange name, and increments QueuePublishErrors.
+// TestRabbitMQSink_Deliver_Nack verifies that a broker nack causes FlushBatch
+// to return a non-nil error containing the exchange name.
 func TestRabbitMQSink_Deliver_Nack(t *testing.T) {
 	ch := &fakeAMQPChannel{
 		deferred: &fakeDeferred{acked: false, err: nil},
@@ -111,9 +118,12 @@ func TestRabbitMQSink_Deliver_Nack(t *testing.T) {
 	c.SetMetrics(m)
 
 	entry := makeEntry(0, "key-nack")
-	err := c.Deliver(context.Background(), entry)
+	if err := c.Deliver(context.Background(), entry); err != nil {
+		t.Fatalf("Deliver should not error: %v", err)
+	}
+	err := c.FlushBatch(context.Background())
 	if err == nil {
-		t.Fatal("expected non-nil error on nack")
+		t.Fatal("expected non-nil error on nack from FlushBatch")
 	}
 	if !containsAny(err.Error(), "test-exchange") {
 		t.Fatalf("expected error to contain exchange name, got: %v", err)
@@ -140,10 +150,9 @@ func TestRabbitMQSink_Deliver_PublishError(t *testing.T) {
 	}
 }
 
-// TestRabbitMQSink_Deliver_WaitContextError verifies that when WaitContext
-// returns an error, Deliver returns a non-nil error and QueuePublishErrors is
-// incremented.
-func TestRabbitMQSink_Deliver_WaitContextError(t *testing.T) {
+// TestRabbitMQSink_FlushBatch_WaitContextError verifies that when WaitContext
+// returns an error, FlushBatch returns a non-nil error wrapping that error.
+func TestRabbitMQSink_FlushBatch_WaitContextError(t *testing.T) {
 	ch := &fakeAMQPChannel{
 		deferred: &fakeDeferred{acked: false, err: context.Canceled},
 	}
@@ -152,7 +161,10 @@ func TestRabbitMQSink_Deliver_WaitContextError(t *testing.T) {
 	c.SetMetrics(m)
 
 	entry := makeEntry(0, "key-wait-err")
-	err := c.Deliver(context.Background(), entry)
+	if err := c.Deliver(context.Background(), entry); err != nil {
+		t.Fatalf("Deliver should not error: %v", err)
+	}
+	err := c.FlushBatch(context.Background())
 	if err == nil {
 		t.Fatal("expected non-nil error when WaitContext returns error")
 	}
@@ -217,6 +229,10 @@ func TestRabbitMQSink_Deliver_SetsHeader(t *testing.T) {
 	if err := c.Deliver(context.Background(), entry); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
+	// FlushBatch to confirm the ack, but header is set during Deliver.
+	if err := c.FlushBatch(context.Background()); err != nil {
+		t.Fatalf("FlushBatch: %v", err)
+	}
 
 	gotHeader, ok := ch.lastPublishing.Headers["Kaptanto-Idempotency-Key"]
 	if !ok {
@@ -237,6 +253,9 @@ func TestRabbitMQSink_Deliver_PersistentDeliveryMode(t *testing.T) {
 	entry := makeEntry(0, "key-mode")
 	if err := c.Deliver(context.Background(), entry); err != nil {
 		t.Fatalf("Deliver: %v", err)
+	}
+	if err := c.FlushBatch(context.Background()); err != nil {
+		t.Fatalf("FlushBatch: %v", err)
 	}
 	if ch.lastPublishing.DeliveryMode != amqp.Persistent {
 		t.Fatalf("expected DeliveryMode=%d (Persistent), got %d",
@@ -277,12 +296,52 @@ func TestRabbitMQSink_Deliver_PartitionRouting(t *testing.T) {
 		t.Fatalf("Deliver partition 1: %v", err)
 	}
 
+	// Deliver issues publish calls synchronously, so callCount is accurate before FlushBatch.
 	if ch0.callCount != 1 {
 		t.Fatalf("expected ch0 callCount=1, got %d", ch0.callCount)
 	}
 	if ch1.callCount != 1 {
 		t.Fatalf("expected ch1 callCount=1, got %d", ch1.callCount)
 	}
+
+	// FlushBatch collects deferred confirms; both channels acked.
+	if err := c.FlushBatch(context.Background()); err != nil {
+		t.Fatalf("FlushBatch: %v", err)
+	}
+}
+
+// TestRabbitMQSink_FlushBatch_BatchesMultipleEvents verifies that N events delivered
+// then flushed produce N publisher-confirm calls and return nil.
+func TestRabbitMQSink_FlushBatch_BatchesMultipleEvents(t *testing.T) {
+	ch := &fakeAMQPChannel{
+		deferred: &fakeDeferred{acked: true, err: nil},
+	}
+	c := makeConsumerWithChannel(t, ch, "{{.Table}}")
+	m := observability.NewKaptantoMetrics()
+	c.SetMetrics(m)
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		entry := makeEntry(0, fmt.Sprintf("key-%d", i))
+		if err := c.Deliver(context.Background(), entry); err != nil {
+			t.Fatalf("Deliver %d: %v", i, err)
+		}
+	}
+	if ch.callCount != n {
+		t.Fatalf("expected %d publish calls, got %d", n, ch.callCount)
+	}
+
+	if err := c.FlushBatch(context.Background()); err != nil {
+		t.Fatalf("FlushBatch: %v", err)
+	}
+}
+
+// TestRabbitMQSink_BatchFlusher_Interface verifies that RabbitMQSinkConsumer
+// implements router.BatchFlusher at compile time.
+func TestRabbitMQSink_BatchFlusher_Interface(t *testing.T) {
+	ch := &fakeAMQPChannel{deferred: &fakeDeferred{acked: true}}
+	c := makeConsumerWithChannel(t, ch, "{{.Table}}")
+	var _ router.BatchFlusher = c
 }
 
 // containsAny checks if s contains any of the given substrings.

@@ -6,6 +6,7 @@ package pubsubsink_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	pubsubsink "github.com/olucasandrade/kaptanto/internal/output/pubsub"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 const (
@@ -123,8 +125,12 @@ func TestPubSubSinkConsumer_Deliver_Success(t *testing.T) {
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
 
+	// Deliver only buffers — flush to publish and await ack.
+	err = c.FlushBatch(context.Background())
+	require.NoError(t, err)
+
 	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("pubsub"))
-	assert.Equal(t, float64(1), got, "QueuePublishTotal must be 1 after successful deliver")
+	assert.Equal(t, float64(1), got, "QueuePublishTotal must be 1 after FlushBatch")
 }
 
 // TestPubSubSinkConsumer_Deliver_OrderingKey verifies:
@@ -156,6 +162,8 @@ func TestPubSubSinkConsumer_Deliver_OrderingKey(t *testing.T) {
 	}
 
 	err = c.Deliver(context.Background(), entry)
+	require.NoError(t, err)
+	err = c.FlushBatch(context.Background())
 	require.NoError(t, err)
 
 	// Pull the published message via the fake server's subscription.
@@ -212,11 +220,11 @@ func TestPubSubSinkConsumer_Close(t *testing.T) {
 	assert.NotPanics(t, func() { c.Close() }, "second Close() must not panic")
 }
 
-// TestPubSubSinkConsumer_Deliver_MetricsError verifies that delivering to a
+// TestPubSubSinkConsumer_FlushBatch_MetricsError verifies that FlushBatch to a
 // non-existent topic returns a non-nil error and increments QueuePublishErrors.
-func TestPubSubSinkConsumer_Deliver_MetricsError(t *testing.T) {
+func TestPubSubSinkConsumer_FlushBatch_MetricsError(t *testing.T) {
 	srv, _ := startFakeServer(t)
-	// Intentionally do NOT create the topic — publish should fail.
+	// Intentionally do NOT create the topic — publish should fail on flush.
 
 	c := makeConsumerWithFakeServer(t, srv, testProject, "non-existent-topic")
 
@@ -225,6 +233,9 @@ func TestPubSubSinkConsumer_Deliver_MetricsError(t *testing.T) {
 
 	entry := makeEntry("public", "orders")
 	err := c.Deliver(context.Background(), entry)
+	require.NoError(t, err, "Deliver should not error — it only buffers")
+
+	err = c.FlushBatch(context.Background())
 	require.Error(t, err, "expected error when publishing to non-existent topic")
 
 	got := testutil.ToFloat64(m.QueuePublishErrors.WithLabelValues("pubsub"))
@@ -258,6 +269,7 @@ func TestPubSubSinkConsumer_PerTableRouting(t *testing.T) {
 	require.NoError(t, err)
 	err = c.Deliver(context.Background(), makeEntry("public", "users"))
 	require.NoError(t, err)
+	require.NoError(t, c.FlushBatch(context.Background()))
 
 	msgs := srv.Messages()
 	var ordersCount, usersCount int
@@ -298,6 +310,7 @@ func TestPubSubSinkConsumer_PoolReusesSamePublisher(t *testing.T) {
 	require.NoError(t, err)
 	err = c.Deliver(context.Background(), makeEntry("public", "orders"))
 	require.NoError(t, err)
+	require.NoError(t, c.FlushBatch(context.Background()))
 
 	msgs := srv.Messages()
 	var count int
@@ -334,6 +347,8 @@ func TestPubSubSinkConsumer_CloseDrainsAllPublishers(t *testing.T) {
 	require.NoError(t, err)
 	err = c.Deliver(ctx, makeEntry("public", "users"))
 	require.NoError(t, err)
+	// Flush before close to drain pending messages.
+	require.NoError(t, c.FlushBatch(ctx))
 
 	// Close must not panic — it must drain all 2 pooled publishers.
 	assert.NotPanics(t, func() { c.Close() })
@@ -377,6 +392,7 @@ func TestPubSubSinkConsumer_Deliver_NoTemplate_Regression(t *testing.T) {
 
 	err := c.Deliver(context.Background(), makeEntry("public", "orders"))
 	require.NoError(t, err)
+	require.NoError(t, c.FlushBatch(context.Background()))
 
 	msgs := srv.Messages()
 	var count int
@@ -386,4 +402,41 @@ func TestPubSubSinkConsumer_Deliver_NoTemplate_Regression(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, count, "expected 1 message on default topic (no template regression)")
+}
+
+// TestPubSubSinkConsumer_FlushBatch_BatchesMultipleEvents verifies that N events
+// delivered then flushed produce exactly N messages on the topic.
+func TestPubSubSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, testTopic)
+
+	c := makeConsumerWithFakeServer(t, srv, testProject, testTopic)
+	m := observability.NewKaptantoMetrics()
+	c.SetMetrics(m)
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		entry := eventlog.LogEntry{
+			Event: &event.ChangeEvent{
+				Schema:         "public",
+				Table:          "orders",
+				Key:            json.RawMessage(fmt.Sprintf(`{"id":%d}`, i)),
+				IdempotencyKey: fmt.Sprintf("key-%d", i),
+			},
+		}
+		require.NoError(t, c.Deliver(context.Background(), entry))
+	}
+	require.NoError(t, c.FlushBatch(context.Background()))
+
+	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("pubsub"))
+	assert.Equal(t, float64(n), got, "QueuePublishTotal must equal N after FlushBatch")
+}
+
+// TestPubSubSinkConsumer_BatchFlusher_Interface verifies that PubSubSinkConsumer
+// implements router.BatchFlusher at compile time.
+func TestPubSubSinkConsumer_BatchFlusher_Interface(t *testing.T) {
+	srv, client := startFakeServer(t)
+	createTopic(t, client, testProject, testTopic)
+	c := makeConsumerWithFakeServer(t, srv, testProject, testTopic)
+	var _ router.BatchFlusher = c
 }

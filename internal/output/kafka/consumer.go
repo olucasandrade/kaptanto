@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -42,18 +43,26 @@ import (
 var _ router.Consumer = (*KafkaSinkConsumer)(nil)
 
 // KafkaSinkConsumer is a router.Consumer that publishes CDC events to an Apache
-// Kafka cluster using franz-go's synchronous produce API (ProduceSync).
+// Kafka cluster using franz-go's produce API.
 //
-// It is safe for concurrent Deliver calls across different message group keys
-// (RTR-04): franz-go's kgo.Client serialises concurrent produce requests internally.
+// When used with the Router's BatchFlusher interface, Deliver enqueues records
+// into a per-consumer buffer and FlushBatch calls Produce for all pending
+// records then awaits acks via a single Flush call. This avoids the per-record
+// ProduceSync RTT that defeats franz-go's internal batching. CHK-01 is
+// preserved: the router only advances the cursor after FlushBatch returns.
 //
 // Use NewKafkaSinkConsumer to construct — do not create directly.
 type KafkaSinkConsumer struct {
-	id     string
-	client *kgo.Client
-	topicT *template.Template
-	m      *observability.KaptantoMetrics
+	id      string
+	client  *kgo.Client
+	topicT  *template.Template
+	mu      sync.Mutex
+	pending []*kgo.Record
+	m       *observability.KaptantoMetrics
 }
+
+// Compile-time assertion: KafkaSinkConsumer implements router.BatchFlusher.
+var _ router.BatchFlusher = (*KafkaSinkConsumer)(nil)
 
 // NewKafkaSinkConsumer creates a KafkaSinkConsumer connected to cfg.BootstrapServers.
 //
@@ -122,10 +131,14 @@ func (c *KafkaSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 	c.m = m
 }
 
-// Deliver publishes entry.Event to Kafka synchronously using ProduceSync (CHK-01).
+// Deliver enqueues entry.Event into the consumer's pending buffer for batch
+// publishing. No network I/O happens here; the actual produce is performed by
+// FlushBatch, which is called by the Router once per ReadPartition batch.
 //
-// It blocks until the broker (and all ISRs) have acknowledged the write.
-// The router's cursor is NOT advanced until this function returns nil.
+// This allows franz-go to form optimal batch payloads via Produce+Flush rather
+// than per-record ProduceSync, significantly increasing throughput under
+// sustained high eps. CHK-01 is preserved: the router only advances the
+// cursor after FlushBatch returns nil.
 //
 // The Kafka record is built as follows:
 //   - Topic: derived from TopicTemplate executed against entry.Event
@@ -133,8 +146,8 @@ func (c *KafkaSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 //   - Value: JSON-marshalled entry.Event
 //   - Headers: [{"Kaptanto-Idempotency-Key": entry.Event.IdempotencyKey}] (DLV-04)
 //
-// On error Deliver returns a non-nil error. The RetryScheduler is responsible
-// for rescheduling; Deliver never retries internally (DLV-03).
+// On encoding error Deliver returns a non-nil error immediately; the
+// RetryScheduler will block the key (DLV-03).
 func (c *KafkaSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
 	// 1. Derive topic from template.
 	var buf bytes.Buffer
@@ -155,9 +168,6 @@ func (c *KafkaSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry
 	}
 
 	// 4. Build the Kafka record.
-	//    Key = entry.Event.Key directly (json.RawMessage is []byte, DLV-02).
-	//    Kaptanto-Idempotency-Key header on every record (DLV-04).
-	//    RecordHeader.Key is a string in franz-go; Value remains []byte.
 	record := &kgo.Record{
 		Topic: topic,
 		Key:   entry.Event.Key,
@@ -167,26 +177,76 @@ func (c *KafkaSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry
 		},
 	}
 
-	// 5. Produce synchronously — blocks until broker ack (CHK-01).
-	start := time.Now()
-	results := c.client.ProduceSync(ctx, record)
+	// 5. Append to pending buffer — FlushBatch performs the actual network call.
+	c.mu.Lock()
+	c.pending = append(c.pending, record)
+	c.mu.Unlock()
+	return nil
+}
 
-	// 6. Observe latency regardless of success/failure.
+// FlushBatch produces all buffered records via async Produce calls, then calls
+// Flush to wait for all broker acks. This lets franz-go form optimal batch
+// payloads rather than issuing one ProduceSync per record.
+//
+// CHK-01 is preserved: the router only advances the cursor after FlushBatch
+// returns nil for the entire pending set.
+func (c *KafkaSinkConsumer) FlushBatch(ctx context.Context) error {
+	c.mu.Lock()
+	if len(c.pending) == 0 {
+		c.mu.Unlock()
+		return nil
+	}
+	batch := c.pending
+	c.pending = nil
+	c.mu.Unlock()
+
+	// Collect async produce errors via a channel (one slot per record).
+	errCh := make(chan error, len(batch))
+	start := time.Now()
+
+	for _, rec := range batch {
+		r := rec // capture loop variable
+		c.client.Produce(ctx, r, func(rec *kgo.Record, err error) {
+			errCh <- err
+		})
+	}
+
+	// Flush waits until all buffered Produce calls have been sent and acked.
+	flushErr := c.client.Flush(ctx)
+
 	if c.m != nil {
 		c.m.QueuePublishLatency.WithLabelValues("kafka").Observe(time.Since(start).Seconds())
 	}
 
-	if err := results.FirstErr(); err != nil {
+	if flushErr != nil {
 		if c.m != nil {
-			c.m.QueuePublishErrors.WithLabelValues("kafka").Inc()
+			c.m.QueuePublishErrors.WithLabelValues("kafka").Add(float64(len(batch)))
 		}
-		return fmt.Errorf("kafka sink: produce to topic %q: %w", topic, err)
+		return fmt.Errorf("kafka sink: flush batch: %w", flushErr)
+	}
+
+	// Drain per-record callbacks.
+	var firstErr error
+	successCount := 0
+	for range batch {
+		if err := <-errCh; err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("kafka sink: produce record: %w", err)
+			}
+		} else {
+			successCount++
+		}
 	}
 
 	if c.m != nil {
-		c.m.QueuePublishTotal.WithLabelValues("kafka").Inc()
+		if successCount > 0 {
+			c.m.QueuePublishTotal.WithLabelValues("kafka").Add(float64(successCount))
+		}
+		if firstErr != nil {
+			c.m.QueuePublishErrors.WithLabelValues("kafka").Add(float64(len(batch) - successCount))
+		}
 	}
-	return nil
+	return firstErr
 }
 
 // Ping verifies the Kafka cluster is reachable by issuing a Metadata request.

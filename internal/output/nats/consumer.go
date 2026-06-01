@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -38,9 +39,19 @@ import (
 // Compile-time assertion: NATSSinkConsumer must implement router.Consumer.
 var _ router.Consumer = (*NATSSinkConsumer)(nil)
 
+// pendingNATSMessage holds a pre-encoded NATS message ready for async publish.
+type pendingNATSMessage struct {
+	msg *natsgo.Msg
+}
+
 // NATSSinkConsumer is a router.Consumer that publishes events to NATS JetStream.
 // It is safe for concurrent calls across different message group keys (RTR-04):
 // the NATS client serialises concurrent publishes internally.
+//
+// When used with the Router's BatchFlusher interface, Deliver enqueues messages
+// into a per-consumer buffer and FlushBatch publishes them all asynchronously,
+// then waits for PubAck futures concurrently. CHK-01 is preserved: the router
+// only advances the cursor after FlushBatch returns nil.
 //
 // Use NewNATSSinkConsumer to construct — do not create directly.
 type NATSSinkConsumer struct {
@@ -48,8 +59,13 @@ type NATSSinkConsumer struct {
 	nc       *natsgo.Conn
 	js       jetstream.JetStream
 	subjectT *template.Template
+	mu       sync.Mutex
+	pending  []pendingNATSMessage
 	m        *observability.KaptantoMetrics
 }
+
+// Compile-time assertion: NATSSinkConsumer implements router.BatchFlusher.
+var _ router.BatchFlusher = (*NATSSinkConsumer)(nil)
 
 // NewNATSSinkConsumer creates a NATSSinkConsumer connected to cfg.URL.
 //
@@ -131,14 +147,16 @@ func (c *NATSSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 	c.m = m
 }
 
-// Deliver publishes entry.Event to NATS JetStream synchronously (CHK-01).
+// Deliver enqueues entry.Event into the consumer's pending buffer for batch
+// publishing. No network I/O happens here; the actual publish is performed by
+// FlushBatch, which is called by the Router once per ReadPartition batch.
 //
-// It blocks until js.PublishMsg returns a PubAck. The cursor in the router
-// is NOT advanced until this function returns nil, preserving at-least-once
-// delivery semantics.
+// This amortises per-event PubAck round-trips: FlushBatch issues all publishes
+// asynchronously then awaits PubAck futures concurrently. CHK-01 is preserved:
+// the router only advances the cursor after FlushBatch returns nil.
 //
-// On error Deliver returns a non-nil error immediately. The RetryScheduler
-// is responsible for rescheduling; Deliver never retries internally (DLV-03).
+// On encoding error Deliver returns a non-nil error immediately; the
+// RetryScheduler will block the key (DLV-03).
 func (c *NATSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
 	// 1. Derive subject from template.
 	var buf bytes.Buffer
@@ -147,10 +165,7 @@ func (c *NATSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry)
 	}
 	subject := buf.String()
 
-	// 2. Validate the derived subject using the same rules as the nats.go client.
-	// The client library's badSubject() is unexported, so we replicate the logic:
-	// - no whitespace characters
-	// - no empty tokens after splitting on "."
+	// 2. Validate the derived subject.
 	if isInvalidNATSSubject(subject) {
 		return fmt.Errorf("nats sink: invalid subject %q derived from template", subject)
 	}
@@ -170,26 +185,75 @@ func (c *NATSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry)
 		},
 	}
 
-	// 5. Publish synchronously — blocks until PubAck is returned (CHK-01).
-	start := time.Now()
-	_, pubErr := c.js.PublishMsg(ctx, msg)
+	// 5. Append to pending buffer — FlushBatch performs the actual network call.
+	c.mu.Lock()
+	c.pending = append(c.pending, pendingNATSMessage{msg: msg})
+	c.mu.Unlock()
+	return nil
+}
 
-	// 6. Record latency regardless of success/failure.
+// FlushBatch publishes all buffered messages asynchronously via PublishMsgAsync,
+// then collects all PubAck futures. This amortises per-event round-trip latency
+// by pipelining publishes before waiting for acks.
+//
+// CHK-01 is preserved: the router only advances the cursor after FlushBatch
+// returns nil for the entire pending set.
+func (c *NATSSinkConsumer) FlushBatch(ctx context.Context) error {
+	c.mu.Lock()
+	if len(c.pending) == 0 {
+		c.mu.Unlock()
+		return nil
+	}
+	batch := c.pending
+	c.pending = nil
+	c.mu.Unlock()
+
+	start := time.Now()
+
+	// Issue all publishes asynchronously and collect PubAck futures.
+	futures := make([]jetstream.PubAckFuture, 0, len(batch))
+	for _, pm := range batch {
+		fut, err := c.js.PublishMsgAsync(pm.msg)
+		if err != nil {
+			// Synchronous error (e.g. connection closed) — bail early.
+			if c.m != nil {
+				c.m.QueuePublishErrors.WithLabelValues("nats").Add(float64(len(batch)))
+				c.m.QueuePublishLatency.WithLabelValues("nats").Observe(time.Since(start).Seconds())
+			}
+			return fmt.Errorf("nats sink: publish async to subject %q: %w", pm.msg.Subject, err)
+		}
+		futures = append(futures, fut)
+	}
+
+	// Wait for all acks.
+	var firstErr error
+	successCount := 0
+	for _, fut := range futures {
+		select {
+		case <-ctx.Done():
+			if c.m != nil {
+				c.m.QueuePublishLatency.WithLabelValues("nats").Observe(time.Since(start).Seconds())
+			}
+			return ctx.Err()
+		case <-fut.Ok():
+			successCount++
+		case err := <-fut.Err():
+			if firstErr == nil {
+				firstErr = fmt.Errorf("nats sink: pubAck error: %w", err)
+			}
+		}
+	}
+
 	if c.m != nil {
 		c.m.QueuePublishLatency.WithLabelValues("nats").Observe(time.Since(start).Seconds())
-	}
-
-	if pubErr != nil {
-		if c.m != nil {
-			c.m.QueuePublishErrors.WithLabelValues("nats").Inc()
+		if successCount > 0 {
+			c.m.QueuePublishTotal.WithLabelValues("nats").Add(float64(successCount))
 		}
-		return fmt.Errorf("nats sink: publish to subject %q: %w", subject, pubErr)
+		if firstErr != nil {
+			c.m.QueuePublishErrors.WithLabelValues("nats").Add(float64(len(batch) - successCount))
+		}
 	}
-
-	if c.m != nil {
-		c.m.QueuePublishTotal.WithLabelValues("nats").Inc()
-	}
-	return nil
+	return firstErr
 }
 
 // Ping returns nil when the NATS connection is active and connected, or a
