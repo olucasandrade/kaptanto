@@ -123,7 +123,7 @@ func (s *testSSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ops := filterNonEmpty(strings.Split(r.URL.Query().Get("operations"), ","))
 	filter := output.NewEventFilter(tables, ops)
 
-	consumer := NewSSEConsumer(consumerID, w, filter, s.cursorStore, nil, nil, nil)
+	consumer := NewSSEConsumer(consumerID, w, filter, nil, nil, nil)
 
 	lastEventID := r.Header.Get("Last-Event-ID")
 	_ = lastEventID
@@ -338,7 +338,7 @@ func TestSSEConsumer_CursorResume(t *testing.T) {
 	// Create an SSEConsumer with the same consumerID.
 	rr := httptest.NewRecorder()
 	filter := output.NewEventFilter(nil, nil) // allow all
-	consumer := NewSSEConsumer(consumerID, rr, filter, cs, nil, nil, nil)
+	consumer := NewSSEConsumer(consumerID, rr, filter, nil, nil, nil)
 
 	// Register triggers LoadCursor -> Deliver with Seq=42.
 	routerStub.Register(consumer)
