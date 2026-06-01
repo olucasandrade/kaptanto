@@ -72,6 +72,8 @@ The name means "who captures" in Esperanto.`,
 				return err
 			}
 
+			config.ApplyEnv(cfg)
+
 			if cfg.Source == "" {
 				return fmt.Errorf("source is required: set via --source flag or 'source:' in config file")
 			}
@@ -99,6 +101,8 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().StringSlice("cluster-peers", nil, "NATS JetStream cluster peer addresses (e.g. node2:6222,node3:6222); required when --cluster is set for 3-node Raft")
 	root.PersistentFlags().Int("nats-cluster-port", 6222, "NATS JetStream cluster route port for this node (default 6222)")
 	root.PersistentFlags().String("log-level", "info", "log verbosity: debug | info | warn | error")
+	root.PersistentFlags().String("auth-token", "", "static bearer token required by SSE/gRPC clients (prefer KAPTANTO_AUTH_TOKEN env var to avoid leaking the secret in process listings)")
+	root.PersistentFlags().Bool("insecure", false, "allow SSE/gRPC output without an auth token (logs a security warning; not recommended for production)")
 
 	root.Version = version.Version
 	root.AddCommand(newVersionCmd())
