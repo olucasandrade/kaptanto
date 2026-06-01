@@ -18,7 +18,12 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/observability"
 )
 
-const pollInterval = 10 * time.Millisecond
+// pollInterval is the fallback timer used when the EventLog does not implement
+// PartitionNotifier (e.g. fakes in tests) or when a notify signal is missed
+// in the race window between the cursor read and the channel select. It is
+// intentionally long because the notify path handles normal low-rate delivery;
+// this timer is purely a safety net.
+const pollInterval = 500 * time.Millisecond
 
 // Consumer is the output interface that all delivery targets (stdout, SSE,
 // gRPC) must implement. Deliver is called sequentially within a message group;
@@ -113,21 +118,34 @@ type Router struct {
 	cursorStore     ConsumerCursorStore
 	rs              *RetryScheduler
 	metrics         *observability.KaptantoMetrics
-	ownedPartitions []uint32 // nil = all partitions (non-cluster default)
+	ownedPartitions []uint32            // nil = all partitions (non-cluster default)
+	notifyChs       []<-chan struct{}    // per-partition notify channels; nil if EventLog doesn't support it
 }
 
 // NewRouter creates a new Router. If cs is nil, an in-memory noopCursorStore
 // is used (delivery positions are not persisted across restarts).
+//
+// If el implements eventlog.PartitionNotifier, NewRouter wires the per-partition
+// notify channels so runPartition blocks on new-event signals instead of
+// spinning on the fallback timer. EventLogs that do not implement
+// PartitionNotifier (e.g. fakes in tests) fall back to pure timer polling.
 func NewRouter(el eventlog.EventLog, numPartitions uint32, cs ConsumerCursorStore) *Router {
 	if cs == nil {
 		cs = NewNoopCursorStore()
 	}
-	return &Router{
+	r := &Router{
 		eventLog:      el,
 		numPartitions: numPartitions,
 		cursorStore:   cs,
 		rs:            NewRetryScheduler(),
 	}
+	if pn, ok := el.(eventlog.PartitionNotifier); ok {
+		r.notifyChs = make([]<-chan struct{}, numPartitions)
+		for i := uint32(0); i < numPartitions; i++ {
+			r.notifyChs[i] = pn.NotifyCh(i)
+		}
+	}
+	return r
 }
 
 // SetMetrics injects a KaptantoMetrics reference for ConsumerLag reporting.
@@ -207,10 +225,31 @@ func (r *Router) Run(ctx context.Context) error {
 }
 
 // runPartition is the per-partition poll loop. It reads events sequentially
-// and dispatches each to all registered consumers. On empty batch it sleeps
-// pollInterval before retrying. On ReadPartition error it logs and retries —
-// it never exits early due to errors.
+// and dispatches each to all registered consumers. On empty batch (or error)
+// it waits for a notify signal from the EventLog writer or a fallback timer
+// before retrying. The fallback timer (pollInterval) acts as a safety net for
+// missed signals; the notify path delivers sub-millisecond wakeup on write.
 func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
+	// Capture the notify channel once; nil if EventLog doesn't implement
+	// PartitionNotifier (fakes/tests fall back to pure timer polling).
+	var notifyCh <-chan struct{}
+	if r.notifyChs != nil {
+		notifyCh = r.notifyChs[partitionID]
+	}
+
+	// waitForWork blocks until a notify signal fires, the fallback timer fires,
+	// or ctx is cancelled. Returns false if ctx is done.
+	waitForWork := func() bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-notifyCh: // nil channel blocks forever — fallback to timer only
+			return true
+		case <-time.After(pollInterval):
+			return true
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -226,19 +265,15 @@ func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
 				return
 			}
 			slog.Warn("router: ReadPartition error", "partition", partitionID, "err", err)
-			select {
-			case <-ctx.Done():
+			if !waitForWork() {
 				return
-			case <-time.After(pollInterval):
 			}
 			continue
 		}
 
 		if len(entries) == 0 {
-			select {
-			case <-ctx.Done():
+			if !waitForWork() {
 				return
-			case <-time.After(pollInterval):
 			}
 			continue
 		}
