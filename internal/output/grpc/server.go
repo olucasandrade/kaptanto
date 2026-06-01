@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
+	"github.com/olucasandrade/kaptanto/internal/auth"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/output"
 	"github.com/olucasandrade/kaptanto/internal/output/grpc/proto"
@@ -39,8 +40,9 @@ func NewGRPCServer(
 	return &GRPCServer{router: r, cursorStore: cs, metrics: m, rowFilters: rowFilters, colFilters: colFilters}
 }
 
-// NewGRPCNetServer creates and configures the grpc.Server.
+// NewGRPCNetServer creates and configures the grpc.Server with no authentication.
 // Call Serve(lis) on the returned server to start accepting connections.
+// Use NewGRPCNetServerWithAuth when a bearer token should be enforced.
 func NewGRPCNetServer(svc *GRPCServer) *grpclib.Server {
 	srv := grpclib.NewServer(
 		grpclib.MaxConcurrentStreams(1000),
@@ -48,6 +50,23 @@ func NewGRPCNetServer(svc *GRPCServer) *grpclib.Server {
 			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,
 		}),
+	)
+	proto.RegisterCdcStreamServer(srv, svc)
+	return srv
+}
+
+// NewGRPCNetServerWithAuth creates and configures the grpc.Server enforcing a
+// static bearer token on every RPC via unary and stream interceptors.
+// Clients must send "authorization: Bearer <token>" in gRPC metadata.
+func NewGRPCNetServerWithAuth(svc *GRPCServer, token string) *grpclib.Server {
+	srv := grpclib.NewServer(
+		grpclib.MaxConcurrentStreams(1000),
+		grpclib.KeepaliveParams(keepalive.ServerParameters{
+			Time:    30 * time.Second,
+			Timeout: 10 * time.Second,
+		}),
+		grpclib.UnaryInterceptor(auth.UnaryInterceptor(token)),
+		grpclib.StreamInterceptor(auth.StreamInterceptor(token)),
 	)
 	proto.RegisterCdcStreamServer(srv, svc)
 	return srv

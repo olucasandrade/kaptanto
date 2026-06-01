@@ -136,6 +136,8 @@ type Config struct {
 	ClusterPeers    []string               `yaml:"cluster-peers"`     // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
 	NatsClusterPort int                    `yaml:"nats-cluster-port"` // NATS cluster route port; 0 → 6222 applied at runtime
 	Sinks           SinksConfig            `yaml:"sinks"`             // queue sink connection settings
+	AuthToken       string                 `yaml:"auth-token"`        // static bearer token for SSE/gRPC data plane; also read from KAPTANTO_AUTH_TOKEN env var
+	Insecure        bool                   `yaml:"insecure"`          // skip auth requirement for SSE/gRPC when no auth-token is configured (logs a loud warning)
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
@@ -145,6 +147,18 @@ func (c *Config) SourceType() string {
 		return "mongodb"
 	}
 	return "postgres"
+}
+
+// ApplyEnv overlays environment-variable values onto cfg. Only variables that
+// are set to a non-empty value override the corresponding field.
+//
+// Variables:
+//   - KAPTANTO_AUTH_TOKEN → cfg.AuthToken (preferred over --auth-token argv so
+//     the secret is not visible in process listings)
+func ApplyEnv(cfg *Config) {
+	if v := os.Getenv("KAPTANTO_AUTH_TOKEN"); v != "" {
+		cfg.AuthToken = v
+	}
 }
 
 // Load reads the YAML file at path and unmarshals it into a new Config.
@@ -198,6 +212,7 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 		{"node-id", &cfg.NodeID},
 		{"source-id", &cfg.SourceID},
 		{"cluster-dsn", &cfg.ClusterDSN},
+		{"auth-token", &cfg.AuthToken},
 	} {
 		if err := mergeString(flags, f.name, f.dest); err != nil {
 			return err
@@ -222,6 +237,7 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 	}{
 		{"ha", &cfg.HA},
 		{"cluster", &cfg.Cluster},
+		{"insecure", &cfg.Insecure},
 	} {
 		if err := mergeBool(flags, f.name, f.dest); err != nil {
 			return err
