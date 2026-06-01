@@ -364,6 +364,17 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 			if r.metrics != nil {
 				r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
 			}
+			// Enqueue the follow-on entry behind the blocked head so it is
+			// preserved in order and retried after the head succeeds (RTR-04).
+			// Without this, any event for a blocked key that arrives while the
+			// group is still blocked is silently discarded.
+			rec := &RetryRecord{
+				Entry:       entry,
+				Attempts:    0,
+				NextRetryAt: time.Now().Add(NextDelay(0)),
+				ConsumerID:  cs.consumer.ID(),
+			}
+			r.rs.AddBlocked(cs.consumer, groupKey, rec)
 			continue
 		}
 
