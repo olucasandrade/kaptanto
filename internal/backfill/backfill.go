@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/pk"
 )
 
 // BackfillConfig configures a single table's backfill strategy.
@@ -391,7 +392,7 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 				rows.Close()
 				return fmt.Errorf("marshal row: %w", marshalErr)
 			}
-			pkJSON, marshalErr := json.Marshal(pkMap)
+			pkJSON, marshalErr := pk.Canonical(pkMap)
 			if marshalErr != nil {
 				rows.Close()
 				return fmt.Errorf("marshal pk: %w", marshalErr)
