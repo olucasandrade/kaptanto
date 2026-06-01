@@ -99,6 +99,7 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().StringSlice("cluster-peers", nil, "NATS JetStream cluster peer addresses (e.g. node2:6222,node3:6222); required when --cluster is set for 3-node Raft")
 	root.PersistentFlags().Int("nats-cluster-port", 6222, "NATS JetStream cluster route port for this node (default 6222)")
 	root.PersistentFlags().String("log-level", "info", "log verbosity: debug | info | warn | error")
+	root.PersistentFlags().Bool("all-tables", false, "capture all tables in the database (requires explicit opt-in; default requires --tables or 'tables:' in config)")
 
 	root.Version = version.Version
 	root.AddCommand(newVersionCmd())
@@ -150,6 +151,11 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 	if cfg.Cluster && cfg.ClusterDSN == "" {
 		return fmt.Errorf("--cluster-dsn is required when --cluster is set")
+	}
+
+	if cfg.SourceType() == "postgres" && len(cfg.Tables) == 0 && !cfg.AllowAllTables {
+		return fmt.Errorf("no tables configured: use 'tables:' in config or --tables to specify tables to replicate, " +
+			"or pass --all-tables to explicitly capture all tables in the database (caution: exposes all data)")
 	}
 
 	// HA leader election — must complete before any pipeline component starts.
@@ -371,9 +377,10 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		sourceID = "default"
 	}
 	connCfg := postgres.Config{
-		DSN:      cfg.Source,
-		Tables:   tables,
-		SourceID: sourceID,
+		DSN:            cfg.Source,
+		Tables:         tables,
+		SourceID:       sourceID,
+		AllowAllTables: cfg.AllowAllTables,
 	}
 	connCfg.ApplyDefaults()
 	idGen := event.NewIDGenerator()
