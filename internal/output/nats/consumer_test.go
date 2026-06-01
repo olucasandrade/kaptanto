@@ -5,6 +5,7 @@ package natssink_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	natssink "github.com/olucasandrade/kaptanto/internal/output/nats"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 // startTestJSServer starts an in-process single-node NATS server with JetStream enabled.
@@ -104,9 +106,13 @@ func TestNATSSinkConsumer_Deliver_Success(t *testing.T) {
 	err = consumer.Deliver(ctx, entry)
 	require.NoError(t, err)
 
-	// Verify QueuePublishTotal incremented to 1.
+	// Deliver only buffers — must flush to publish.
+	err = consumer.FlushBatch(ctx)
+	require.NoError(t, err)
+
+	// Verify QueuePublishTotal incremented to 1 after flush.
 	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("nats"))
-	assert.Equal(t, float64(1), got, "QueuePublishTotal must be 1 after successful deliver")
+	assert.Equal(t, float64(1), got, "QueuePublishTotal must be 1 after FlushBatch")
 }
 
 // TestNATSSinkConsumer_Deliver_Header verifies:
@@ -141,6 +147,8 @@ func TestNATSSinkConsumer_Deliver_Header(t *testing.T) {
 	ctx := context.Background()
 
 	err = consumer.Deliver(ctx, entry)
+	require.NoError(t, err)
+	err = consumer.FlushBatch(ctx)
 	require.NoError(t, err)
 
 	select {
@@ -187,6 +195,8 @@ func TestNATSSinkConsumer_Deliver_SubjectTemplate(t *testing.T) {
 	entry := makeTestEntry("orders", "tmpl-test:public.orders:1:insert:0/1")
 	ctx := context.Background()
 	err = consumer.Deliver(ctx, entry)
+	require.NoError(t, err)
+	err = consumer.FlushBatch(ctx)
 	require.NoError(t, err)
 
 	select {
@@ -266,4 +276,48 @@ func TestNATSSinkConsumer_InvalidURL(t *testing.T) {
 	consumer, err := natssink.NewNATSSinkConsumer("sink-unreachable", cfg)
 	require.Error(t, err, "NewNATSSinkConsumer must return error when URL is unreachable")
 	assert.Nil(t, consumer)
+}
+
+// TestNATSSinkConsumer_FlushBatch_BatchesMultipleEvents verifies that N events
+// delivered then flushed all arrive at the server exactly once.
+func TestNATSSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
+	serverURL := startTestJSServer(t)
+	createStream(t, serverURL, "batch-stream", []string{"cdc.>"})
+
+	cfg := config.NATSSinkConfig{
+		URL:             serverURL,
+		SubjectTemplate: "cdc.{{.Table}}",
+		StreamName:      "batch-stream",
+	}
+	consumer, err := natssink.NewNATSSinkConsumer("sink-batch", cfg)
+	require.NoError(t, err)
+	defer consumer.Close()
+
+	m := observability.NewKaptantoMetrics()
+	consumer.SetMetrics(m)
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		entry := makeTestEntry("orders", fmt.Sprintf("key-%d", i))
+		require.NoError(t, consumer.Deliver(context.Background(), entry))
+	}
+
+	require.NoError(t, consumer.FlushBatch(context.Background()))
+
+	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("nats"))
+	assert.Equal(t, float64(n), got, "QueuePublishTotal must equal N after FlushBatch")
+}
+
+// TestNATSSinkConsumer_BatchFlusher_Interface verifies that NATSSinkConsumer
+// implements router.BatchFlusher at compile time.
+func TestNATSSinkConsumer_BatchFlusher_Interface(t *testing.T) {
+	serverURL := startTestJSServer(t)
+	cfg := config.NATSSinkConfig{
+		URL:             serverURL,
+		SubjectTemplate: "cdc.{{.Table}}",
+	}
+	consumer, err := natssink.NewNATSSinkConsumer("iface-test", cfg)
+	require.NoError(t, err)
+	defer consumer.Close()
+	var _ router.BatchFlusher = consumer
 }
