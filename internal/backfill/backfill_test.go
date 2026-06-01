@@ -558,6 +558,148 @@ func TestOpenSQLiteBackfillStore_WALModeApplied(t *testing.T) {
 	assert.Equal(t, "wal", journalMode, "journal_mode must be WAL after OpenSQLiteBackfillStore")
 }
 
+// --- Batched backfill (AppendBatchFn) ---
+
+// countingBatchLog records calls to AppendBatchFn so tests can assert how many
+// batch flushes occurred and that every event was delivered exactly once.
+type countingBatchLog struct {
+	batchCalls []int            // len of each batch flush
+	received   []*event.ChangeEvent
+	errOnCall  int // if > 0, return error on the Nth batch call (1-based)
+	callCount  int
+}
+
+func (c *countingBatchLog) appendBatch(_ context.Context, evs []*event.ChangeEvent) error {
+	c.callCount++
+	if c.errOnCall > 0 && c.callCount == c.errOnCall {
+		return fmt.Errorf("simulated batch error on call %d", c.callCount)
+	}
+	c.batchCalls = append(c.batchCalls, len(evs))
+	for _, ev := range evs {
+		c.received = append(c.received, ev)
+	}
+	return nil
+}
+
+func (c *countingBatchLog) appendSingle(_ context.Context, ev *event.ChangeEvent) error {
+	c.received = append(c.received, ev)
+	return nil
+}
+
+// TestNewBackfillEngineWithBatch_StreamOnly verifies that NewBackfillEngineWithBatch
+// wires the appendBatchFn and still handles stream_only correctly (no batch calls,
+// single control event via appendFn on completion).
+func TestNewBackfillEngineWithBatch_StreamOnly(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer store.Close()
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Table:         "orders",
+		Strategy:      "stream_only",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	idGen := event.NewIDGenerator()
+	bl := &countingBatchLog{}
+
+	eng := backfill.NewBackfillEngineWithBatch(
+		[]backfill.BackfillConfig{cfg},
+		store,
+		idGen,
+		bl.appendSingle,
+		bl.appendBatch,
+		func(_ context.Context) (*pgx.Conn, error) { return nil, nil },
+	)
+
+	require.NoError(t, eng.Run(context.Background()))
+
+	// stream_only: no batches, no events emitted.
+	assert.Empty(t, bl.batchCalls, "stream_only should produce no batch flushes")
+	assert.Empty(t, bl.received, "stream_only should emit no events")
+
+	state, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, "completed", state.Status)
+}
+
+// TestNewBackfillEngineWithBatch_HasPendingWhenNoState verifies that an engine
+// constructed via NewBackfillEngineWithBatch reports pending backfills on first run.
+func TestNewBackfillEngineWithBatch_HasPendingWhenNoState(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer store.Close()
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Table:         "orders",
+		Strategy:      "snapshot_and_stream",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	idGen := event.NewIDGenerator()
+	bl := &countingBatchLog{}
+
+	eng := backfill.NewBackfillEngineWithBatch(
+		[]backfill.BackfillConfig{cfg},
+		store, idGen,
+		bl.appendSingle, bl.appendBatch,
+		func(_ context.Context) (*pgx.Conn, error) { return nil, nil },
+	)
+
+	assert.True(t, eng.HasPendingBackfills(), "first-run snapshot_and_stream should report pending backfills")
+}
+
+// TestNewBackfillEngineWithBatch_SnapshotFail_CursorNotAdvanced verifies that
+// when openConnFn fails during snapshot_and_stream, the cursor in the store is
+// not advanced (BKF-03 crash-resumable invariant) and no batch calls occur.
+func TestNewBackfillEngineWithBatch_SnapshotFail_CursorNotAdvanced(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer store.Close()
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Table:         "orders",
+		Strategy:      "snapshot_and_stream",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	idGen := event.NewIDGenerator()
+	bl := &countingBatchLog{}
+
+	eng := backfill.NewBackfillEngineWithBatch(
+		[]backfill.BackfillConfig{cfg},
+		store, idGen,
+		bl.appendSingle, bl.appendBatch,
+		func(_ context.Context) (*pgx.Conn, error) {
+			return nil, fmt.Errorf("no connection available")
+		},
+	)
+
+	runErr := eng.Run(context.Background())
+	require.Error(t, runErr, "expected Run to fail when connection fails")
+
+	// No batch flushes should have occurred.
+	assert.Empty(t, bl.batchCalls, "no batch calls expected when connection fails before any rows are read")
+
+	// CursorKey must remain nil (BKF-03: cursor not advanced past un-appended rows).
+	// The store may have a "running" state (saved before the connection attempt) but
+	// the CursorKey must still be nil — no rows were appended.
+	state, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	// state may be nil (if the error happens before SaveState("running")) or
+	// non-nil with CursorKey=nil. Either way, CursorKey must not have been set.
+	if state != nil {
+		assert.Nil(t, state.CursorKey, "cursor must not be advanced when connection fails")
+	}
+}
+
 // --- EVT-03: Snapshot read event shape ---
 
 func TestMakeReadEvent_Shape(t *testing.T) {
