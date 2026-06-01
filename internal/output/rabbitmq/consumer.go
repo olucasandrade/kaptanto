@@ -218,10 +218,18 @@ func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEn
 		return fmt.Errorf("rabbitmq sink: routing key template rendered to empty string — check routing-key-template config")
 	}
 
-	// 3. Marshal the event to JSON for the message body.
-	data, err := json.Marshal(entry.Event)
-	if err != nil {
-		return fmt.Errorf("rabbitmq sink: marshal event: %w", err)
+	// 3. Obtain the JSON payload for the message body.
+	// Use raw stored bytes when available (pass-through fast path) to avoid
+	// the json.Marshal round-trip (fix-plan: raw-bytes-passthrough).
+	var data []byte
+	if len(entry.Raw) > 0 {
+		data = entry.Raw
+	} else {
+		var err error
+		data, err = json.Marshal(entry.Event)
+		if err != nil {
+			return fmt.Errorf("rabbitmq sink: marshal event: %w", err)
+		}
 	}
 
 	// 4. Start latency timer.
