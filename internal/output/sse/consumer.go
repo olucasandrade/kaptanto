@@ -121,41 +121,61 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 	}
 
 	// Column filter (CFG-05): look up per-table allowed columns by event table name.
-	// ApplyColumnFilter is a no-op when cols is nil/empty.
+	// If no column filter is configured for this table, use the raw stored bytes
+	// directly (pass-through fast path) to avoid the json.Marshal round-trip.
 	// IMPORTANT: entry.Event is a shared pointer — copy into a new struct, never mutate.
 	ev := entry.Event
 	colSet := c.colFilterSets[entry.Event.Table] // nil if table not configured
-	filteredBefore, err := output.ApplyColumnFilterSet(ev.Before, colSet)
-	if err != nil {
-		return fmt.Errorf("sse: column filter before: %w", err)
-	}
-	filteredAfter, err := output.ApplyColumnFilterSet(ev.After, colSet)
-	if err != nil {
-		return fmt.Errorf("sse: column filter after: %w", err)
-	}
-	// Build a filtered event value (shallow copy; only Before/After differ).
-	filtered := *ev
-	filtered.Before = filteredBefore
-	filtered.After = filteredAfter
 
-	// SSE wire format: id line + data line (JSON-encoded) + blank line terminator.
+	// SSE wire format: id line + data line (JSON payload) + blank line terminator.
 	if _, err := fmt.Fprintf(c.w, "id: %s\ndata: ", entry.Event.ID.String()); err != nil {
 		if c.m != nil {
 			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
 		}
 		return err // broken pipe -> isPermanentError -> dead-letter
 	}
-	if err := json.NewEncoder(c.w).Encode(&filtered); err != nil {
-		if c.m != nil {
-			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+
+	if colSet == nil && len(entry.Raw) > 0 {
+		// Fast path: no column filter — write stored bytes directly.
+		if _, err := c.w.Write(entry.Raw); err != nil {
+			if c.m != nil {
+				c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+			}
+			return err
 		}
-		return err
-	}
-	if _, err := fmt.Fprint(c.w, "\n"); err != nil {
-		if c.m != nil {
-			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+		if _, err := fmt.Fprint(c.w, "\n\n"); err != nil {
+			if c.m != nil {
+				c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+			}
+			return err
 		}
-		return err
+	} else {
+		// Filtered path: apply column filter and re-marshal.
+		filteredBefore, err := output.ApplyColumnFilterSet(ev.Before, colSet)
+		if err != nil {
+			return fmt.Errorf("sse: column filter before: %w", err)
+		}
+		filteredAfter, err := output.ApplyColumnFilterSet(ev.After, colSet)
+		if err != nil {
+			return fmt.Errorf("sse: column filter after: %w", err)
+		}
+		// Build a filtered event value (shallow copy; only Before/After differ).
+		filtered := *ev
+		filtered.Before = filteredBefore
+		filtered.After = filteredAfter
+
+		if err := json.NewEncoder(c.w).Encode(&filtered); err != nil {
+			if c.m != nil {
+				c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+			}
+			return err
+		}
+		if _, err := fmt.Fprint(c.w, "\n"); err != nil {
+			if c.m != nil {
+				c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+			}
+			return err
+		}
 	}
 	// NOTE: Flush is intentionally NOT called here. FlushBatch (called once per
 	// router ReadPartition batch) flushes all events written in the batch with a
