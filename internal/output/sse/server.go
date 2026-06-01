@@ -19,14 +19,17 @@ type SSEServer struct {
 	router       *router.Router
 	cursorStore  router.ConsumerCursorStore
 	metrics      *observability.KaptantoMetrics
-	corsOrigin   string        // e.g. "*" or "https://example.com"
-	pingInterval time.Duration // keepalive comment period; default 15s
+	corsOrigin   string                       // allowed CORS origin; empty = no CORS header (no cross-origin access)
+	pingInterval time.Duration                // keepalive comment period; default 15s
 	rowFilters   map[string]*output.RowFilter // CFG-06: per-table row filter; nil = pass-through for all tables
 	colFilters   map[string][]string          // CFG-05: per-table column allow-list; nil = pass-through for all tables
 }
 
 // NewSSEServer constructs an SSEServer.
-// corsOrigin defaults to "*" if empty. pingInterval defaults to 15s if zero.
+// corsOrigin is the value sent in Access-Control-Allow-Origin; when empty, no
+// CORS header is emitted, so browsers cannot read the stream cross-origin. The
+// stream carries raw row data, so the secure default is no cross-origin access —
+// set an explicit allowed origin to opt in. pingInterval defaults to 15s if zero.
 // rowFilters and colFilters are per-table maps; nil maps are treated as
 // pass-through (equivalent to no filter configured for any table).
 func NewSSEServer(
@@ -40,9 +43,6 @@ func NewSSEServer(
 ) *SSEServer {
 	if pingInterval == 0 {
 		pingInterval = 15 * time.Second
-	}
-	if corsOrigin == "" {
-		corsOrigin = "*"
 	}
 	return &SSEServer{
 		router:       r,
@@ -71,7 +71,12 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+	// Only advertise CORS when an origin is explicitly configured. The default
+	// (empty) sends no Access-Control-Allow-Origin header, so a browser on an
+	// arbitrary site cannot read this change stream cross-origin.
+	if s.corsOrigin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+	}
 
 	consumerID := r.URL.Query().Get("consumer")
 	if consumerID == "" {
