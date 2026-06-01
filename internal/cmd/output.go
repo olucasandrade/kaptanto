@@ -74,7 +74,7 @@ func buildOutputServer(
 		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
 
 	case "sse":
-		sseServer := sse.NewSSEServer(rtr, cursorStore, metrics, "*", 15*time.Second, rowFilters, colFilters)
+		sseServer := sse.NewSSEServer(rtr, cursorStore, metrics, cfg.CORSOrigin, 15*time.Second, rowFilters, colFilters)
 		mux := http.NewServeMux()
 		mux.Handle("/events", sseServer)
 		mux.Handle("/metrics", metrics.Handler())

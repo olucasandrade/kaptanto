@@ -88,6 +88,7 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().String("config", "", "path to YAML config file (flags take precedence over file)")
 	root.PersistentFlags().String("output", "stdout", "output mode: stdout | sse | grpc | nats | sqs | kafka | pubsub | rabbitmq")
 	root.PersistentFlags().Int("port", 7654, "TCP port for SSE / gRPC server")
+	root.PersistentFlags().String("cors-origin", "", "SSE Access-Control-Allow-Origin value; empty (default) sends no CORS header, blocking cross-origin browser access to the stream")
 	root.PersistentFlags().String("data-dir", "./data", "directory for the embedded Event Log and checkpoint store")
 	root.PersistentFlags().Duration("retention", 0, "Event Log retention period (e.g. 24h, 7d); 0 applies the built-in default of 1h at runtime")
 	root.PersistentFlags().Bool("ha", false, "enable high-availability mode (uses Postgres advisory locks; requires --source to point to a shared Postgres instance)")

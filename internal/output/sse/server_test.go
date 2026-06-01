@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/output"
 	"github.com/olucasandrade/kaptanto/internal/router"
-	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
@@ -25,8 +25,8 @@ import (
 // fakeRouter is a minimal router stub for SSE tests.
 // Register calls the consumer's Deliver once with a test event then returns.
 type fakeRouter struct {
-	cs          router.ConsumerCursorStore
-	testEvent   *event.ChangeEvent
+	cs            router.ConsumerCursorStore
+	testEvent     *event.ChangeEvent
 	numPartitions uint32
 }
 
@@ -100,9 +100,6 @@ type testSSEServer struct {
 }
 
 func newTestSSEServer(r routerIface, cs router.ConsumerCursorStore, corsOrigin string, pingInterval time.Duration) *testSSEServer {
-	if corsOrigin == "" {
-		corsOrigin = "*"
-	}
 	if pingInterval == 0 {
 		pingInterval = 15 * time.Second
 	}
@@ -113,7 +110,9 @@ func (s *testSSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+	if s.corsOrigin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+	}
 
 	consumerID := r.URL.Query().Get("consumer")
 	if consumerID == "" {
@@ -326,8 +325,8 @@ func TestSSEConsumer_CursorResume(t *testing.T) {
 	// a LogEntry with Seq set to the loaded value.
 	var deliveredSeq uint64
 	routerStub := &loadCursorRouterStub{
-		cs:              cs,
-		onDeliveredSeq:  func(seq uint64) { deliveredSeq = seq },
+		cs:             cs,
+		onDeliveredSeq: func(seq uint64) { deliveredSeq = seq },
 		testEvent: &event.ChangeEvent{
 			ID:             ulid.Make(),
 			IdempotencyKey: "test:orders:1:insert:0/0",
@@ -365,4 +364,45 @@ func (s *loadCursorRouterStub) Register(c router.Consumer) {
 	entry := eventlog.LogEntry{Seq: seq, Event: s.testEvent}
 	s.onDeliveredSeq(entry.Seq)
 	_ = c.Deliver(ctx, entry)
+}
+
+// realServerCORS drives the production SSEServer.ServeHTTP (not the testSSEServer
+// double) and returns the Access-Control-Allow-Origin header it emits for the
+// given configured origin. Register only loads cursors and never reads the event
+// log, so a nil EventLog is safe here (Run is never started).
+func realServerCORS(t *testing.T, corsOrigin string) string {
+	t.Helper()
+	cs := router.NewNoopCursorStore()
+	rtr := router.NewRouter(nil, 1, cs)
+	// A short ping interval makes the handler emit a keepalive comment, which
+	// flushes the response headers so the client's Do() returns (no events are
+	// delivered here because Router.Run is never started).
+	srv := httptest.NewServer(NewSSEServer(rtr, cs, nil, corsOrigin, 20*time.Millisecond, nil, nil))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"?consumer=cors-test", nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	return resp.Header.Get("Access-Control-Allow-Origin")
+}
+
+// TestSSEServer_NoCORSHeaderByDefault asserts the real handler emits no
+// Access-Control-Allow-Origin header when no origin is configured, so a browser
+// on an arbitrary site cannot read the change stream cross-origin.
+func TestSSEServer_NoCORSHeaderByDefault(t *testing.T) {
+	if got := realServerCORS(t, ""); got != "" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want empty (no cross-origin access by default)", got)
+	}
+}
+
+// TestSSEServer_CORSHeaderWhenConfigured asserts the real handler echoes an
+// explicitly configured origin (opt-in cross-origin access).
+func TestSSEServer_CORSHeaderWhenConfigured(t *testing.T) {
+	if got := realServerCORS(t, "https://example.com"); got != "https://example.com" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want https://example.com", got)
+	}
 }

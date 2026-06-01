@@ -121,18 +121,19 @@ type SinksConfig struct {
 // Config is the complete runtime configuration for a kaptanto pipeline.
 // YAML tags match the locked schema described in the project specification.
 type Config struct {
-	Source    string                 `yaml:"source"`
-	Tables    map[string]TableConfig `yaml:"tables"`
-	Output    string                 `yaml:"output"`
-	Port      int                    `yaml:"port"`
-	DataDir   string                 `yaml:"data-dir"`
-	Retention string                 `yaml:"retention"` // stored as string; "" means use runtime default (1h)
-	HA        bool                   `yaml:"ha"`        // CFG-01: --ha flag; Phase 8 leader election
-	NodeID    string                 `yaml:"node-id"`   // CFG-01: --node-id flag; Phase 8 node identity
-	SourceID   string                 `yaml:"source-id"`   // logical name used for slot/publication naming (default: "default")
-	Cluster         bool                   `yaml:"cluster"`          // --cluster flag; Phase 14 shared cursor state (PostgresCursorStore)
-	ClusterDSN      string                 `yaml:"cluster-dsn"`      // --cluster-dsn flag; Postgres DSN for shared cursor store
-	ClusterPeers    []string               `yaml:"cluster-peers"`    // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
+	Source          string                 `yaml:"source"`
+	Tables          map[string]TableConfig `yaml:"tables"`
+	Output          string                 `yaml:"output"`
+	Port            int                    `yaml:"port"`
+	CORSOrigin      string                 `yaml:"cors-origin"` // SSE Access-Control-Allow-Origin; empty = no CORS header (no cross-origin browser access)
+	DataDir         string                 `yaml:"data-dir"`
+	Retention       string                 `yaml:"retention"`         // stored as string; "" means use runtime default (1h)
+	HA              bool                   `yaml:"ha"`                // CFG-01: --ha flag; Phase 8 leader election
+	NodeID          string                 `yaml:"node-id"`           // CFG-01: --node-id flag; Phase 8 node identity
+	SourceID        string                 `yaml:"source-id"`         // logical name used for slot/publication naming (default: "default")
+	Cluster         bool                   `yaml:"cluster"`           // --cluster flag; Phase 14 shared cursor state (PostgresCursorStore)
+	ClusterDSN      string                 `yaml:"cluster-dsn"`       // --cluster-dsn flag; Postgres DSN for shared cursor store
+	ClusterPeers    []string               `yaml:"cluster-peers"`     // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
 	NatsClusterPort int                    `yaml:"nats-cluster-port"` // NATS cluster route port; 0 → 6222 applied at runtime
 	Sinks           SinksConfig            `yaml:"sinks"`             // queue sink connection settings
 }
@@ -193,6 +194,7 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 		{"source", &cfg.Source},
 		{"output", &cfg.Output},
 		{"data-dir", &cfg.DataDir},
+		{"cors-origin", &cfg.CORSOrigin},
 		{"node-id", &cfg.NodeID},
 		{"source-id", &cfg.SourceID},
 		{"cluster-dsn", &cfg.ClusterDSN},
