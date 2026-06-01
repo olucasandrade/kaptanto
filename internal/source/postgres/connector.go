@@ -43,8 +43,13 @@ type Config struct {
 	PublicationName string
 
 	// Tables lists tables to include in the publication (schema.table format).
-	// If empty, the publication is created FOR ALL TABLES.
+	// If empty and AllowAllTables is true, the publication is created FOR ALL TABLES.
+	// If empty and AllowAllTables is false, ensurePublication returns an error.
 	Tables []string
+
+	// AllowAllTables enables the FOR ALL TABLES publication path when Tables is empty.
+	// Must be explicitly set to true; default false enforces fail-closed behaviour.
+	AllowAllTables bool
 
 	// SourceID is a stable identifier for this source in idempotency keys
 	// and checkpoint records.
@@ -312,7 +317,7 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 	}
 
 	// 5. Ensure publication exists (SRC-02).
-	if err := ensurePublication(ctx, queryConn, c.cfg.PublicationName, c.cfg.Tables); err != nil {
+	if err := ensurePublication(ctx, queryConn, c.cfg.PublicationName, c.cfg.Tables, c.cfg.AllowAllTables); err != nil {
 		return err
 	}
 

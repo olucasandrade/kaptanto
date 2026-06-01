@@ -131,6 +131,7 @@ type Config struct {
 	HA              bool                   `yaml:"ha"`                // CFG-01: --ha flag; Phase 8 leader election
 	NodeID          string                 `yaml:"node-id"`           // CFG-01: --node-id flag; Phase 8 node identity
 	SourceID        string                 `yaml:"source-id"`         // logical name used for slot/publication naming (default: "default")
+	AllowAllTables  bool                   `yaml:"all-tables"`        // --all-tables flag; explicit opt-in to FOR ALL TABLES publication when no tables are configured
 	Cluster         bool                   `yaml:"cluster"`           // --cluster flag; Phase 14 shared cursor state (PostgresCursorStore)
 	ClusterDSN      string                 `yaml:"cluster-dsn"`       // --cluster-dsn flag; Postgres DSN for shared cursor store
 	ClusterPeers    []string               `yaml:"cluster-peers"`     // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
@@ -222,6 +223,7 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 	}{
 		{"ha", &cfg.HA},
 		{"cluster", &cfg.Cluster},
+		{"all-tables", &cfg.AllowAllTables},
 	} {
 		if err := mergeBool(flags, f.name, f.dest); err != nil {
 			return err
