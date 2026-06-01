@@ -31,7 +31,6 @@ type SSEConsumer struct {
 	w          http.ResponseWriter
 	rc         *http.ResponseController
 	filter     *output.EventFilter
-	cs         router.ConsumerCursorStore
 	m          *observability.KaptantoMetrics
 	rowFilters map[string]*output.RowFilter // CFG-06: per-table WHERE-expression filter; nil map = pass-through
 	colFilters map[string][]string          // CFG-05: per-table column allow-list; nil map = pass-through
@@ -53,7 +52,6 @@ func NewSSEConsumer(
 	consumerID string,
 	w http.ResponseWriter,
 	filter *output.EventFilter,
-	cs router.ConsumerCursorStore,
 	m *observability.KaptantoMetrics,
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
@@ -69,7 +67,6 @@ func NewSSEConsumer(
 		w:             w,
 		rc:            http.NewResponseController(w),
 		filter:        filter,
-		cs:            cs,
 		m:             m,
 		rowFilters:    rowFilters,
 		colFilters:    colFilters,
@@ -95,7 +92,11 @@ func (c *SSEConsumer) Close() {
 //	data: <JSON>\n
 //	\n
 //
-// Filtered events silently advance the cursor without writing to the wire.
+// Filtered events return nil without writing to the wire. Cursor persistence
+// is the sole responsibility of the Router (Phase 3 of dispatch), which
+// advances the cursor to entry.Seq+1 on any nil return from Deliver — this
+// applies to both delivered and filtered events. SSEConsumer never calls
+// SaveCursor directly (matching gRPC consumer behaviour).
 // Any write error is returned directly; a broken pipe / closed connection
 // error is classified as permanent by the RetryScheduler (dead-letter path).
 func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
@@ -106,17 +107,17 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 		return fmt.Errorf("sse: connection closed")
 	}
 
-	// Filtered events: advance cursor silently, no write to wire.
+	// Filtered events: return nil so the Router advances the cursor to Seq+1.
 	if !c.filter.Allow(entry.Event) {
-		return c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq)
+		return nil
 	}
 
 	// Row filter (CFG-06): look up per-table filter by event table name.
 	// If a filter is configured for this table and the event does not match,
-	// advance cursor silently without writing to the wire.
+	// return nil so the Router advances the cursor.
 	if rf, ok := c.rowFilters[entry.Event.Table]; ok && rf != nil {
 		if !rf.Match(entry.Event) {
-			return c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq)
+			return nil
 		}
 	}
 
@@ -160,11 +161,6 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 	// NOTE: Flush is intentionally NOT called here. FlushBatch (called once per
 	// router ReadPartition batch) flushes all events written in the batch with a
 	// single rc.Flush(), amortising the flush latency over many events (Fix E).
-
-	// Persist cursor after successful write (seq+1 = resume from next event).
-	if err := c.cs.SaveCursor(ctx, c.id, entry.PartitionID, entry.Seq+1); err != nil {
-		return err
-	}
 
 	if c.m != nil {
 		c.m.EventsDelivered.WithLabelValues(c.id, entry.Event.Table, string(entry.Event.Operation)).Inc()
