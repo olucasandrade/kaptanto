@@ -33,6 +33,24 @@ func redactDSN(dsn string) string {
 					u.User = url.UserPassword(u.User.Username(), "xxxxx")
 				}
 			}
+			// Passwords also travel as query parameters (libpq ?password=,
+			// ?sslpassword=, and driver variants), so scrub any param whose name
+			// ends in "password".
+			if q := u.Query(); len(q) > 0 {
+				changed := false
+				for key, vals := range q {
+					if strings.HasSuffix(strings.ToLower(key), "password") {
+						for i := range vals {
+							vals[i] = "xxxxx"
+						}
+						q[key] = vals
+						changed = true
+					}
+				}
+				if changed {
+					u.RawQuery = q.Encode()
+				}
+			}
 			return u.String()
 		}
 		// Unparseable URL: strip the userinfo password directly so it never leaks.
