@@ -364,6 +364,11 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 			if r.metrics != nil {
 				r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
 			}
+			// Guard: cursor has already advanced past this seq (e.g. a previous
+			// poll cycle already enqueued this entry). Skip to avoid double-queuing.
+			if entry.Seq < snap.cursor {
+				continue
+			}
 			// Enqueue the follow-on entry behind the blocked head so it is
 			// preserved in order and retried after the head succeeds (RTR-04).
 			// Without this, any event for a blocked key that arrives while the
@@ -375,6 +380,23 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 				ConsumerID:  cs.consumer.ID(),
 			}
 			r.rs.AddBlocked(cs.consumer, groupKey, rec)
+			// Advance the cursor past the enqueued follow-on so the EventLog does
+			// not re-serve this seq on the next poll cycle. The retry queue now
+			// holds delivery responsibility; re-reading would cause double-queuing.
+			// Trade-off: a process restart drops in-flight follow-ons (same as the
+			// blocked head — both are in-memory only).
+			nextForFollowOn := entry.Seq + 1
+			if nextForFollowOn > cs.cursorByPartition[partitionID] {
+				cs.cursorByPartition[partitionID] = nextForFollowOn
+			}
+			if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForFollowOn); err != nil {
+				slog.Warn("router: failed to save cursor for blocked follow-on",
+					"consumer", cs.consumer.ID(),
+					"partition", partitionID,
+					"seq", entry.Seq,
+					"err", err,
+				)
+			}
 			continue
 		}
 
