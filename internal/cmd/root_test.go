@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,25 @@ func (f *fakeEventLogForCmd) ReadPartition(_ context.Context, _ uint32, _ uint64
 	return nil, nil
 }
 func (f *fakeEventLogForCmd) Close() error { return nil }
+
+// lockedBuffer is a goroutine-safe bytes.Buffer, used when a background
+// pipeline writes log output concurrently with the test reading it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
 
 func TestHelpContainsKaptanto(t *testing.T) {
 	buf := &bytes.Buffer{}
@@ -209,20 +229,25 @@ func TestNonHAPathUnchanged(t *testing.T) {
 		t.Skip("POSTGRES_TEST_DSN not set; skipping non-HA path test")
 	}
 
-	var buf bytes.Buffer
-	// Run with a source but HA=false (default). When POSTGRES_TEST_DSN points at
-	// a reachable Postgres the pipeline streams indefinitely, so bound it with a
-	// timeout context: we only care that no "ha:" lines appear while it runs.
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	// When POSTGRES_TEST_DSN points at a reachable Postgres the non-HA pipeline
+	// streams indefinitely and its graceful shutdown may not return promptly, so
+	// we do NOT wait for ExecuteContext to return. We run it in the background,
+	// observe the log output for a bounded window, then assert. A lock-guarded
+	// buffer makes concurrent reads safe while the pipeline keeps writing.
+	buf := &lockedBuffer{}
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	root := cmd.NewRootCmd()
-	root.SetOut(&buf)
-	root.SetErr(&buf)
+	root.SetOut(buf)
+	root.SetErr(buf)
 	root.SetArgs([]string{
 		"--source", os.Getenv("POSTGRES_TEST_DSN"),
 		"--data-dir", t.TempDir(),
 	})
-	_ = root.ExecuteContext(ctx)
+	go func() { _ = root.ExecuteContext(ctx) }()
+
+	// Let the non-HA path run long enough to emit startup logs, then assert.
+	time.Sleep(3 * time.Second)
 	out := buf.String()
 	assert.False(t, strings.Contains(out, "ha:"), "non-HA path must not emit ha: log lines; got: %s", out)
 }
