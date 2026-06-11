@@ -22,7 +22,8 @@ jobs:
         # v7 is required for golangci-lint v2 configs.
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1.6
+          # Must be built with Go >= go.mod's version (1.25); v2.12.2 satisfies it.
+          version: v2.12.2
           args: ./internal/... ./cmd/...
         env:
           CGO_ENABLED: "0"
