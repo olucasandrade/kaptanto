@@ -3,6 +3,7 @@ package cmd_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -229,27 +230,43 @@ func TestNonHAPathUnchanged(t *testing.T) {
 		t.Skip("POSTGRES_TEST_DSN not set; skipping non-HA path test")
 	}
 
+	// Logging is configured via logging.Setup(os.Stderr, ...) in the command's
+	// PersistentPreRunE, so cobra's SetOut/SetErr do NOT capture slog output.
+	// Redirect os.Stderr to a pipe for the duration to capture the real logs.
+	origStderr := os.Stderr
+	pr, pw, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = pw
+	logs := &lockedBuffer{}
+	copyDone := make(chan struct{})
+	go func() { _, _ = io.Copy(logs, pr); close(copyDone) }()
+
 	// When POSTGRES_TEST_DSN points at a reachable Postgres the non-HA pipeline
 	// streams indefinitely and its graceful shutdown may not return promptly, so
-	// we do NOT wait for ExecuteContext to return. We run it in the background,
-	// observe the log output for a bounded window, then assert. A lock-guarded
-	// buffer makes concurrent reads safe while the pipeline keeps writing.
-	buf := &lockedBuffer{}
+	// we do NOT wait for ExecuteContext to return — run it in the background.
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	root := cmd.NewRootCmd()
-	root.SetOut(buf)
-	root.SetErr(buf)
 	root.SetArgs([]string{
 		"--source", os.Getenv("POSTGRES_TEST_DSN"),
 		"--data-dir", t.TempDir(),
 	})
 	go func() { _ = root.ExecuteContext(ctx) }()
 
-	// Let the non-HA path run long enough to emit startup logs, then assert.
-	time.Sleep(3 * time.Second)
-	out := buf.String()
+	// Wait until the pipeline logs its startup line — this proves the non-HA
+	// path actually started (so the "ha:" check below is meaningful), and is
+	// bounded so a failure to start fails fast rather than hanging.
+	require.Eventually(t, func() bool {
+		return strings.Contains(logs.String(), "kaptanto starting")
+	}, 15*time.Second, 100*time.Millisecond, "non-HA pipeline did not start")
+
+	out := logs.String()
 	assert.False(t, strings.Contains(out, "ha:"), "non-HA path must not emit ha: log lines; got: %s", out)
+
+	// Stop the pipeline and the stderr-capture goroutine, then restore stderr.
+	cancel()
+	os.Stderr = origStderr
+	_ = pw.Close()
+	<-copyDone
 }
 
 // TestMongoDBFlagRoute verifies that when --source starts with "mongodb://",
