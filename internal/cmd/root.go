@@ -137,6 +137,7 @@ func ensureDataDir(dir string) error {
 	return os.MkdirAll(dir, 0o700)
 }
 
+//nolint:gocyclo // pipeline assembly wires many optional components; splitting it would obscure the linear startup sequence. Tracked for incremental refactor.
 func runPipeline(ctx context.Context, cfg *config.Config) error {
 	slog.Info("kaptanto starting",
 		"source", redactDSN(cfg.Source),
