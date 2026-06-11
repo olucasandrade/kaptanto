@@ -3,8 +3,10 @@ package cmd_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +30,25 @@ func (f *fakeEventLogForCmd) ReadPartition(_ context.Context, _ uint32, _ uint64
 	return nil, nil
 }
 func (f *fakeEventLogForCmd) Close() error { return nil }
+
+// lockedBuffer is a goroutine-safe bytes.Buffer, used when a background
+// pipeline writes log output concurrently with the test reading it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
 
 func TestHelpContainsKaptanto(t *testing.T) {
 	buf := &bytes.Buffer{}
@@ -209,13 +230,43 @@ func TestNonHAPathUnchanged(t *testing.T) {
 		t.Skip("POSTGRES_TEST_DSN not set; skipping non-HA path test")
 	}
 
-	var buf bytes.Buffer
-	// Run with a source but HA=false (default). The pipeline will fail quickly
-	// when it can't connect to Postgres, but we only care that no "ha:" lines
-	// appear before the failure.
-	_ = cmd.ExecuteWithArgs([]string{"--source", os.Getenv("POSTGRES_TEST_DSN")}, &buf)
-	out := buf.String()
+	// Logging is configured via logging.Setup(os.Stderr, ...) in the command's
+	// PersistentPreRunE, so cobra's SetOut/SetErr do NOT capture slog output.
+	// Redirect os.Stderr to a pipe for the duration to capture the real logs.
+	origStderr := os.Stderr
+	pr, pw, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = pw
+	logs := &lockedBuffer{}
+	copyDone := make(chan struct{})
+	go func() { _, _ = io.Copy(logs, pr); close(copyDone) }()
+
+	// When POSTGRES_TEST_DSN points at a reachable Postgres the non-HA pipeline
+	// streams indefinitely and its graceful shutdown may not return promptly, so
+	// we do NOT wait for ExecuteContext to return — run it in the background.
+	ctx, cancel := context.WithCancel(context.Background())
+	root := cmd.NewRootCmd()
+	root.SetArgs([]string{
+		"--source", os.Getenv("POSTGRES_TEST_DSN"),
+		"--data-dir", t.TempDir(),
+	})
+	go func() { _ = root.ExecuteContext(ctx) }()
+
+	// Wait until the pipeline logs its startup line — this proves the non-HA
+	// path actually started (so the "ha:" check below is meaningful), and is
+	// bounded so a failure to start fails fast rather than hanging.
+	require.Eventually(t, func() bool {
+		return strings.Contains(logs.String(), "kaptanto starting")
+	}, 15*time.Second, 100*time.Millisecond, "non-HA pipeline did not start")
+
+	out := logs.String()
 	assert.False(t, strings.Contains(out, "ha:"), "non-HA path must not emit ha: log lines; got: %s", out)
+
+	// Stop the pipeline and the stderr-capture goroutine, then restore stderr.
+	cancel()
+	os.Stderr = origStderr
+	_ = pw.Close()
+	<-copyDone
 }
 
 // TestMongoDBFlagRoute verifies that when --source starts with "mongodb://",
