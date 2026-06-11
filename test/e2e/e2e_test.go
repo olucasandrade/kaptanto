@@ -103,6 +103,7 @@ func TestE2E_Postgres_CRUDStream(t *testing.T) {
 	type result struct {
 		ops  []event.Operation
 		keys []string
+		err  error
 	}
 	got := make(chan result, 1)
 	go func() {
@@ -125,6 +126,15 @@ func TestE2E_Postgres_CRUDStream(t *testing.T) {
 				}
 			}
 		}
+		// The stream ended before three DML events arrived. Surface why (a
+		// scanner error, or the process closing stdout) instead of letting the
+		// consumer time out with no explanation.
+		if err := scanner.Err(); err != nil {
+			r.err = fmt.Errorf("reading event stream: %w", err)
+		} else {
+			r.err = fmt.Errorf("event stream ended after %d/3 DML events", len(r.ops))
+		}
+		got <- r
 	}()
 
 	// Let the replication slot get created and streaming start before writing.
@@ -138,6 +148,7 @@ func TestE2E_Postgres_CRUDStream(t *testing.T) {
 
 	select {
 	case r := <-got:
+		require.NoError(t, r.err, "event stream collection failed")
 		require.Equal(t, []event.Operation{event.OpInsert, event.OpUpdate, event.OpDelete}, r.ops,
 			"events must arrive in insert→update→delete order (RTR-04 per-key ordering)")
 		require.Equal(t, r.keys[0], r.keys[1], "all events share the same primary key")
