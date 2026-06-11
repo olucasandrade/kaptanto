@@ -60,11 +60,17 @@ jobs:
           done
           docker exec mongo mongosh --quiet --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]})'
           echo "Waiting for PRIMARY..."
+          primary_ready=false
           for i in $(seq 1 30); do
             state=$(docker exec mongo mongosh --quiet --eval 'rs.status().myState' 2>/dev/null || echo "")
-            if [ "$state" = "1" ]; then echo "PRIMARY ready"; break; fi
+            if [ "$state" = "1" ]; then echo "PRIMARY ready"; primary_ready=true; break; fi
             echo "  state=$state ($i)..."; sleep 2
           done
+          if [ "$primary_ready" != "true" ]; then
+            echo "ERROR: MongoDB replica set never reached PRIMARY; aborting." >&2
+            docker logs mongo 2>&1 | tail -50 || true
+            exit 1
+          fi
 
       - name: Run integration tests
         run: CGO_ENABLED=0 go test ./... -count=1 -timeout 300s
