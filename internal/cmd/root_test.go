@@ -210,10 +210,19 @@ func TestNonHAPathUnchanged(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	// Run with a source but HA=false (default). The pipeline will fail quickly
-	// when it can't connect to Postgres, but we only care that no "ha:" lines
-	// appear before the failure.
-	_ = cmd.ExecuteWithArgs([]string{"--source", os.Getenv("POSTGRES_TEST_DSN")}, &buf)
+	// Run with a source but HA=false (default). When POSTGRES_TEST_DSN points at
+	// a reachable Postgres the pipeline streams indefinitely, so bound it with a
+	// timeout context: we only care that no "ha:" lines appear while it runs.
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	root := cmd.NewRootCmd()
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	root.SetArgs([]string{
+		"--source", os.Getenv("POSTGRES_TEST_DSN"),
+		"--data-dir", t.TempDir(),
+	})
+	_ = root.ExecuteContext(ctx)
 	out := buf.String()
 	assert.False(t, strings.Contains(out, "ha:"), "non-HA path must not emit ha: log lines; got: %s", out)
 }

@@ -19,7 +19,8 @@ jobs:
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # v7 is required for golangci-lint v2 configs.
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.1.6
           args: ./internal/... ./cmd/...
