@@ -1,0 +1,45 @@
+name: Mutation
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  mutation:
+    name: Mutation testing (core packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.0
+
+      - name: Run mutation testing
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          # Scope to the highest-value correctness packages; full-repo mutation
+          # is too slow for per-PR. Run each independently so one package's
+          # results are legible. Thresholds come from .gremlins.yaml (currently
+          # report-only); raise them once a baseline is established.
+          set -e
+          packages=(
+            ./internal/router
+            ./internal/eventlog
+            ./internal/parser/pgoutput
+            ./internal/backfill
+          )
+          for pkg in "${packages[@]}"; do
+            echo "::group::gremlins $pkg"
+            "$(go env GOPATH)/bin/gremlins" unleash "$pkg"
+            echo "::endgroup::"
+          done

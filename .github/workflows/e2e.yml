@@ -1,0 +1,50 @@
+name: E2E
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  e2e:
+    name: End-to-end (binary against live Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      POSTGRES_TEST_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Start Postgres (logical replication)
+        run: |
+          docker run -d --name postgres \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=postgres \
+            -p 5432:5432 \
+            postgres:16 \
+            -c wal_level=logical \
+            -c max_replication_slots=10 \
+            -c max_wal_senders=10
+          echo "Waiting for Postgres..."
+          for i in $(seq 1 30); do
+            if docker exec postgres pg_isready -U postgres >/dev/null 2>&1; then
+              echo "Postgres ready"; break
+            fi
+            echo "  waiting ($i)..."; sleep 2
+          done
+
+      - name: Run e2e tests
+        run: CGO_ENABLED=0 go test -tags e2e ./test/e2e/... -count=1 -timeout 300s -v
+
+      - name: Postgres logs on failure
+        if: failure()
+        run: docker logs postgres 2>&1 | tail -50 || true

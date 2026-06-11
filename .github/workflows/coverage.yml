@@ -1,0 +1,49 @@
+name: Coverage
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  coverage:
+    name: Test coverage threshold
+    runs-on: ubuntu-latest
+    env:
+      # In-repo gate. Current baseline over internal/ + cmd/ is ~54.3%; the gate
+      # sits a few points below to absorb noise. Ratchet upward over time.
+      COVERAGE_THRESHOLD: "50.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests with coverage
+        run: |
+          CGO_ENABLED=0 go test ./internal/... ./cmd/... \
+            -count=1 -timeout 180s \
+            -coverprofile=coverage.out -covermode=count
+
+      - name: Generate HTML report
+        run: go tool cover -html=coverage.out -o coverage.html
+
+      - name: Enforce coverage threshold
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
+          echo "Total coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
+          awk -v t="$total" -v min="$COVERAGE_THRESHOLD" \
+            'BEGIN { if (t+0 < min+0) { printf "FAIL: coverage %.1f%% is below threshold %.1f%%\n", t, min; exit 1 } else { printf "PASS: coverage %.1f%% meets threshold %.1f%%\n", t, min } }'
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.html
+          retention-days: 30

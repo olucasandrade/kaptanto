@@ -1,0 +1,16 @@
+# gremlins mutation-testing configuration.
+#
+# Mutation testing is run per-package over the highest-value correctness
+# packages (see .github/workflows/mutation.yml). Thresholds start at 0
+# (report-only, non-gating) so the first runs establish a real baseline; raise
+# threshold-efficacy / threshold-mutant-coverage once that baseline is known.
+unleash:
+  dry-run: false
+  # No special build tags: the targeted packages compile and test under the
+  # default pure-Go build.
+  tags: ""
+  # Gating thresholds — 0 means "never fail" (informational). Ratchet upward.
+  threshold-efficacy: 0
+  threshold-mutant-coverage: 0
+
+silent: false
