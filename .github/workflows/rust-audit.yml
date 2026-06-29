@@ -28,8 +28,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: cargo-audit
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      # Install a prebuilt cargo-audit binary instead of compiling it from
+      # source (the rustsec/audit-check action does the latter, which flakes on
+      # transient crates.io fetch errors — unacceptable for a blocking gate).
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@ffdab026038b43b56c3c9540cdadb98181c6155c # v2.27.8
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: rust/kaptanto-ffi
+          tool: cargo-audit
+
+      - name: cargo-audit
+        working-directory: rust/kaptanto-ffi
+        run: cargo audit
