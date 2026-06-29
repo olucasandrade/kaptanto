@@ -16,7 +16,7 @@ on:
     # a code change to the FFI crate.
     - cron: "27 5 * * 1"
 
-# Advisory: covers the Rust FFI crate that CodeQL deliberately skips.
+# Blocking: covers the Rust FFI crate that CodeQL deliberately skips.
 jobs:
   cargo-audit:
     name: cargo-audit (Rust CVEs)
@@ -29,7 +29,6 @@ jobs:
           persist-credentials: false
 
       - name: cargo-audit
-        continue-on-error: true
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
