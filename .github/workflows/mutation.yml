@@ -35,17 +35,27 @@ jobs:
         run: |
           # Scope to the highest-value correctness packages; full-repo mutation
           # is too slow for per-PR. Run each independently so one package's
-          # results are legible. Thresholds come from .gremlins.yaml (currently
-          # report-only); raise them once a baseline is established.
+          # results are legible.
           set -e
-          packages=(
+          gremlins="$(go env GOPATH)/bin/gremlins"
+
+          # Gated: must meet threshold-efficacy from .gremlins.yaml (60%).
+          # Baselines: router 100%, backfill ~92%, eventlog ~73%.
+          gated=(
             ./internal/router
             ./internal/eventlog
-            ./internal/parser/pgoutput
             ./internal/backfill
           )
-          for pkg in "${packages[@]}"; do
-            echo "::group::gremlins $pkg"
-            "$(go env GOPATH)/bin/gremlins" unleash "$pkg"
+          for pkg in "${gated[@]}"; do
+            echo "::group::gremlins (gated) $pkg"
+            "$gremlins" unleash "$pkg"
             echo "::endgroup::"
           done
+
+          # Report-only: gremlins mutates the //go:build rust FFI file that the
+          # pure-Go test build can't cover, so its efficacy is an artifact (~0%).
+          # Run without gating so regressions are still visible in the log.
+          echo "::group::gremlins (report-only) ./internal/parser/pgoutput"
+          "$gremlins" unleash --threshold-efficacy 0 --threshold-mutant-coverage 0 \
+            ./internal/parser/pgoutput || true
+          echo "::endgroup::"
