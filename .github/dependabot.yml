@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # Go modules. Grouped into a single PR per run to keep the large dependency
+  # tree (AWS SDK, GCP, franz-go, mongo driver, ...) from flooding the queue.
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+
+  # Rust FFI crate.
+  - package-ecosystem: cargo
+    directory: "/rust/kaptanto-ffi"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+
+  # GitHub Actions — keeps the SHA-pinned actions current (Dependabot bumps the
+  # pinned SHA and updates the trailing version comment).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
