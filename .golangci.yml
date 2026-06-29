@@ -1,29 +1,26 @@
 # golangci-lint configuration (v2 schema).
 #
-# This is the umbrella for two of the deeper CI gates:
+# This umbrella owns the deeper CI gates:
+#   - Standard suite (errcheck, govet, ineffassign, staticcheck, unused)
 #   - Cyclomatic complexity (#6)         -> gocyclo
 #   - Dependency-structure validation (#4) -> depguard (layered import rules)
-#
-# Plus baseline hygiene linters. Thresholds are set to land green on the current
-# tree and are intended to be ratcheted tighter over time.
 version: "2"
 
 linters:
-  # Scoped intentionally to the two gates this umbrella owns. General hygiene
-  # (govet, etc.) is covered by the separate `go vet` step in ci.yml; adding
-  # more linters here would duplicate that and surface unrelated pre-existing
-  # findings. Add linters deliberately, with a green baseline each time.
-  default: none
+  # The standard suite is enabled (errcheck/govet/ineffassign/staticcheck/
+  # unused) for real correctness coverage, plus the two structural gates this
+  # umbrella owns (gocyclo, depguard).
+  default: standard
   enable:
     - gocyclo
     - depguard
 
   settings:
     gocyclo:
-      # Current production max is 48 (runPipeline) and 36 (tokenize), both
-      # explicitly //nolint:gocyclo-exempted with a refactor note. Everything
-      # else sits at <=30, so 31 catches new offenders without churn.
-      min-complexity: 31
+      # runPipeline (48) and tokenize (36) are //nolint:gocyclo-exempted with a
+      # refactor note; receiveLoop and snapshotTable (30) are too. The gate is
+      # 25: new functions must stay at or below it. Ratchet downward over time.
+      min-complexity: 25
 
     depguard:
       # Layered architecture (verified from the import graph):
@@ -99,6 +96,8 @@ linters:
           - gocyclo
           - depguard
 
+# Surface every finding (defaults cap duplicates at 3, which can hide real
+# regressions in the log even though they still fail the build).
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

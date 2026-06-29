@@ -17,7 +17,7 @@ func TestSQLiteStore_OpenCreatesSchema(t *testing.T) {
 	store, err := checkpoint.Open(dbPath)
 	require.NoError(t, err, "Open should succeed")
 	require.NotNil(t, store)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 }
 
 func TestSQLiteStore_SaveAndLoad(t *testing.T) {
@@ -26,7 +26,7 @@ func TestSQLiteStore_SaveAndLoad(t *testing.T) {
 
 	store, err := checkpoint.Open(dbPath)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	const sourceID = "source-1"
@@ -46,7 +46,7 @@ func TestSQLiteStore_SaveIsIdempotent(t *testing.T) {
 
 	store, err := checkpoint.Open(dbPath)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	const sourceID = "source-1"
@@ -70,7 +70,7 @@ func TestSQLiteStore_LoadNonexistentSourceID(t *testing.T) {
 
 	store, err := checkpoint.Open(dbPath)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	got, err := store.Load(ctx, "nonexistent-source")
@@ -95,7 +95,7 @@ func TestSQLiteStore_OpenExistingDB_ReturnsStoredLSN(t *testing.T) {
 	// Re-open the same file; it must return the stored LSN, not zero.
 	store2, err := checkpoint.Open(dbPath)
 	require.NoError(t, err)
-	defer store2.Close()
+	defer func() { _ = store2.Close() }()
 
 	got, err := store2.Load(ctx, "pg-main")
 	require.NoError(t, err)

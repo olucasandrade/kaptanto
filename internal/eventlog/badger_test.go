@@ -35,7 +35,7 @@ func makeEvent(idempotencyKey string, keyJSON string) *event.ChangeEvent {
 func TestBadgerEventLog_AppendAndRead(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	ev := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
 	seq, err := el.Append(ev)
@@ -64,7 +64,7 @@ func TestBadgerEventLog_AppendAndRead(t *testing.T) {
 func TestBadgerEventLog_Dedup(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	ev := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
 
@@ -97,7 +97,7 @@ func TestBadgerEventLog_Dedup(t *testing.T) {
 func TestBadgerEventLog_Partitioning(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	ev1a := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
 	ev1b := makeEvent("src:public.t:1:insert:0/2", `{"id": 1}`) // same key, different op+pos
@@ -151,7 +151,7 @@ func TestBadgerEventLog_Partitioning(t *testing.T) {
 func TestBadgerEventLog_TTLExpiry(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, 1*time.Nanosecond)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	ev := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
 	_, err = el.Append(ev)
@@ -175,7 +175,7 @@ func TestBadgerEventLog_TTLExpiry(t *testing.T) {
 func TestBadgerEventLog_ReadPartitionFromSeq(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 1, time.Hour) // 1 partition: all events go to partition 0
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	// Write 5 events to partition 0 (1 partition so everything goes there).
 	var seqs []uint64

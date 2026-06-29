@@ -9,31 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	natstest "github.com/nats-io/nats-server/v2/test"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 )
-
-// startTestNATS starts an in-process single-node NATS server with JetStream enabled.
-// It registers server shutdown and connection close as t.Cleanup callbacks.
-// Returns an open *nats.Conn connected to the test server.
-func startTestNATS(t *testing.T) *nats.Conn {
-	t.Helper()
-	opts := natstest.DefaultTestOptions
-	opts.Port = -1
-	opts.JetStream = true
-	opts.StoreDir = t.TempDir()
-	srv := natstest.RunServer(&opts)
-	t.Cleanup(srv.Shutdown)
-	nc, err := nats.Connect(srv.ClientURL(), nats.Name("test"))
-	require.NoError(t, err)
-	t.Cleanup(nc.Close)
-	return nc
-}
 
 // openTestNatsEventLog opens a NatsEventLog using OpenNats with an embedded
 // single-node NATS server (no peers). SyncAlways is false for unit tests —
