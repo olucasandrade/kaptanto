@@ -7,6 +7,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Wait for a release to age before opening a PR — dodges yanked/compromised
+    # versions and cuts churn from rapid point releases.
+    cooldown:
+      default-days: 7
     groups:
       go-dependencies:
         patterns:
@@ -18,6 +22,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       rust-dependencies:
         patterns:
@@ -30,6 +36,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:
