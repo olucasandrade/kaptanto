@@ -20,6 +20,28 @@ func TestSQLiteStore_OpenCreatesSchema(t *testing.T) {
 	defer func() { _ = store.Close() }()
 }
 
+func TestSQLiteStore_Ping(t *testing.T) {
+	store, err := checkpoint.Open(filepath.Join(t.TempDir(), "checkpoint.db"))
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	assert.NoError(t, store.Ping(), "Ping on an open store should succeed")
+}
+
+func TestSQLiteStore_OpenInvalidPath(t *testing.T) {
+	// A path whose parent directory does not exist cannot be opened.
+	_, err := checkpoint.Open(filepath.Join(t.TempDir(), "no-such-dir", "checkpoint.db"))
+	require.Error(t, err, "Open should fail when the directory does not exist")
+}
+
+func TestSQLiteStore_LoadAfterClose(t *testing.T) {
+	store, err := checkpoint.Open(filepath.Join(t.TempDir(), "checkpoint.db"))
+	require.NoError(t, err)
+	require.NoError(t, store.Close())
+	// Operations after Close must surface an error, not panic.
+	_, err = store.Load(context.Background(), "source-1")
+	require.Error(t, err)
+}
+
 func TestSQLiteStore_SaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "checkpoint.db")
