@@ -1,0 +1,47 @@
+name: Security
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+# All jobs here are advisory: steps that can flag findings use
+# continue-on-error so a finding never blocks a merge. Results are still
+# visible in job logs and (for gitleaks) the Security tab.
+jobs:
+  govulncheck:
+    name: govulncheck (Go CVEs)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+        with:
+          persist-credentials: false
+
+      # Symbol-aware Go vulnerability scan (Go team). Only flags CVEs in code
+      # paths actually reachable from this module. Advisory.
+      - name: govulncheck
+        continue-on-error: true
+        uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1.0.4
+        with:
+          go-version-file: go.mod
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
+    steps:
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+        with:
+          fetch-depth: 0 # full history so gitleaks can scan all commits
+          persist-credentials: false
+
+      - name: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
