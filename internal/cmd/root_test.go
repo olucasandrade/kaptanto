@@ -13,6 +13,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/cmd"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/logging"
 	"github.com/olucasandrade/kaptanto/internal/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -245,6 +246,19 @@ func TestNonHAPathUnchanged(t *testing.T) {
 	// streams indefinitely and its graceful shutdown may not return promptly, so
 	// we do NOT wait for ExecuteContext to return — run it in the background.
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Teardown runs unconditionally (even if a require below fails), so we never
+	// leave os.Stderr or the process-wide slog default pointed at a closed pipe
+	// fd, which would corrupt later tests. logging.Setup re-routes the global
+	// logger back to the real stderr through the same path PersistentPreRunE uses.
+	t.Cleanup(func() {
+		cancel()
+		os.Stderr = origStderr
+		logging.Setup(origStderr, "info")
+		_ = pw.Close()
+		<-copyDone
+	})
+
 	root := cmd.NewRootCmd()
 	root.SetArgs([]string{
 		"--source", os.Getenv("POSTGRES_TEST_DSN"),
@@ -261,12 +275,6 @@ func TestNonHAPathUnchanged(t *testing.T) {
 
 	out := logs.String()
 	assert.False(t, strings.Contains(out, "ha:"), "non-HA path must not emit ha: log lines; got: %s", out)
-
-	// Stop the pipeline and the stderr-capture goroutine, then restore stderr.
-	cancel()
-	os.Stderr = origStderr
-	_ = pw.Close()
-	<-copyDone
 }
 
 // TestMongoDBFlagRoute verifies that when --source starts with "mongodb://",
