@@ -31,7 +31,7 @@ jobs:
           cache: true
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@f411752efdf656cb71aa17b755b22c890960da1d # v3.35.5
+        uses: github/codeql-action/init@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3.35.5
         with:
           # Go only. The Rust FFI crate is covered by cargo-audit (rust-audit.yml)
           # to avoid standing up the CGO + cbindgen build path in CI.
@@ -39,11 +39,11 @@ jobs:
           queries: security-extended
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@f411752efdf656cb71aa17b755b22c890960da1d # v3.35.5
+        uses: github/codeql-action/autobuild@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3.35.5
         env:
           CGO_ENABLED: "0"
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@f411752efdf656cb71aa17b755b22c890960da1d # v3.35.5
+        uses: github/codeql-action/analyze@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3.35.5
         with:
           category: "/language:go"
