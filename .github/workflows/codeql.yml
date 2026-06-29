@@ -1,0 +1,49 @@
+name: CodeQL
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  schedule:
+    # Weekly re-scan so newly published CodeQL queries catch existing code.
+    - cron: "27 4 * * 1"
+
+# Advisory: findings surface in the Security tab; the job is not a required
+# check, so a finding does not block merges. See dependabot.yml / security.yml.
+jobs:
+  analyze:
+    name: CodeQL (Go)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload SARIF to the Security tab
+      contents: read
+      actions: read
+    steps:
+      # CodeQL's diff-informed analysis fetches the PR base branch during the
+      # analyze step, which needs the checkout-persisted credentials — so we do
+      # NOT set persist-credentials: false here (unlike every other workflow).
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1 # zizmor: ignore[artipacked]
+
+      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3.35.5
+        with:
+          # Go only. The Rust FFI crate is covered by cargo-audit (rust-audit.yml)
+          # to avoid standing up the CGO + cbindgen build path in CI.
+          languages: go
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3.35.5
+        env:
+          CGO_ENABLED: "0"
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3.35.5
+        with:
+          category: "/language:go"
