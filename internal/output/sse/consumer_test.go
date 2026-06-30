@@ -221,6 +221,58 @@ func (r *recordingCursorStore) LoadCursor(_ context.Context, _ string, _ uint32)
 // TestSSEConsumer_ColumnFilter_DoesNotMutateSharedEvent verifies that
 // ApplyColumnFilter produces a filtered copy and never mutates entry.Event
 // (which is shared across consumers in the Router).
+// TestSSEConsumer_RawPassThrough verifies that when no column filter is configured
+// and entry.Raw is populated, Deliver writes the raw bytes directly to the wire
+// (raw-bytes-passthrough fast path).
+func TestSSEConsumer_RawPassThrough(t *testing.T) {
+	rr := httptest.NewRecorder()
+	filter := output.NewEventFilter(nil, nil)
+
+	ev := makeInsertEvent(map[string]any{"id": 1, "status": "new"})
+	rawBytes, _ := json.Marshal(ev)
+	entry := eventlog.LogEntry{Seq: 1, Event: ev, Raw: rawBytes}
+
+	// No column filter configured — should use raw passthrough.
+	consumer := NewSSEConsumer("raw-pt", rr, filter, nil, nil, nil)
+	err := consumer.Deliver(context.Background(), entry)
+	require.NoError(t, err)
+
+	body := rr.Body.String()
+	// Wire format: "id: <ULID>\ndata: <raw bytes>\n\n"
+	assert.Contains(t, body, "id: "+ev.ID.String())
+	assert.Contains(t, body, "data: "+string(rawBytes))
+}
+
+// TestSSEConsumer_ColumnFilter_UsesFilteredMarshal verifies that when a column
+// filter is active, the consumer re-marshals the filtered event (NOT raw bytes).
+func TestSSEConsumer_ColumnFilter_UsesFilteredMarshal(t *testing.T) {
+	rr := httptest.NewRecorder()
+	filter := output.NewEventFilter(nil, nil)
+
+	ev := &event.ChangeEvent{
+		ID:        ulid.Make(),
+		Operation: event.OpInsert,
+		Table:     "orders",
+		After:     json.RawMessage(`{"id":1,"secret":"hidden"}`),
+	}
+	rawBytes, _ := json.Marshal(ev)
+	entry := eventlog.LogEntry{Seq: 1, Event: ev, Raw: rawBytes}
+
+	// Column filter: only allow "id", strip "secret".
+	consumer := NewSSEConsumer("col-filter", rr, filter, nil, nil, map[string][]string{"orders": {"id"}})
+	err := consumer.Deliver(context.Background(), entry)
+	require.NoError(t, err)
+
+	body := rr.Body.String()
+	// "secret" field must NOT appear in the wire output.
+	assert.NotContains(t, body, "secret", "filtered field must not appear in SSE output")
+	// "id" field must appear.
+	assert.Contains(t, body, `"id"`)
+}
+
+// TestSSEConsumer_ColumnFilter_DoesNotMutateSharedEvent verifies that
+// ApplyColumnFilter produces a filtered copy and never mutates entry.Event
+// (which is shared across consumers in the Router).
 func TestSSEConsumer_ColumnFilter_DoesNotMutateSharedEvent(t *testing.T) {
 	filter := output.NewEventFilter(nil, nil)
 
