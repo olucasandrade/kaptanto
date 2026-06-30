@@ -372,8 +372,8 @@ func (c *RabbitMQSinkConsumer) reconnectLoop(ctx context.Context, url string, tl
 			c.channels = newChannels
 			c.mu.Unlock()
 
-			// Reset backoff and start watching the new connection.
-			delay = time.Second
+			// Start watching the new connection (backoff resets on the next
+			// reconnect cycle, which re-initialises delay).
 			notifyClose = newConn.NotifyClose(make(chan *amqp.Error, 1))
 			slog.Info("rabbitmq sink: reconnected successfully")
 			break

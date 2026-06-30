@@ -40,7 +40,7 @@ func runMongoPipeline(
 		if err != nil {
 			return fmt.Errorf("cluster: open mongo checkpoint store: %w", err)
 		}
-		defer pgStore.Close()
+		defer func() { _ = pgStore.Close() }()
 		ckStore = pgStore
 	}
 

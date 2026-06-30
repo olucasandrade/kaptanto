@@ -23,7 +23,7 @@ func TestNodeHeartbeater(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
-		defer hb.Close(ctx)
+		defer func() { _ = hb.Close(ctx) }()
 
 		if hb.nodeID != "test-node-open" {
 			t.Errorf("nodeID: got %q, want %q", hb.nodeID, "test-node-open")
@@ -38,7 +38,7 @@ func TestNodeHeartbeater(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
-		defer hb.Close(ctx)
+		defer func() { _ = hb.Close(ctx) }()
 
 		runCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 		defer cancel()
@@ -77,7 +77,7 @@ func TestNodeHeartbeater(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
-		defer hb.Close(ctx)
+		defer func() { _ = hb.Close(ctx) }()
 
 		// Upsert node manually
 		if err := hb.upsert(ctx); err != nil {
@@ -106,7 +106,7 @@ func TestNodeHeartbeater(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
-		defer hb.Close(ctx)
+		defer func() { _ = hb.Close(ctx) }()
 
 		if err := hb.upsert(ctx); err != nil {
 			t.Fatalf("upsert: %v", err)
@@ -133,7 +133,7 @@ func TestNodeHeartbeater(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenNodeHeartbeater: %v", err)
 		}
-		defer hb.Close(ctx)
+		defer func() { _ = hb.Close(ctx) }()
 
 		if err := hb.upsert(ctx); err != nil {
 			t.Fatalf("upsert: %v", err)

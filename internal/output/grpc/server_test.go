@@ -204,22 +204,11 @@ func TestGRPCServer_AcknowledgeSavesCursor(t *testing.T) {
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
-// fakeRegisterRouter is a test helper that delivers a fixed entry to a consumer.
-type fakeRegisterRouter struct {
-	cs        router.ConsumerCursorStore
-	testEntry eventlog.LogEntry
-}
-
-func (f *fakeRegisterRouter) deliverTo(c router.Consumer) error {
-	return c.Deliver(context.Background(), f.testEntry)
-}
-
 // fakeSubscribeStream implements proto.CdcStream_SubscribeServer for tests.
 type fakeSubscribeStream struct {
 	ctx      context.Context
 	cancelFn context.CancelFunc
 	events   chan *proto.ChangeEvent
-	cancel   func()
 }
 
 func (s *fakeSubscribeStream) Send(ev *proto.ChangeEvent) error {
