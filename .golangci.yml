@@ -87,6 +87,32 @@ linters:
             - pkg: github.com/olucasandrade/kaptanto/internal/cmd
               desc: "checkpoint must not import source/output/router/cmd"
 
+        # backfill sits at the same layer as checkpoint (above eventlog/parser):
+        # it may use lower layers but must not reach into source/output/router/cmd.
+        backfill-layer:
+          files:
+            - "**/internal/backfill/**"
+          deny:
+            - pkg: github.com/olucasandrade/kaptanto/internal/source
+              desc: "backfill must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/output
+              desc: "backfill must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/router
+              desc: "backfill must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/cmd
+              desc: "backfill must not import source/output/router/cmd"
+
+        # source/output/router are the top layer below cmd: they may use any
+        # lower layer but only cmd (the assembly layer) may import them.
+        upper-layer:
+          files:
+            - "**/internal/source/**"
+            - "**/internal/output/**"
+            - "**/internal/router/**"
+          deny:
+            - pkg: github.com/olucasandrade/kaptanto/internal/cmd
+              desc: "source/output/router must not import the cmd assembly layer"
+
   exclusions:
     generated: lax
     rules:
