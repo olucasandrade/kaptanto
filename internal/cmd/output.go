@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/olucasandrade/kaptanto/internal/auth"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/output"
@@ -124,6 +125,23 @@ func buildOutputServer(
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
 ) (func(context.Context) error, error) {
+	// Startup auth policy: refuse network outputs without an auth token unless
+	// --insecure is explicitly set. This prevents accidentally exposing raw row
+	// data (PII, secrets, financial records) to unauthenticated callers.
+	if (cfg.Output == "sse" || cfg.Output == "grpc") && cfg.AuthToken == "" {
+		if !cfg.Insecure {
+			return nil, fmt.Errorf(
+				"output %q requires --auth-token (or KAPTANTO_AUTH_TOKEN env var) to protect the data stream; "+
+					"use --insecure to disable this check (not recommended for production)",
+				cfg.Output,
+			)
+		}
+		slog.Warn("SECURITY WARNING: running without authentication — the change stream is accessible to any client that can reach the port",
+			"output", cfg.Output,
+			"port", cfg.Port,
+		)
+	}
+
 	switch cfg.Output {
 	case "stdout":
 		w := stdout.NewStdoutWriter(os.Stdout)
@@ -201,9 +219,15 @@ func buildSSEServer(
 	}
 	sseServer := sse.NewSSEServer(rtr, metrics, cfg.CORSOrigin, 15*time.Second, rowFilters, colFilters)
 	mux := http.NewServeMux()
-	mux.Handle("/events", sseServer)
-	mux.Handle("/metrics", metrics.Handler())
-	mux.Handle("/healthz", healthHandler)
+	if cfg.AuthToken != "" {
+		mux.Handle("/events", auth.Middleware(cfg.AuthToken, sseServer))
+		mux.Handle("/metrics", auth.Middleware(cfg.AuthToken, metrics.Handler()))
+		mux.Handle("/healthz", auth.Middleware(cfg.AuthToken, healthHandler))
+	} else {
+		mux.Handle("/events", sseServer)
+		mux.Handle("/metrics", metrics.Handler())
+		mux.Handle("/healthz", healthHandler)
+	}
 	srv := newHTTPServer(fmt.Sprintf(":%d", cfg.Port), mux)
 	if tlsCfg != nil {
 		srv.TLSConfig = tlsCfg
@@ -245,14 +269,27 @@ func buildGRPCServer(
 		return nil, err
 	}
 	grpcSvc := grpcoutput.NewGRPCServer(rtr, cursorStore, metrics, rowFilters, colFilters)
-	grpcSrv := grpcoutput.NewGRPCNetServer(grpcSvc, tlsCfg)
+	var grpcSrv interface {
+		Serve(net.Listener) error
+		GracefulStop()
+	}
+	if cfg.AuthToken != "" {
+		grpcSrv = grpcoutput.NewGRPCNetServerWithAuth(grpcSvc, cfg.AuthToken, tlsCfg)
+	} else {
+		grpcSrv = grpcoutput.NewGRPCNetServer(grpcSvc, tlsCfg)
+	}
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
 	if err != nil {
 		return nil, fmt.Errorf("grpc listen: %w", err)
 	}
 	obsMux := http.NewServeMux()
-	obsMux.Handle("/metrics", metrics.Handler())
-	obsMux.Handle("/healthz", healthHandler)
+	if cfg.AuthToken != "" {
+		obsMux.Handle("/metrics", auth.Middleware(cfg.AuthToken, metrics.Handler()))
+		obsMux.Handle("/healthz", auth.Middleware(cfg.AuthToken, healthHandler))
+	} else {
+		obsMux.Handle("/metrics", metrics.Handler())
+		obsMux.Handle("/healthz", healthHandler)
+	}
 	obsSrv := newHTTPServer(fmt.Sprintf(":%d", cfg.Port+1), obsMux)
 	return func(ctx context.Context) error {
 		go func() {
