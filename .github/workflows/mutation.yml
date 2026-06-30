@@ -1,0 +1,59 @@
+name: Mutation
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+# Least-privilege default token.
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: Mutation testing (core packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.0
+
+      # Gated: must meet threshold-efficacy from .gremlins.yaml (60%).
+      # Baselines: router 100%, backfill ~92%, eventlog ~73%.
+      - name: Run mutation testing (gated)
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -e
+          gremlins="$(go env GOPATH)/bin/gremlins"
+          for pkg in ./internal/router ./internal/eventlog ./internal/backfill; do
+            echo "::group::gremlins (gated) $pkg"
+            "$gremlins" unleash "$pkg"
+            echo "::endgroup::"
+          done
+
+      # Report-only: gremlins mutates the //go:build rust FFI file that the
+      # pure-Go test build can't cover, so its efficacy is an artifact (~0%).
+      # The score is non-gating (--threshold-* 0); continue-on-error keeps a
+      # broken mutation run from blocking the job while still surfacing it as a
+      # warning annotation (rather than swallowing it with `|| true`).
+      - name: Run mutation testing (parser/pgoutput, report-only)
+        continue-on-error: true
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -e
+          "$(go env GOPATH)/bin/gremlins" unleash \
+            --threshold-efficacy 0 --threshold-mutant-coverage 0 \
+            ./internal/parser/pgoutput

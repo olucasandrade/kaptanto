@@ -1,0 +1,50 @@
+name: Rust Audit
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust-audit.yml"
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust-audit.yml"
+  schedule:
+    # Weekly so freshly published RustSec advisories are caught even without
+    # a code change to the FFI crate.
+    - cron: "27 5 * * 1"
+
+# Blocking: covers the Rust FFI crate that CodeQL deliberately skips.
+jobs:
+  cargo-audit:
+    name: cargo-audit (Rust CVEs)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+        with:
+          persist-credentials: false
+
+      # Download the official prebuilt cargo-audit binary directly from the
+      # RustSec release. Avoids compiling from source (rustsec/audit-check,
+      # flaky on crates.io fetches) and third-party installers (taiki-e has no
+      # 0.22.x prebuilt and falls back to a broken cargo-binstall). 0.22.2 is
+      # needed to parse CVSS-4.0 advisories ("unsupported CVSS version: 4.0").
+      - name: Install cargo-audit
+        env:
+          CARGO_AUDIT_VERSION: "0.22.2"
+        run: |
+          set -euo pipefail
+          asset="cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}"
+          url="https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${CARGO_AUDIT_VERSION}/${asset}.tgz"
+          curl -sSfL --retry 3 --retry-all-errors "$url" -o /tmp/cargo-audit.tgz
+          tar -xzf /tmp/cargo-audit.tgz -C /tmp
+          install -m 0755 "/tmp/${asset}/cargo-audit" /usr/local/bin/cargo-audit
+          cargo-audit --version
+
+      - name: cargo-audit
+        working-directory: rust/kaptanto-ffi
+        run: cargo-audit audit
