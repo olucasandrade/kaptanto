@@ -78,7 +78,7 @@ type SQSSinkConsumer struct {
 	queueURLT       *template.Template // nil when QueueURLTemplate is empty
 	validatedQueues map[string]bool    // set of FIFO-validated queue URLs
 	mu              sync.RWMutex       // protects validatedQueues and pending
-	pending         []pendingSQSMessage // buffered messages for FlushBatch
+	pending         map[uint32][]pendingSQSMessage // buffered messages for FlushBatch
 	m               *observability.KaptantoMetrics
 }
 
@@ -194,6 +194,7 @@ func newConsumerWithClient(id string, queueURL string, client sqsAPI, queueURLT 
 		queueURL:        queueURL,
 		queueURLT:       queueURLT,
 		validatedQueues: map[string]bool{queueURL: true},
+		pending:         make(map[uint32][]pendingSQSMessage),
 	}, nil
 }
 
@@ -307,13 +308,13 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 
 	// 5. Append to pending buffer — FlushBatch performs the actual network call.
 	c.mu.Lock()
-	// Ensure the batch ID is unique within the current pending slice. If a
+	// Ensure the batch ID is unique within the current partition's pending slice. If a
 	// collision occurs (two events with the same idempotency key prefix in the
 	// same batch), append a counter suffix.
 	finalID := batchID
 	for i := 0; ; i++ {
 		collision := false
-		for _, p := range c.pending {
+		for _, p := range c.pending[entry.PartitionID] {
 			if p.entry.Id != nil && *p.entry.Id == finalID {
 				collision = true
 				break
@@ -324,7 +325,7 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 		}
 		finalID = fmt.Sprintf("%s%x", batchID[:14], i)
 	}
-	c.pending = append(c.pending, pendingSQSMessage{
+	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingSQSMessage{
 		queueURL: targetURL,
 		entry: types.SendMessageBatchRequestEntry{
 			Id:                     aws.String(finalID),
@@ -351,14 +352,14 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 //
 // CHK-01 is preserved: the router only advances the cursor after FlushBatch
 // returns nil for the entire pending set.
-func (c *SQSSinkConsumer) FlushBatch(ctx context.Context) error {
+func (c *SQSSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) error {
 	c.mu.Lock()
-	if len(c.pending) == 0 {
+	if len(c.pending[partitionID]) == 0 {
 		c.mu.Unlock()
 		return nil
 	}
-	batch := c.pending
-	c.pending = nil
+	batch := c.pending[partitionID]
+	delete(c.pending, partitionID)
 	c.mu.Unlock()
 
 	// Group messages by target queue URL.

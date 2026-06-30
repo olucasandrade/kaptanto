@@ -43,7 +43,7 @@ type BatchFlusher interface {
 	// FlushBatch flushes any buffered writes to the underlying transport.
 	// Called by runPartition after processing each batch of entries.
 	// Errors are logged but do not block future delivery.
-	FlushBatch(ctx context.Context) error
+	FlushBatch(ctx context.Context, partitionID uint32) error
 }
 
 // ConsumerCursorStore persists per-consumer, per-partition delivery cursors so
@@ -267,7 +267,7 @@ func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
 			if ctx.Err() != nil {
 				return
 			}
-			if err := bf.FlushBatch(ctx); err != nil {
+			if err := bf.FlushBatch(ctx, partitionID); err != nil {
 				slog.Warn("router: batch flush error", "partition", partitionID, "err", err)
 			}
 		}

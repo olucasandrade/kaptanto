@@ -60,7 +60,7 @@ type NATSSinkConsumer struct {
 	js       jetstream.JetStream
 	subjectT *template.Template
 	mu       sync.Mutex
-	pending  []pendingNATSMessage
+	pending  map[uint32][]pendingNATSMessage
 	m        *observability.KaptantoMetrics
 }
 
@@ -131,6 +131,7 @@ func NewNATSSinkConsumer(id string, cfg config.NATSSinkConfig) (*NATSSinkConsume
 		nc:       nc,
 		js:       js,
 		subjectT: tmpl,
+		pending:  make(map[uint32][]pendingNATSMessage),
 	}, nil
 }
 
@@ -187,7 +188,7 @@ func (c *NATSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry)
 
 	// 5. Append to pending buffer — FlushBatch performs the actual network call.
 	c.mu.Lock()
-	c.pending = append(c.pending, pendingNATSMessage{msg: msg})
+	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingNATSMessage{msg: msg})
 	c.mu.Unlock()
 	return nil
 }
@@ -198,14 +199,14 @@ func (c *NATSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry)
 //
 // CHK-01 is preserved: the router only advances the cursor after FlushBatch
 // returns nil for the entire pending set.
-func (c *NATSSinkConsumer) FlushBatch(ctx context.Context) error {
+func (c *NATSSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) error {
 	c.mu.Lock()
-	if len(c.pending) == 0 {
+	if len(c.pending[partitionID]) == 0 {
 		c.mu.Unlock()
 		return nil
 	}
-	batch := c.pending
-	c.pending = nil
+	batch := c.pending[partitionID]
+	delete(c.pending, partitionID)
 	c.mu.Unlock()
 
 	start := time.Now()

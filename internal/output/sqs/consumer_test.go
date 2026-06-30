@@ -103,6 +103,7 @@ func newTestConsumer(t *testing.T, fake *fakeSQSClient, id string) *SQSSinkConsu
 		client:          fake,
 		queueURL:        defaultURL,
 		validatedQueues: map[string]bool{defaultURL: true},
+		pending:         make(map[uint32][]pendingSQSMessage),
 	}
 }
 
@@ -131,6 +132,7 @@ func newTemplateConsumer(t *testing.T, fake *fakeSQSClient, id string, queueURLT
 		queueURL:        defaultURL,
 		queueURLT:       tmpl,
 		validatedQueues: map[string]bool{defaultURL: true},
+		pending:         make(map[uint32][]pendingSQSMessage),
 	}
 }
 
@@ -147,7 +149,7 @@ func TestSQSSinkConsumer_Deliver_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Deliver only buffers — flush to trigger the actual send.
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	// QueuePublishTotal must be incremented to 1 after a successful flush.
@@ -163,7 +165,7 @@ func TestSQSSinkConsumer_Deliver_MessageGroupId(t *testing.T) {
 	entry := makeEntry(key, "idem-key-2")
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	require.NotNil(t, fake.lastBatchInput)
@@ -179,7 +181,7 @@ func TestSQSSinkConsumer_Deliver_MessageGroupId(t *testing.T) {
 	c2 := newTestConsumer(t, fake2, "test-consumer")
 	err = c2.Deliver(context.Background(), entry)
 	require.NoError(t, err)
-	err = c2.FlushBatch(context.Background())
+	err = c2.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 	require.NotNil(t, fake2.lastBatchInput)
 	require.Len(t, fake2.lastBatchInput.Entries, 1)
@@ -203,7 +205,7 @@ func TestSQSSinkConsumer_Deliver_MessageDeduplicationId(t *testing.T) {
 
 			err := c.Deliver(context.Background(), entry)
 			require.NoError(t, err)
-			err = c.FlushBatch(context.Background())
+			err = c.FlushBatch(context.Background(), 0)
 			require.NoError(t, err)
 
 			require.NotNil(t, fake.lastBatchInput)
@@ -226,7 +228,7 @@ func TestSQSSinkConsumer_Deliver_IdempotencyKeyAttribute(t *testing.T) {
 
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	require.NotNil(t, fake.lastBatchInput)
@@ -254,7 +256,7 @@ func TestSQSSinkConsumer_FlushBatch_Error(t *testing.T) {
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err, "Deliver should not error — it only buffers")
 
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "send batch failed: throttled")
 
@@ -486,7 +488,7 @@ func TestSQSSinkConsumer_Routing_PerTable(t *testing.T) {
 	}}
 	require.NoError(t, c.Deliver(context.Background(), entry1))
 	// Flush entry1 alone so we can assert its queue URL.
-	require.NoError(t, c.FlushBatch(context.Background()))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 	require.NotNil(t, fake.lastBatchInput)
 	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123/public-orders.fifo", *fake.lastBatchInput.QueueUrl)
 
@@ -496,7 +498,7 @@ func TestSQSSinkConsumer_Routing_PerTable(t *testing.T) {
 		Key: []byte(`{"id":2}`), IdempotencyKey: "key2",
 	}}
 	require.NoError(t, c.Deliver(context.Background(), entry2))
-	require.NoError(t, c.FlushBatch(context.Background()))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 	require.NotNil(t, fake.lastBatchInput)
 	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123/public-users.fifo", *fake.lastBatchInput.QueueUrl)
 }
@@ -558,7 +560,7 @@ func TestSQSSinkConsumer_Routing_Regression_NoTemplate(t *testing.T) {
 
 	entry := makeEntry([]byte(`{"id":1}`), "key-regression")
 	require.NoError(t, c.Deliver(context.Background(), entry))
-	require.NoError(t, c.FlushBatch(context.Background()))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 
 	require.NotNil(t, fake.lastBatchInput)
 	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123456789/test-queue.fifo", *fake.lastBatchInput.QueueUrl,
@@ -585,7 +587,7 @@ func TestSQSSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
 		require.NoError(t, c.Deliver(context.Background(), entry))
 	}
 
-	err := c.FlushBatch(context.Background())
+	err := c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	// 12 events → 2 batches of ≤10 (10 + 2).
@@ -601,7 +603,7 @@ func TestSQSSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
 func TestSQSSinkConsumer_FlushBatch_EmptyPending(t *testing.T) {
 	fake := &fakeSQSClient{}
 	c := newTestConsumer(t, fake, "empty-test")
-	err := c.FlushBatch(context.Background())
+	err := c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 	assert.Equal(t, 0, fake.sendMessageBatchCallCount)
 }
@@ -656,7 +658,7 @@ func TestSQSSinkConsumer_FlushBatch_PartialFailure(t *testing.T) {
 	require.NoError(t, c.Deliver(context.Background(), entry1))
 	require.NoError(t, c.Deliver(context.Background(), entry2))
 
-	err := c.FlushBatch(context.Background())
+	err := c.FlushBatch(context.Background(), 0)
 	require.Error(t, err, "FlushBatch should return error when any entry fails")
 	assert.ErrorContains(t, err, failCode)
 

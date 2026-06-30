@@ -120,7 +120,7 @@ type RabbitMQSinkConsumer struct {
 	channels        [64]AMQPChannelAPI
 	mu              sync.RWMutex
 	pendingMu       sync.Mutex
-	pending         []pendingRabbitMQMessage
+	pending         map[uint32][]pendingRabbitMQMessage
 	routingKeyT     *template.Template
 	cancelReconnect context.CancelFunc
 	m               *observability.KaptantoMetrics
@@ -170,6 +170,7 @@ func NewRabbitMQSinkConsumer(id string, cfg config.RabbitMQSinkConfig) (*RabbitM
 		channels:        channels,
 		routingKeyT:     tmpl,
 		cancelReconnect: cancel,
+		pending:         make(map[uint32][]pendingRabbitMQMessage),
 	}
 
 	// 5. Start reconnect goroutine.
@@ -192,6 +193,7 @@ func NewConsumerWithChannels(id string, cfg config.RabbitMQSinkConfig, channels 
 		channels:        channels,
 		routingKeyT:     tmpl,
 		cancelReconnect: func() {}, // no-op: no reconnect goroutine in tests
+		pending:         make(map[uint32][]pendingRabbitMQMessage),
 	}, nil
 }
 
@@ -266,7 +268,7 @@ func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEn
 
 	// 5. Store deferred confirmation for batch ack collection in FlushBatch.
 	c.pendingMu.Lock()
-	c.pending = append(c.pending, pendingRabbitMQMessage{
+	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingRabbitMQMessage{
 		dc:         dc,
 		exchange:   c.cfg.Exchange,
 		routingKey: routingKey,
@@ -281,14 +283,14 @@ func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEn
 //
 // CHK-01 is preserved: the router only advances the cursor after FlushBatch
 // returns nil for the entire pending set.
-func (c *RabbitMQSinkConsumer) FlushBatch(ctx context.Context) error {
+func (c *RabbitMQSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) error {
 	c.pendingMu.Lock()
-	if len(c.pending) == 0 {
+	if len(c.pending[partitionID]) == 0 {
 		c.pendingMu.Unlock()
 		return nil
 	}
-	batch := c.pending
-	c.pending = nil
+	batch := c.pending[partitionID]
+	delete(c.pending, partitionID)
 	c.pendingMu.Unlock()
 
 	start := time.Now()

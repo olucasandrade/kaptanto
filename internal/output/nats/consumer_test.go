@@ -107,7 +107,7 @@ func TestNATSSinkConsumer_Deliver_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Deliver only buffers — must flush to publish.
-	err = consumer.FlushBatch(ctx)
+	err = consumer.FlushBatch(ctx, 0)
 	require.NoError(t, err)
 
 	// Verify QueuePublishTotal incremented to 1 after flush.
@@ -148,7 +148,7 @@ func TestNATSSinkConsumer_Deliver_Header(t *testing.T) {
 
 	err = consumer.Deliver(ctx, entry)
 	require.NoError(t, err)
-	err = consumer.FlushBatch(ctx)
+	err = consumer.FlushBatch(ctx, 0)
 	require.NoError(t, err)
 
 	select {
@@ -196,7 +196,7 @@ func TestNATSSinkConsumer_Deliver_SubjectTemplate(t *testing.T) {
 	ctx := context.Background()
 	err = consumer.Deliver(ctx, entry)
 	require.NoError(t, err)
-	err = consumer.FlushBatch(ctx)
+	err = consumer.FlushBatch(ctx, 0)
 	require.NoError(t, err)
 
 	select {
@@ -302,7 +302,7 @@ func TestNATSSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
 		require.NoError(t, consumer.Deliver(context.Background(), entry))
 	}
 
-	require.NoError(t, consumer.FlushBatch(context.Background()))
+	require.NoError(t, consumer.FlushBatch(context.Background(), 0))
 
 	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("nats"))
 	assert.Equal(t, float64(n), got, "QueuePublishTotal must equal N after FlushBatch")
