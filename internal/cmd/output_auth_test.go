@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/olucasandrade/kaptanto/internal/auth"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/router"
@@ -60,50 +61,34 @@ func TestBuildOutputServer_SSEInsecureAllowed(t *testing.T) {
 	assert.NotNil(t, fn)
 }
 
-// TestBuildOutputServer_SSEWithAuth asserts that output=sse with an auth-token
-// wraps the /events handler so unauthenticated requests receive 401.
+// TestBuildOutputServer_SSEWithAuth asserts that the real auth.Middleware
+// rejects unauthenticated requests and admits valid bearer tokens.
 func TestBuildOutputServer_SSEWithAuth(t *testing.T) {
-	// We test the HTTP auth gate by building a handler that mimics the SSE mux
-	// assembled in buildOutputServer. We call auth.Middleware directly here to
-	// verify the 401 behaviour without starting a real server.
 	const token = "supersecret"
 
-	// A simple stand-in for the SSE events handler.
 	eventsHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Wrap with auth middleware (same logic used in buildOutputServer).
-	from_auth_pkg := authMiddlewareForTest(token, eventsHandler)
+	protected := auth.Middleware(token, eventsHandler)
 
 	// Request without token → 401.
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/events", nil)
-	from_auth_pkg.ServeHTTP(rr, req)
+	protected.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code, "missing token must yield 401")
 
 	// Request with correct token → 200.
 	rr2 := httptest.NewRecorder()
 	req2 := httptest.NewRequest(http.MethodGet, "/events", nil)
 	req2.Header.Set("Authorization", "Bearer "+token)
-	from_auth_pkg.ServeHTTP(rr2, req2)
+	protected.ServeHTTP(rr2, req2)
 	assert.Equal(t, http.StatusOK, rr2.Code, "valid token must yield 200")
-}
 
-// authMiddlewareForTest wraps next with the same bearer-token check used in
-// buildOutputServer, calling into the auth package.
-func authMiddlewareForTest(token string, next http.Handler) http.Handler {
-	// Import the auth package indirectly via the package-level wiring already
-	// compiled into the cmd package. We recreate the check here at unit-test
-	// level to avoid importing auth (which would make this an integration test).
-	// The real gate is tested thoroughly in internal/auth; here we test that
-	// the mux uses it correctly.
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hdr := r.Header.Get("Authorization")
-		if hdr != "Bearer "+token {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	// Request with lowercase bearer scheme → 200 (case-insensitive).
+	rr3 := httptest.NewRecorder()
+	req3 := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req3.Header.Set("Authorization", "bearer "+token)
+	protected.ServeHTTP(rr3, req3)
+	assert.Equal(t, http.StatusOK, rr3.Code, "lowercase bearer scheme must yield 200")
 }
