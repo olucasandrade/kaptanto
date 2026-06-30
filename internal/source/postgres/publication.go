@@ -14,12 +14,21 @@ import (
 )
 
 // ensurePublication checks whether a publication named pubName exists in
-// pg_publication. If it does not, it creates one for the given tables using:
+// pg_publication. If it does not, it creates one.
+//
+// When tables is non-empty, only those tables are included:
 //
 //	CREATE PUBLICATION pubName FOR TABLE t1, t2, ...
 //
-// If tables is empty, the publication is created for ALL TABLES.
-func ensurePublication(ctx context.Context, conn *pgx.Conn, pubName string, tables []string) error {
+// When tables is empty and allowAllTables is true, the publication covers the
+// entire database:
+//
+//	CREATE PUBLICATION pubName FOR ALL TABLES
+//
+// When tables is empty and allowAllTables is false, an error is returned.
+// The startup guard in cmd/root.go should have already rejected this case;
+// the check here is a defence-in-depth backstop.
+func ensurePublication(ctx context.Context, conn *pgx.Conn, pubName string, tables []string, allowAllTables bool) error {
 	var count int
 	err := conn.QueryRow(ctx,
 		"SELECT count(*) FROM pg_publication WHERE pubname = $1", pubName,
@@ -33,6 +42,9 @@ func ensurePublication(ctx context.Context, conn *pgx.Conn, pubName string, tabl
 
 	var createSQL string
 	if len(tables) == 0 {
+		if !allowAllTables {
+			return fmt.Errorf("postgres: cannot create publication %q: no tables specified and --all-tables opt-in is not set", pubName)
+		}
 		createSQL = fmt.Sprintf("CREATE PUBLICATION %s FOR ALL TABLES", pgx.Identifier{pubName}.Sanitize())
 	} else {
 		createSQL = fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s",
