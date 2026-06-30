@@ -277,6 +277,7 @@ type wToken struct {
 	value string
 }
 
+//nolint:gocyclo // single-pass lexer; the branch-per-token-kind structure is clearer as one function. Tracked for incremental refactor.
 func tokenize(s string) ([]wToken, error) {
 	var tokens []wToken
 	i := 0
