@@ -125,7 +125,7 @@ func TestNATSSinkConsumer_Deliver_Header(t *testing.T) {
 		received <- msg
 	})
 	require.NoError(t, err)
-	defer sub.Unsubscribe()
+	defer func() { _ = sub.Unsubscribe() }()
 
 	cfg := config.NATSSinkConfig{
 		URL:             serverURL,
@@ -179,7 +179,7 @@ func TestNATSSinkConsumer_Deliver_SubjectTemplate(t *testing.T) {
 		received <- msg.Subject
 	})
 	require.NoError(t, err)
-	defer sub.Unsubscribe()
+	defer func() { _ = sub.Unsubscribe() }()
 
 	// Flush ensures the server has registered the subscription before we publish.
 	require.NoError(t, nc.Flush())

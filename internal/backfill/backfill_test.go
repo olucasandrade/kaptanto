@@ -209,7 +209,7 @@ func TestWatermarkChecker_ShouldEmit_SupersedingEntryBeyondFirstPage(t *testing.
 func TestSQLiteBackfillStore_LoadState_FirstRun(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	state, err := store.LoadState(context.Background(), "pg1", "orders")
 	require.NoError(t, err)
@@ -219,7 +219,7 @@ func TestSQLiteBackfillStore_LoadState_FirstRun(t *testing.T) {
 func TestSQLiteBackfillStore_SaveAndLoad(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	original := &backfill.BackfillState{
 		SourceID:      "pg1",
@@ -252,7 +252,7 @@ func TestSQLiteBackfillStore_SaveAndLoad(t *testing.T) {
 func TestSQLiteBackfillStore_Upsert(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	state := &backfill.BackfillState{
 		SourceID:  "pg1",
@@ -333,7 +333,7 @@ func TestBatchOptimizer_MaxCap(t *testing.T) {
 func TestBackfillEngine_StreamOnly_NoPending(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
@@ -351,7 +351,7 @@ func TestBackfillEngine_StreamOnly_NoPending(t *testing.T) {
 func TestBackfillEngine_SnapshotDeferred_SavesDeferred(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
@@ -375,7 +375,7 @@ func TestBackfillEngine_SnapshotDeferred_SavesDeferred(t *testing.T) {
 func TestBackfillEngine_SnapshotAndStream_HasPending(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
@@ -395,7 +395,7 @@ func TestBackfillEngine_SnapshotAndStream_HasPending(t *testing.T) {
 func TestBackfillEngineImpl_StreamOnly_HasNoPending(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
@@ -417,7 +417,7 @@ func TestBackfillEngineImpl_StreamOnly_HasNoPending(t *testing.T) {
 func TestBackfillEngineImpl_StreamOnly_Run_MarksCompleted(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
@@ -450,7 +450,7 @@ func TestBackfillEngineImpl_StreamOnly_Run_MarksCompleted(t *testing.T) {
 func TestBackfillEngineImpl_SnapshotAndStream_HasPending(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
@@ -478,7 +478,7 @@ func TestBackfillEngineImpl_SnapshotAndStream_HasPending(t *testing.T) {
 func TestSnapshotLSN_NotOverwrittenOnResume(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	const existingLSN = uint64(0xDEADBEEF)
 
@@ -551,7 +551,7 @@ func TestOpenSQLiteBackfillStore_WALModeApplied(t *testing.T) {
 	// Verify WAL mode directly by re-opening the same file.
 	db, err := sql.Open("sqlite", path)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var journalMode string
 	require.NoError(t, db.QueryRow("PRAGMA journal_mode").Scan(&journalMode))
