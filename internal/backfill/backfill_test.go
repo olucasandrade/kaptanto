@@ -575,9 +575,7 @@ func (c *countingBatchLog) appendBatch(_ context.Context, evs []*event.ChangeEve
 		return fmt.Errorf("simulated batch error on call %d", c.callCount)
 	}
 	c.batchCalls = append(c.batchCalls, len(evs))
-	for _, ev := range evs {
-		c.received = append(c.received, ev)
-	}
+	c.received = append(c.received, evs...)
 	return nil
 }
 
@@ -592,7 +590,11 @@ func (c *countingBatchLog) appendSingle(_ context.Context, ev *event.ChangeEvent
 func TestNewBackfillEngineWithBatch_StreamOnly(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	}()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
@@ -631,7 +633,11 @@ func TestNewBackfillEngineWithBatch_StreamOnly(t *testing.T) {
 func TestNewBackfillEngineWithBatch_HasPendingWhenNoState(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	}()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
@@ -660,7 +666,11 @@ func TestNewBackfillEngineWithBatch_HasPendingWhenNoState(t *testing.T) {
 func TestNewBackfillEngineWithBatch_SnapshotFail_CursorNotAdvanced(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	}()
 
 	cfg := backfill.BackfillConfig{
 		SourceID:      "pg1",
