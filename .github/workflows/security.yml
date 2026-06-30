@@ -6,9 +6,10 @@ on:
   pull_request:
     branches: ["**"]
 
-# All jobs here are advisory: steps that can flag findings use
-# continue-on-error so a finding never blocks a merge. Results are still
-# visible in job logs and (for gitleaks) the Security tab.
+# Blocking: these jobs fail the workflow on a finding. govulncheck is
+# symbol-aware (only reachable CVEs) and gitleaks has a low false-positive
+# rate, so gating here is safe. gitleaks SARIF is still uploaded to the
+# Security tab. (Make these required checks via branch protection on main.)
 jobs:
   govulncheck:
     name: govulncheck (Go CVEs)
@@ -21,9 +22,8 @@ jobs:
           persist-credentials: false
 
       # Symbol-aware Go vulnerability scan (Go team). Only flags CVEs in code
-      # paths actually reachable from this module. Advisory.
+      # paths actually reachable from this module. Blocking.
       - name: govulncheck
-        continue-on-error: true
         uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1.0.4
         with:
           go-version-file: go.mod
@@ -41,7 +41,6 @@ jobs:
           persist-credentials: false
 
       - name: gitleaks
-        continue-on-error: true
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
