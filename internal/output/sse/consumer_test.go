@@ -227,14 +227,13 @@ func (r *recordingCursorStore) LoadCursor(_ context.Context, _ string, _ uint32)
 func TestSSEConsumer_RawPassThrough(t *testing.T) {
 	rr := httptest.NewRecorder()
 	filter := output.NewEventFilter(nil, nil)
-	cs := router.NewNoopCursorStore()
 
 	ev := makeInsertEvent(map[string]any{"id": 1, "status": "new"})
 	rawBytes, _ := json.Marshal(ev)
 	entry := eventlog.LogEntry{Seq: 1, Event: ev, Raw: rawBytes}
 
 	// No column filter configured — should use raw passthrough.
-	consumer := NewSSEConsumer("raw-pt", rr, filter, cs, nil, nil, nil)
+	consumer := NewSSEConsumer("raw-pt", rr, filter, nil, nil, nil)
 	err := consumer.Deliver(context.Background(), entry)
 	require.NoError(t, err)
 
@@ -249,7 +248,6 @@ func TestSSEConsumer_RawPassThrough(t *testing.T) {
 func TestSSEConsumer_ColumnFilter_UsesFilteredMarshal(t *testing.T) {
 	rr := httptest.NewRecorder()
 	filter := output.NewEventFilter(nil, nil)
-	cs := router.NewNoopCursorStore()
 
 	ev := &event.ChangeEvent{
 		ID:        ulid.Make(),
@@ -261,7 +259,7 @@ func TestSSEConsumer_ColumnFilter_UsesFilteredMarshal(t *testing.T) {
 	entry := eventlog.LogEntry{Seq: 1, Event: ev, Raw: rawBytes}
 
 	// Column filter: only allow "id", strip "secret".
-	consumer := NewSSEConsumer("col-filter", rr, filter, cs, nil, nil, map[string][]string{"orders": {"id"}})
+	consumer := NewSSEConsumer("col-filter", rr, filter, nil, nil, map[string][]string{"orders": {"id"}})
 	err := consumer.Deliver(context.Background(), entry)
 	require.NoError(t, err)
 
