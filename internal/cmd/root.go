@@ -72,6 +72,8 @@ The name means "who captures" in Esperanto.`,
 				return err
 			}
 
+			config.ApplyEnv(cfg)
+
 			if cfg.Source == "" {
 				return fmt.Errorf("source is required: set via --source flag or 'source:' in config file")
 			}
@@ -103,7 +105,8 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().String("tls-cert", "", "path to TLS certificate PEM for SSE/gRPC server")
 	root.PersistentFlags().String("tls-key", "", "path to TLS private key PEM for SSE/gRPC server")
 	root.PersistentFlags().String("tls-client-ca", "", "path to CA PEM for client certificate verification (mTLS); requires --tls-cert and --tls-key")
-	root.PersistentFlags().Bool("insecure", false, "allow plaintext SSE/gRPC without TLS (not recommended for production; logs a security warning)")
+	root.PersistentFlags().String("auth-token", "", "static bearer token required by SSE/gRPC clients (prefer KAPTANTO_AUTH_TOKEN env var to avoid leaking the secret in process listings)")
+	root.PersistentFlags().Bool("insecure", false, "allow plaintext SSE/gRPC without TLS or auth token (not recommended for production; logs a security warning)")
 
 	root.Version = version.Version
 	root.AddCommand(newVersionCmd())
