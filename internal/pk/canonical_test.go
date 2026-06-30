@@ -2,7 +2,10 @@ package pk
 
 import (
 	"encoding/json"
+	"math/big"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // TestCanonicalByteIdentical verifies that WAL-style (string values) and
@@ -53,6 +56,34 @@ func TestCanonicalByteIdentical(t *testing.T) {
 			name:    "uint32 pk",
 			walMap:  map[string]any{"id": "100"},
 			snapMap: map[string]any{"id": uint32(100)},
+		},
+		{
+			// pgtype.UUID implements fmt.Stringer, producing the standard dash-separated form.
+			name:    "uuid pk",
+			walMap:  map[string]any{"id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"},
+			snapMap: map[string]any{"id": pgtype.UUID{Bytes: [16]byte{0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11}, Valid: true}},
+		},
+		{
+			// bytea PKs: WAL delivers \x<hex>, snapshot delivers []byte.
+			name:    "bytea pk",
+			walMap:  map[string]any{"id": `\xdeadbeef`},
+			snapMap: map[string]any{"id": []byte{0xde, 0xad, 0xbe, 0xef}},
+		},
+		{
+			// pgtype.Numeric: pgx returns this for numeric/decimal columns; Value() yields the decimal string.
+			name:   "numeric pk",
+			walMap: map[string]any{"id": "12345.67"},
+			snapMap: map[string]any{"id": pgtype.Numeric{
+				Int:   big.NewInt(1234567),
+				Exp:   -2,
+				Valid: true,
+			}},
+		},
+		{
+			// Float PKs are rare but float64 should use 'g' format matching Postgres text emission.
+			name:    "float64 pk",
+			walMap:  map[string]any{"id": "1e+20"},
+			snapMap: map[string]any{"id": float64(1e20)},
 		},
 	}
 

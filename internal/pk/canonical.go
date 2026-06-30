@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Canonical converts each value in pkMap to the string form that the WAL path
@@ -31,7 +33,8 @@ import (
 //   - uint, uint8..uint64 → decimal string
 //   - float32, float64    → strconv.FormatFloat (shortest representation)
 //   - bool                → "true" / "false"
-//   - []byte              → hex string (same as Postgres bytea text format)
+//   - []byte              → \x<hex> (Postgres bytea hex format)
+//   - pgtype.Numeric      → decimal string via Value() (Postgres text form)
 //   - fmt.Stringer        → .String()
 //   - everything else     → fmt.Sprintf("%v", v)
 //
@@ -79,16 +82,30 @@ func canonicalValue(v any) any {
 	case uint64:
 		return strconv.FormatUint(t, 10)
 	case float32:
-		return strconv.FormatFloat(float64(t), 'f', -1, 32)
+		return strconv.FormatFloat(float64(t), 'g', -1, 32)
 	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
+		return strconv.FormatFloat(t, 'g', -1, 64)
 	case bool:
 		if t {
 			return "true"
 		}
 		return "false"
 	case []byte:
-		return fmt.Sprintf("%x", t)
+		return fmt.Sprintf("\\x%x", t)
+	case pgtype.Numeric:
+		if val, err := t.Value(); err == nil {
+			if s, ok := val.(string); ok {
+				return s
+			}
+		}
+		return fmt.Sprintf("%v", v)
+	case *pgtype.Numeric:
+		if val, err := t.Value(); err == nil {
+			if s, ok := val.(string); ok {
+				return s
+			}
+		}
+		return fmt.Sprintf("%v", v)
 	case fmt.Stringer:
 		return t.String()
 	default:
