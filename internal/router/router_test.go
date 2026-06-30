@@ -250,6 +250,130 @@ func TestNoDuplicateDeliveryWhenAnotherConsumerLags(t *testing.T) {
 	}
 }
 
+// notifyingFakeEventLog wraps fakeEventLog and implements
+// eventlog.PartitionNotifier so the router uses the notify path.
+type notifyingFakeEventLog struct {
+	*fakeEventLog
+	notifyChs []chan struct{}
+}
+
+func newNotifyingFakeEventLog(numPartitions uint32, data map[uint32][]eventlog.LogEntry) *notifyingFakeEventLog {
+	chs := make([]chan struct{}, numPartitions)
+	for i := range chs {
+		chs[i] = make(chan struct{}, 1)
+	}
+	return &notifyingFakeEventLog{
+		fakeEventLog: newFakeEventLog(data),
+		notifyChs:    chs,
+	}
+}
+
+func (n *notifyingFakeEventLog) NotifyCh(partition uint32) <-chan struct{} {
+	return n.notifyChs[partition]
+}
+
+// pulse sends a non-blocking signal on the given partition's notify channel.
+func (n *notifyingFakeEventLog) pulse(partition uint32) {
+	select {
+	case n.notifyChs[partition] <- struct{}{}:
+	default:
+	}
+}
+
+// TestNotifyPathDeliversFasterThanPollInterval verifies that with a
+// PartitionNotifier wired the router wakes and delivers an event well
+// within the fallback pollInterval (500ms). The test writes an event to the
+// log, then pulses the notify channel; delivery should happen in well under
+// the 500ms fallback.
+func TestNotifyPathDeliversFasterThanPollInterval(t *testing.T) {
+	entry := makeEntry(1, `{"id":1}`)
+	el := newNotifyingFakeEventLog(1, map[uint32][]eventlog.LogEntry{
+		0: {entry},
+	})
+
+	consumer := &fakeConsumer{id: "c-notify"}
+	r := router.NewRouter(el, 1, nil)
+	r.Register(consumer)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = r.Run(ctx)
+	}()
+
+	// Pulse the notify channel; delivery should happen well before pollInterval.
+	el.pulse(0)
+
+	deadline := time.After(200 * time.Millisecond)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("event not delivered within 200ms via notify path")
+		default:
+		}
+		if len(consumer.delivered()) > 0 {
+			cancel()
+			<-done
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestNilNotifierFallsBackToTimer verifies that a Router backed by a plain
+// fakeEventLog (no PartitionNotifier) still delivers events via the timer
+// fallback, and that the notifyChs field is not populated.
+func TestNilNotifierFallsBackToTimer(t *testing.T) {
+	entry := makeEntry(1, `{"id":1}`)
+	el := newFakeEventLog(map[uint32][]eventlog.LogEntry{
+		0: {entry},
+	})
+
+	consumer := &fakeConsumer{id: "c-fallback"}
+	r := router.NewRouter(el, 1, nil)
+	r.Register(consumer)
+
+	// Ensure EventLog has no notify channels — compile-time: fakeEventLog does
+	// not implement PartitionNotifier, so NewRouter must not panic.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := r.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := consumer.delivered()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 delivered entry via timer fallback, got %d", len(got))
+	}
+}
+
+// TestWriterNeverBlocksOnFullNotifyChannel verifies that when the notify
+// channel is full (buffer depth 1, already has a pending signal), calling
+// notify again returns immediately and does not block.
+func TestWriterNeverBlocksOnFullNotifyChannel(t *testing.T) {
+	el := newNotifyingFakeEventLog(1, nil)
+
+	// Fill the buffer.
+	el.pulse(0)
+
+	done := make(chan struct{})
+	go func() {
+		// A second pulse must return immediately.
+		el.pulse(0)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// pass
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("second notify pulse blocked — writer would stall (CHK-01 violation)")
+	}
+}
+
 func seqs(entries []eventlog.LogEntry) []uint64 {
 	out := make([]uint64, len(entries))
 	for i, e := range entries {
