@@ -60,9 +60,8 @@ func (c *controllableConsumer) Unblock(key string) {
 }
 
 func (c *controllableConsumer) Deliver(_ context.Context, entry eventlog.LogEntry) error {
-	key := string(entry.Event.Key)
 	c.mu.Lock()
-	flag := c.blocked[key]
+	flag := c.blocked[string(entry.Event.Key)]
 	c.mu.Unlock()
 	if flag != nil && flag.Load() {
 		return errFail
