@@ -55,11 +55,11 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 // When clientCAFile is set, mTLS is enabled: client certificates are required
 // and verified against the given CA. MinVersion is always TLS 1.2.
 func buildServerTLSConfig(cfg config.ServerTLSConfig) (*tls.Config, error) {
-	if cfg.CertFile == "" && cfg.KeyFile == "" {
+	if cfg.CertFile == "" && cfg.KeyFile == "" && cfg.ClientCAFile == "" {
 		return nil, nil
 	}
 	if cfg.CertFile == "" || cfg.KeyFile == "" {
-		return nil, fmt.Errorf("server TLS: both --tls-cert and --tls-key must be set together")
+		return nil, fmt.Errorf("server TLS: both --tls-cert and --tls-key must be set together; --tls-client-ca also requires them")
 	}
 	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {

@@ -78,6 +78,47 @@ func generateSelfSignedCert(t *testing.T, dir string) (certFile, keyFile string)
 	return certFile, keyFile
 }
 
+// generateCACert writes a self-signed CA certificate (IsCA: true, KeyUsageCertSign)
+// to dir and returns the file path. Use this for ClientCAFile in mTLS tests.
+func generateCACert(t *testing.T, dir string) string {
+	t.Helper()
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "kaptanto-test-ca"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	caDER, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+
+	caFile := filepath.Join(dir, "ca.pem")
+	f, err := os.Create(caFile)
+	if err != nil {
+		t.Fatalf("create CA file: %v", err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Errorf("close CA file: %v", err)
+		}
+	}()
+	if err := pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: caDER}); err != nil {
+		t.Fatalf("encode CA cert: %v", err)
+	}
+	return caFile
+}
+
 // TestBuildServerTLSConfig_NilWhenEmpty verifies that no cert/key produces nil (plaintext mode).
 func TestBuildServerTLSConfig_NilWhenEmpty(t *testing.T) {
 	tlsCfg, err := buildServerTLSConfig(config.ServerTLSConfig{})
@@ -90,10 +131,11 @@ func TestBuildServerTLSConfig_NilWhenEmpty(t *testing.T) {
 }
 
 // TestBuildServerTLSConfig_ErrorOnPartialConfig verifies that providing only
-// cert or only key returns an error.
+// cert, only key, or only client-ca returns an error.
 func TestBuildServerTLSConfig_ErrorOnPartialConfig(t *testing.T) {
 	dir := t.TempDir()
 	certFile, keyFile := generateSelfSignedCert(t, dir)
+	caFile := generateCACert(t, dir)
 
 	for _, tc := range []struct {
 		name string
@@ -101,6 +143,7 @@ func TestBuildServerTLSConfig_ErrorOnPartialConfig(t *testing.T) {
 	}{
 		{"cert only", config.ServerTLSConfig{CertFile: certFile}},
 		{"key only", config.ServerTLSConfig{KeyFile: keyFile}},
+		{"client-ca only", config.ServerTLSConfig{ClientCAFile: caFile}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := buildServerTLSConfig(tc.cfg)
@@ -143,12 +186,12 @@ func TestBuildServerTLSConfig_ValidCertKey(t *testing.T) {
 func TestBuildServerTLSConfig_WithClientCA(t *testing.T) {
 	dir := t.TempDir()
 	certFile, keyFile := generateSelfSignedCert(t, dir)
+	caFile := generateCACert(t, dir)
 
-	// Reuse the same self-signed cert as a CA for simplicity.
 	tlsCfg, err := buildServerTLSConfig(config.ServerTLSConfig{
 		CertFile:     certFile,
 		KeyFile:      keyFile,
-		ClientCAFile: certFile, // self-signed cert also acts as its own CA
+		ClientCAFile: caFile,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
