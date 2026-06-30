@@ -102,7 +102,7 @@ func TestRabbitMQSink_Deliver_Ack(t *testing.T) {
 		t.Fatalf("expected 1 publish call after Deliver, got %d", ch.callCount)
 	}
 	// FlushBatch awaits deferred confirms.
-	if err := c.FlushBatch(context.Background()); err != nil {
+	if err := c.FlushBatch(context.Background(), 0); err != nil {
 		t.Fatalf("expected nil error from FlushBatch on ack, got: %v", err)
 	}
 }
@@ -121,7 +121,7 @@ func TestRabbitMQSink_Deliver_Nack(t *testing.T) {
 	if err := c.Deliver(context.Background(), entry); err != nil {
 		t.Fatalf("Deliver should not error: %v", err)
 	}
-	err := c.FlushBatch(context.Background())
+	err := c.FlushBatch(context.Background(), 0)
 	if err == nil {
 		t.Fatal("expected non-nil error on nack from FlushBatch")
 	}
@@ -164,7 +164,7 @@ func TestRabbitMQSink_FlushBatch_WaitContextError(t *testing.T) {
 	if err := c.Deliver(context.Background(), entry); err != nil {
 		t.Fatalf("Deliver should not error: %v", err)
 	}
-	err := c.FlushBatch(context.Background())
+	err := c.FlushBatch(context.Background(), 0)
 	if err == nil {
 		t.Fatal("expected non-nil error when WaitContext returns error")
 	}
@@ -230,7 +230,7 @@ func TestRabbitMQSink_Deliver_SetsHeader(t *testing.T) {
 		t.Fatalf("Deliver: %v", err)
 	}
 	// FlushBatch to confirm the ack, but header is set during Deliver.
-	if err := c.FlushBatch(context.Background()); err != nil {
+	if err := c.FlushBatch(context.Background(), 0); err != nil {
 		t.Fatalf("FlushBatch: %v", err)
 	}
 
@@ -254,7 +254,7 @@ func TestRabbitMQSink_Deliver_PersistentDeliveryMode(t *testing.T) {
 	if err := c.Deliver(context.Background(), entry); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
-	if err := c.FlushBatch(context.Background()); err != nil {
+	if err := c.FlushBatch(context.Background(), 0); err != nil {
 		t.Fatalf("FlushBatch: %v", err)
 	}
 	if ch.lastPublishing.DeliveryMode != amqp.Persistent {
@@ -305,7 +305,7 @@ func TestRabbitMQSink_Deliver_PartitionRouting(t *testing.T) {
 	}
 
 	// FlushBatch collects deferred confirms; both channels acked.
-	if err := c.FlushBatch(context.Background()); err != nil {
+	if err := c.FlushBatch(context.Background(), 0); err != nil {
 		t.Fatalf("FlushBatch: %v", err)
 	}
 }
@@ -331,7 +331,7 @@ func TestRabbitMQSink_FlushBatch_BatchesMultipleEvents(t *testing.T) {
 		t.Fatalf("expected %d publish calls, got %d", n, ch.callCount)
 	}
 
-	if err := c.FlushBatch(context.Background()); err != nil {
+	if err := c.FlushBatch(context.Background(), 0); err != nil {
 		t.Fatalf("FlushBatch: %v", err)
 	}
 }

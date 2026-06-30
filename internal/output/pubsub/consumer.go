@@ -69,7 +69,7 @@ type PubSubSinkConsumer struct {
 	projectID  string
 	topicID    string                         // default topic (cfg.TopicID)
 	topicT     *template.Template             // nil when TopicTemplate is empty
-	pending    []pendingPubSubMessage
+	pending    map[uint32][]pendingPubSubMessage
 	m          *observability.KaptantoMetrics
 }
 
@@ -121,6 +121,7 @@ func NewPubSubSinkConsumer(id string, cfg config.PubSubSinkConfig, clientOpts ..
 		projectID:  cfg.ProjectID,
 		topicID:    cfg.TopicID,
 		topicT:     topicT,
+		pending:    make(map[uint32][]pendingPubSubMessage),
 	}, nil
 }
 
@@ -225,7 +226,7 @@ func (c *PubSubSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 
 	// 6. Append result to pending buffer — FlushBatch awaits all acks.
 	c.mu.Lock()
-	c.pending = append(c.pending, pendingPubSubMessage{
+	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingPubSubMessage{
 		result:      result,
 		orderingKey: orderingKey,
 		topicID:     topicID,
@@ -243,14 +244,14 @@ func (c *PubSubSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 //
 // CHK-01 is preserved: the router only advances the cursor after FlushBatch
 // returns nil for the entire pending set.
-func (c *PubSubSinkConsumer) FlushBatch(ctx context.Context) error {
+func (c *PubSubSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) error {
 	c.mu.Lock()
-	if len(c.pending) == 0 {
+	if len(c.pending[partitionID]) == 0 {
 		c.mu.Unlock()
 		return nil
 	}
-	batch := c.pending
-	c.pending = nil
+	batch := c.pending[partitionID]
+	delete(c.pending, partitionID)
 	c.mu.Unlock()
 
 	start := time.Now()

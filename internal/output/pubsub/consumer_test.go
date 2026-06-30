@@ -126,7 +126,7 @@ func TestPubSubSinkConsumer_Deliver_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Deliver only buffers — flush to publish and await ack.
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("pubsub"))
@@ -163,7 +163,7 @@ func TestPubSubSinkConsumer_Deliver_OrderingKey(t *testing.T) {
 
 	err = c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	// Pull the published message via the fake server's subscription.
@@ -235,7 +235,7 @@ func TestPubSubSinkConsumer_FlushBatch_MetricsError(t *testing.T) {
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err, "Deliver should not error — it only buffers")
 
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.Error(t, err, "expected error when publishing to non-existent topic")
 
 	got := testutil.ToFloat64(m.QueuePublishErrors.WithLabelValues("pubsub"))
@@ -269,7 +269,7 @@ func TestPubSubSinkConsumer_PerTableRouting(t *testing.T) {
 	require.NoError(t, err)
 	err = c.Deliver(context.Background(), makeEntry("public", "users"))
 	require.NoError(t, err)
-	require.NoError(t, c.FlushBatch(context.Background()))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 
 	msgs := srv.Messages()
 	var ordersCount, usersCount int
@@ -310,7 +310,7 @@ func TestPubSubSinkConsumer_PoolReusesSamePublisher(t *testing.T) {
 	require.NoError(t, err)
 	err = c.Deliver(context.Background(), makeEntry("public", "orders"))
 	require.NoError(t, err)
-	require.NoError(t, c.FlushBatch(context.Background()))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 
 	msgs := srv.Messages()
 	var count int
@@ -348,7 +348,7 @@ func TestPubSubSinkConsumer_CloseDrainsAllPublishers(t *testing.T) {
 	err = c.Deliver(ctx, makeEntry("public", "users"))
 	require.NoError(t, err)
 	// Flush before close to drain pending messages.
-	require.NoError(t, c.FlushBatch(ctx))
+	require.NoError(t, c.FlushBatch(ctx, 0))
 
 	// Close must not panic — it must drain all 2 pooled publishers.
 	assert.NotPanics(t, func() { c.Close() })
@@ -392,7 +392,7 @@ func TestPubSubSinkConsumer_Deliver_NoTemplate_Regression(t *testing.T) {
 
 	err := c.Deliver(context.Background(), makeEntry("public", "orders"))
 	require.NoError(t, err)
-	require.NoError(t, c.FlushBatch(context.Background()))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 
 	msgs := srv.Messages()
 	var count int
@@ -426,7 +426,7 @@ func TestPubSubSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
 		}
 		require.NoError(t, c.Deliver(context.Background(), entry))
 	}
-	require.NoError(t, c.FlushBatch(context.Background()))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 
 	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("pubsub"))
 	assert.Equal(t, float64(n), got, "QueuePublishTotal must equal N after FlushBatch")

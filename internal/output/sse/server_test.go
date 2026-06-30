@@ -57,7 +57,7 @@ func (f *fakeRouter) Register(c router.Consumer) {
 	}
 	// Flush buffered writes so the HTTP client sees the response (Fix E).
 	if bf, ok := c.(router.BatchFlusher); ok {
-		_ = bf.FlushBatch(ctx)
+		_ = bf.FlushBatch(ctx, 0)
 	}
 }
 

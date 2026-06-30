@@ -103,7 +103,7 @@ func TestKafkaSinkConsumer_Deliver_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Deliver only buffers — must flush to publish.
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	// Verify QueuePublishTotal incremented to 1 after flush.
@@ -177,7 +177,7 @@ func TestKafkaSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
 		require.NoError(t, c.Deliver(context.Background(), entry))
 	}
 
-	require.NoError(t, c.FlushBatch(context.Background()))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 
 	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("kafka"))
 	assert.Equal(t, float64(n), got, "QueuePublishTotal must equal N after FlushBatch")
@@ -216,7 +216,7 @@ func TestKafkaSinkConsumer_RecordKey(t *testing.T) {
 	require.NoError(t, err)
 
 	// Flush to actually publish the buffered record.
-	err = c.FlushBatch(context.Background())
+	err = c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	// Create a consumer client pointed at the same kfake cluster to read back the record.
