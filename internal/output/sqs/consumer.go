@@ -274,10 +274,18 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 	sum := sha256.Sum256([]byte(entry.Event.IdempotencyKey))
 	dedupID := fmt.Sprintf("%x", sum)[:64]
 
-	// 3. Marshal the event to JSON for the message body.
-	data, marshalErr := json.Marshal(entry.Event)
-	if marshalErr != nil {
-		return fmt.Errorf("sqs sink: marshal event: %w", marshalErr)
+	// 3. Obtain the JSON payload for the message body.
+	// Use raw stored bytes when available (pass-through fast path) to avoid
+	// the json.Marshal round-trip (fix-plan: raw-bytes-passthrough).
+	var data []byte
+	if len(entry.Raw) > 0 {
+		data = entry.Raw
+	} else {
+		var marshalErr error
+		data, marshalErr = json.Marshal(entry.Event)
+		if marshalErr != nil {
+			return fmt.Errorf("sqs sink: marshal event: %w", marshalErr)
+		}
 	}
 
 	// 4. Record send start time for latency observation.

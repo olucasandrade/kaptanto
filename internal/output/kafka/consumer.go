@@ -148,10 +148,18 @@ func (c *KafkaSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry
 		return fmt.Errorf("kafka sink: topic template rendered to an empty string — check TopicTemplate config")
 	}
 
-	// 3. Marshal the event to JSON for the record value.
-	data, err := json.Marshal(entry.Event)
-	if err != nil {
-		return fmt.Errorf("kafka sink: marshal event: %w", err)
+	// 3. Obtain the JSON payload for the record value.
+	// Use raw stored bytes when available (pass-through fast path) to avoid
+	// the json.Marshal round-trip (fix-plan: raw-bytes-passthrough).
+	var data []byte
+	if len(entry.Raw) > 0 {
+		data = entry.Raw
+	} else {
+		var err error
+		data, err = json.Marshal(entry.Event)
+		if err != nil {
+			return fmt.Errorf("kafka sink: marshal event: %w", err)
+		}
 	}
 
 	// 4. Build the Kafka record.

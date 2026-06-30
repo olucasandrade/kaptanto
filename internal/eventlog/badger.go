@@ -297,7 +297,10 @@ func (b *BadgerEventLog) ReadPartition(ctx context.Context, partition uint32, fr
 			}
 
 			_, seq := decodePartKey(item.KeyCopy(nil))
-			entries = append(entries, LogEntry{Seq: seq, PartitionID: partition, Event: &ev})
+			// Raw preserves the stored bytes so pass-through consumers can write
+			// them directly to the wire without re-marshalling (avoids 1 unmarshal
+			// + N re-marshals on the fan-out path — see fix-plan raw-bytes-passthrough).
+			entries = append(entries, LogEntry{Seq: seq, PartitionID: partition, Event: &ev, Raw: val})
 		}
 		return nil
 	})
