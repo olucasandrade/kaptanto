@@ -34,7 +34,9 @@ jobs:
       - name: Install cargo-audit
         uses: taiki-e/install-action@ffdab026038b43b56c3c9540cdadb98181c6155c # v2.27.8
         with:
-          tool: cargo-audit
+          # Pin a recent version: cargo-audit < 0.21 cannot parse CVSS-4.0
+          # advisories in the RustSec DB ("unsupported CVSS version: 4.0").
+          tool: cargo-audit@0.22.2
 
       - name: cargo-audit
         working-directory: rust/kaptanto-ffi
