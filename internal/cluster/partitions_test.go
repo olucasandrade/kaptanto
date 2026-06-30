@@ -36,17 +36,6 @@ func TestReleasePartitionsSQL(t *testing.T) {
 	}
 }
 
-// TestPartitionStoreListOwnedEmptyNonNil confirms the return type contract:
-// ListOwned must return a non-nil slice even when empty (matches StaleNodes invariant).
-func TestPartitionStoreListOwnedEmptyNonNil(t *testing.T) {
-	// Verify that []PartitionClaim{} is explicitly non-nil — this is the
-	// invariant enforced in the implementation.
-	result := []PartitionClaim{}
-	if result == nil {
-		t.Error("[]PartitionClaim{} literal must be non-nil")
-	}
-}
-
 // TestEpochFor_NotFound verifies EpochFor returns (0, false) when partition not in epochs map.
 func TestEpochFor_NotFound(t *testing.T) {
 	ps := &PartitionStore{
