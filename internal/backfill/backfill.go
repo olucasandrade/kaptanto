@@ -144,10 +144,20 @@ func (e *engine) snapshotTable(ctx context.Context, cfg BackfillConfig) error {
 // BackfillEngineImpl — production implementation with pgx.Conn + AppendFn
 // ---------------------------------------------------------------------------
 
+// backfillBatchSize is the number of snapshot rows accumulated before a single
+// AppendBatch call. Mirrors the WAL path constant (1024) but smaller to bound
+// peak memory during initial load while still amortising per-fsync overhead.
+const backfillBatchSize = 256
+
 // AppendFn is the function BackfillEngineImpl calls to deliver each snapshot
 // event. In production this is connector.AppendAndQueue. In tests it can be a
 // mock.
 type AppendFn func(ctx context.Context, ev *event.ChangeEvent) error
+
+// AppendBatchFn is the function BackfillEngineImpl calls to deliver a batch of
+// snapshot events in a single durable write. In production this is
+// connector.AppendAndQueueBatch. In tests it can be a fake.
+type AppendBatchFn func(ctx context.Context, evs []*event.ChangeEvent) error
 
 // OpenConnFn opens a pgx.Conn for snapshot SELECT queries. The backfill engine
 // is NOT allowed to use the replication connection.
@@ -157,17 +167,18 @@ type OpenConnFn func(ctx context.Context) (*pgx.Conn, error)
 // dependencies at construction time and implements the full keyset-cursor
 // snapshot loop.
 type BackfillEngineImpl struct {
-	configs    []BackfillConfig
-	store      BackfillStore
-	idGen      *event.IDGenerator
-	appendFn   AppendFn
-	openConnFn OpenConnFn
+	configs        []BackfillConfig
+	store          BackfillStore
+	idGen          *event.IDGenerator
+	appendFn       AppendFn
+	appendBatchFn  AppendBatchFn
+	openConnFn     OpenConnFn
 	// watermark is optional; nil disables watermark deduplication.
 	watermark *WatermarkChecker
 }
 
 // NewBackfillEngine creates a BackfillEngineImpl with the given dependencies.
-// appendFn must not be nil. openConnFn must not be nil.
+// appendFn must not be nil. appendBatchFn must not be nil. openConnFn must not be nil.
 // watermark may be nil (disables per-row watermark deduplication).
 func NewBackfillEngine(
 	configs []BackfillConfig,
@@ -182,6 +193,27 @@ func NewBackfillEngine(
 		idGen:      idGen,
 		appendFn:   appendFn,
 		openConnFn: openConnFn,
+	}
+}
+
+// NewBackfillEngineWithBatch creates a BackfillEngineImpl that uses batched
+// appends for snapshot rows (AppendBatchFn). The per-event appendFn is still
+// used for the snapshot_complete control event.
+func NewBackfillEngineWithBatch(
+	configs []BackfillConfig,
+	store BackfillStore,
+	idGen *event.IDGenerator,
+	appendFn AppendFn,
+	appendBatchFn AppendBatchFn,
+	openConnFn OpenConnFn,
+) *BackfillEngineImpl {
+	return &BackfillEngineImpl{
+		configs:       configs,
+		store:         store,
+		idGen:         idGen,
+		appendFn:      appendFn,
+		appendBatchFn: appendBatchFn,
+		openConnFn:    openConnFn,
 	}
 }
 
@@ -337,6 +369,13 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 		// NULL on standby; the nil scan error is caught here and handled safely.
 	}
 
+	// eventBuf accumulates snapshot row events for batched appends (Fix: BKF batch).
+	// Allocated once and reused across pages; reset to [:0] after each flush.
+	var eventBuf []*event.ChangeEvent
+	// bufLastPKValues tracks the PK of the last event currently in eventBuf so
+	// the cursor can be advanced to the correct position after each flush.
+	var bufLastPKValues []any
+
 	for {
 		batchSize := optimizer.Current()
 		var sql string
@@ -415,9 +454,26 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 
 			readEv := MakeReadEvent(b.idGen, cfg.SourceID, cfg.Schema, cfg.Table,
 				pkJSON, rowJSON, snapshotID, state)
-			if appendErr := b.appendFn(ctx, readEv); appendErr != nil {
-				rows.Close()
-				return fmt.Errorf("append read event: %w", appendErr)
+
+			if b.appendBatchFn != nil {
+				// Batched path: buffer the event; flush when the buffer is full.
+				// BKF-03: cursor and state are only persisted after a successful flush.
+				eventBuf = append(eventBuf, readEv)
+				bufLastPKValues = pkValues // track PK of last buffered event
+				if len(eventBuf) >= backfillBatchSize {
+					if flushErr := b.flushEventBuf(ctx, eventBuf, state, cursor, bufLastPKValues); flushErr != nil {
+						rows.Close()
+						return flushErr
+					}
+					eventBuf = eventBuf[:0]
+					bufLastPKValues = nil
+				}
+			} else {
+				// Legacy single-event path (appendBatchFn not set).
+				if appendErr := b.appendFn(ctx, readEv); appendErr != nil {
+					rows.Close()
+					return fmt.Errorf("append read event: %w", appendErr)
+				}
 			}
 
 			lastPKValues = pkValues
@@ -429,16 +485,47 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 			return fmt.Errorf("rows error: %w", err)
 		}
 
-		// Advance cursor and persist state (BKF-03 crash-resumable).
-		if lastPKValues != nil {
-			cursor.LastPK = lastPKValues
-			cursorJSON, marshalErr := json.Marshal(lastPKValues)
-			if marshalErr == nil {
-				state.CursorKey = cursorJSON
+		// Flush any remaining buffered events for this page (BKF-03: persist
+		// cursor only after the batch is durably written).
+		if b.appendBatchFn != nil && len(eventBuf) > 0 {
+			if flushErr := b.flushEventBuf(ctx, eventBuf, state, cursor, bufLastPKValues); flushErr != nil {
+				return flushErr
 			}
+			eventBuf = eventBuf[:0]
+			bufLastPKValues = nil
 		}
-		if saveErr := b.store.SaveState(ctx, state); saveErr != nil {
-			return fmt.Errorf("save state after batch: %w", saveErr)
+
+		// Advance cursor and persist state (BKF-03 crash-resumable).
+		// When appendBatchFn is set, flushEventBuf already persisted the cursor
+		// for rows that were flushed mid-page; this call covers the final state
+		// (ProcessedRows, status) after the page is fully processed.
+		if b.appendBatchFn == nil {
+			if lastPKValues != nil {
+				cursor.LastPK = lastPKValues
+				cursorJSON, marshalErr := json.Marshal(lastPKValues)
+				if marshalErr == nil {
+					state.CursorKey = cursorJSON
+				}
+			}
+			if saveErr := b.store.SaveState(ctx, state); saveErr != nil {
+				return fmt.Errorf("save state after batch: %w", saveErr)
+			}
+		} else {
+			// Advance cursor to the last SCANNED PK (including watermark-skipped
+			// rows) so the next page query does not re-scan rows that were already
+			// evaluated and skipped. flushEventBuf only advances to bufLastPKValues
+			// (last emitted PK), which can lag behind when trailing rows are skipped.
+			if lastPKValues != nil {
+				cursor.LastPK = lastPKValues
+				cursorJSON, marshalErr := json.Marshal(lastPKValues)
+				if marshalErr == nil {
+					state.CursorKey = cursorJSON
+				}
+			}
+			// Persist end-of-page state (status + ProcessedRows).
+			if saveErr := b.store.SaveState(ctx, state); saveErr != nil {
+				return fmt.Errorf("save state after batch: %w", saveErr)
+			}
 		}
 
 		optimizer.Adjust(time.Since(batchStart))
@@ -449,6 +536,36 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 		}
 	}
 
+	return nil
+}
+
+// flushEventBuf appends evs to the event log via appendBatchFn and then
+// persists the cursor to the last seen PK values (BKF-03: cursor advances only
+// after a successful durable write).
+//
+// lastPKValues is the PK tuple of the last row in evs. cursor and state are
+// updated in-place on success.
+func (b *BackfillEngineImpl) flushEventBuf(
+	ctx context.Context,
+	evs []*event.ChangeEvent,
+	state *BackfillState,
+	cursor *KeysetCursor,
+	lastPKValues []any,
+) error {
+	if len(evs) == 0 {
+		return nil
+	}
+	if err := b.appendBatchFn(ctx, evs); err != nil {
+		return fmt.Errorf("append batch: %w", err)
+	}
+	// BKF-03: advance cursor only after the batch is durably written.
+	if lastPKValues != nil {
+		cursor.LastPK = lastPKValues
+		cursorJSON, marshalErr := json.Marshal(lastPKValues)
+		if marshalErr == nil {
+			state.CursorKey = cursorJSON
+		}
+	}
 	return nil
 }
 

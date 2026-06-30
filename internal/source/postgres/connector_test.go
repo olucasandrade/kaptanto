@@ -649,6 +649,106 @@ func TestSRC06_NilBackfillEngineNoPanic(t *testing.T) {
 	c.SetBackfillEngine(nil)
 }
 
+// TestAppendAndQueueBatch_AppendsAllAndForwards verifies that AppendAndQueueBatch
+// calls eventLog.AppendBatch with all events and forwards them to the channel.
+func TestAppendAndQueueBatch_AppendsAllAndForwards(t *testing.T) {
+	cfg := postgres.Config{DSN: "postgres://localhost/testdb", SourceID: "pg1"}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{}
+
+	c := postgres.NewWithEventLog(cfg, store, idGen, el)
+
+	evs := []*event.ChangeEvent{
+		{IdempotencyKey: "pg1:orders:1:read:snap1"},
+		{IdempotencyKey: "pg1:orders:2:read:snap1"},
+		{IdempotencyKey: "pg1:orders:3:read:snap1"},
+	}
+
+	ctx := context.Background()
+	if err := c.AppendAndQueueBatch(ctx, evs); err != nil {
+		t.Fatalf("AppendAndQueueBatch returned unexpected error: %v", err)
+	}
+
+	// All three events must have reached AppendBatch (recorded via appendCalls).
+	if len(el.appendCalls) != 3 {
+		t.Fatalf("expected 3 Append/AppendBatch calls, got %d", len(el.appendCalls))
+	}
+	for i, want := range evs {
+		if el.appendCalls[i] != want {
+			t.Errorf("appendCalls[%d] = %v, want %v", i, el.appendCalls[i], want)
+		}
+	}
+
+	// All events must be forwarded to the channel.
+	for i := range evs {
+		select {
+		case got := <-c.Events():
+			if got != evs[i] {
+				t.Errorf("channel event %d = %v, want %v", i, got, evs[i])
+			}
+		default:
+			t.Errorf("event %d not forwarded to channel", i)
+		}
+	}
+}
+
+// TestAppendAndQueueBatch_ErrorBlocksForwarding verifies that if AppendBatch
+// fails, no events are forwarded to the channel (CHK-01).
+func TestAppendAndQueueBatch_ErrorBlocksForwarding(t *testing.T) {
+	cfg := postgres.Config{DSN: "postgres://localhost/testdb", SourceID: "pg1"}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+	el := &mockEventLog{appendErr: errors.New("disk full")}
+
+	c := postgres.NewWithEventLog(cfg, store, idGen, el)
+
+	evs := []*event.ChangeEvent{
+		{IdempotencyKey: "pg1:orders:1:read:snap1"},
+	}
+
+	ctx := context.Background()
+	if err := c.AppendAndQueueBatch(ctx, evs); err == nil {
+		t.Fatal("expected AppendAndQueueBatch to return error when AppendBatch fails, got nil")
+	}
+
+	// No events must be on the channel.
+	select {
+	case <-c.Events():
+		t.Error("event was forwarded to channel despite AppendBatch failure")
+	default:
+		// correct
+	}
+}
+
+// TestAppendAndQueueBatch_NilEventLog verifies backward-compat nil guard:
+// when eventLog is nil, AppendAndQueueBatch still forwards events to the channel.
+func TestAppendAndQueueBatch_NilEventLog(t *testing.T) {
+	cfg := postgres.Config{DSN: "postgres://localhost/testdb", SourceID: "pg1"}
+	store := &mockCheckpointStore{}
+	idGen := event.NewIDGenerator()
+
+	c := postgres.New(cfg, store, idGen) // no eventLog
+
+	evs := []*event.ChangeEvent{
+		{IdempotencyKey: "pg1:orders:1:read:snap1"},
+	}
+
+	ctx := context.Background()
+	if err := c.AppendAndQueueBatch(ctx, evs); err != nil {
+		t.Fatalf("AppendAndQueueBatch with nil eventLog returned error: %v", err)
+	}
+
+	select {
+	case got := <-c.Events():
+		if got != evs[0] {
+			t.Errorf("channel received wrong event: got %v, want %v", got, evs[0])
+		}
+	default:
+		t.Error("event not forwarded to channel when eventLog is nil")
+	}
+}
+
 // TestNewWithoutEventLog_NilGuard verifies that New (without EventLog) still
 // works and AppendAndQueue is a no-op when eventLog is nil (backward compat).
 func TestNewWithoutEventLog_NilGuard(t *testing.T) {
