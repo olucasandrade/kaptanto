@@ -139,7 +139,7 @@ func TestStdoutWriterMetricsIncrement(t *testing.T) {
 func TestStdoutWriterEncodeErrorNoIncrement(t *testing.T) {
 	pr, pw := io.Pipe()
 	_ = pr.Close() // close the read end so writes will fail
-	pw.Close()     // close the write end too
+	_ = pw.Close()     // close the write end too
 
 	w := stdout.NewStdoutWriter(pw)
 	m := observability.NewKaptantoMetrics()

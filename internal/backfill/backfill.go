@@ -274,6 +274,8 @@ func (b *BackfillEngineImpl) runOne(ctx context.Context, cfg BackfillConfig) err
 
 // snapshotTable runs the full keyset-cursor snapshot loop using a dedicated
 // pgx.Conn opened via openConnFn.
+//
+//nolint:gocyclo // the keyset-snapshot loop interleaves cursor paging, watermark checks, and BKF-02 handling; splitting it would obscure the single-pass invariant. Tracked for incremental refactor.
 func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConfig, state *BackfillState) error {
 	conn, err := b.openConnFn(ctx)
 	if err != nil {
