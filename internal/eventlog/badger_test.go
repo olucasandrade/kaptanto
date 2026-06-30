@@ -259,7 +259,11 @@ func TestBadgerEventLog_Close(t *testing.T) {
 func TestReadPartition_RawPopulated(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() {
+		if err := el.Close(); err != nil {
+			t.Errorf("close eventlog: %v", err)
+		}
+	}()
 
 	ev := makeEvent("src:raw:1:insert:0/1", `{"id": 1}`)
 	_, err = el.Append(ev)
