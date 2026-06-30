@@ -374,6 +374,7 @@ func TestOutputMode_Nats_MissingConfig(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "nats",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output nats without sinks.nats config must return an error")
 	assert.Contains(t, err.Error(), "sinks.nats",
@@ -387,6 +388,7 @@ func TestOutputMode_Nats_InvalidMode(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "invalid-queue",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output invalid-queue must return an error")
 	assert.Contains(t, err.Error(), "nats",
@@ -403,6 +405,7 @@ func TestOutputMode_SQS_MissingConfig(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "sqs",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output sqs without sinks.sqs config must return an error")
 	assert.Contains(t, err.Error(), "sinks.sqs",
@@ -416,6 +419,7 @@ func TestOutputMode_SQS_InvalidMode(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "invalid-queue-mode",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output invalid-queue-mode must return an error")
 	assert.Contains(t, err.Error(), "sqs",
@@ -430,6 +434,7 @@ func TestOutputMode_Kafka_MissingConfig(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "kafka",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output kafka without sinks.kafka config must return an error")
 	assert.Contains(t, err.Error(), "sinks.kafka",
@@ -443,6 +448,7 @@ func TestOutputMode_Kafka_InvalidMode(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "invalid-kafka-mode",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output invalid-kafka-mode must return an error")
 	assert.Contains(t, err.Error(), "kafka",
@@ -459,6 +465,7 @@ func TestOutputMode_PubSub_MissingConfig(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "pubsub",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output pubsub without sinks.pubsub config must return an error")
 	assert.Contains(t, err.Error(), "sinks.pubsub",
@@ -472,6 +479,7 @@ func TestOutputMode_PubSub_InvalidMode(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "invalid-pubsub-mode",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output invalid-pubsub-mode must return an error")
 	assert.Contains(t, err.Error(), "pubsub",
@@ -488,6 +496,7 @@ func TestOutputMode_RabbitMQ_MissingConfig(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "rabbitmq",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output rabbitmq without sinks.rabbitmq config must return an error")
 	assert.Contains(t, err.Error(), "sinks.rabbitmq",
@@ -501,10 +510,58 @@ func TestOutputMode_RabbitMQ_InvalidMode(t *testing.T) {
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "invalid-rabbitmq-mode",
+		"--all-tables",
 	}, &buf)
 	require.Error(t, err, "--output invalid-rabbitmq-mode must return an error")
 	assert.Contains(t, err.Error(), "rabbitmq",
 		"error must include 'rabbitmq' in valid output modes list")
+}
+
+// TestAllTables_FailClosedWithNoTables verifies that a Postgres source with no
+// tables configured and no --all-tables flag returns a descriptive error and does
+// NOT proceed to attempt a database connection.
+func TestAllTables_FailClosedWithNoTables(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://user:pass@127.0.0.1:54321/db",
+		// no --tables, no --all-tables
+	}, &buf)
+	require.Error(t, err, "empty tables without --all-tables must fail fast")
+	assert.Contains(t, err.Error(), "--all-tables",
+		"error must mention --all-tables opt-in")
+	assert.Contains(t, err.Error(), "tables",
+		"error must mention tables configuration")
+}
+
+// TestAllTables_MongoDBSourceNotBlocked verifies that MongoDB sources are not
+// affected by the tables guard (MongoDB uses Collection configs, not table lists).
+func TestAllTables_MongoDBSourceNotBlocked(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "mongodb://user:pass@127.0.0.1:27017/db",
+		// no --tables, no --all-tables — MongoDB path should not be blocked
+	}, &buf)
+	// We expect an error (no real MongoDB), but it must NOT be the tables guard.
+	if err != nil {
+		assert.NotContains(t, err.Error(), "--all-tables",
+			"MongoDB source must not be blocked by the all-tables guard")
+	}
+}
+
+// TestAllTables_FlagMergedIntoConfig verifies that --all-tables is correctly
+// parsed and merged into the Config struct.
+func TestAllTables_FlagMergedIntoConfig(t *testing.T) {
+	var buf bytes.Buffer
+	// With --all-tables set, the guard should pass and we reach the next failure
+	// (sink config / output mode), not the tables guard.
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://user:pass@127.0.0.1:54321/db",
+		"--all-tables",
+		"--output", "invalid-mode-xyz",
+	}, &buf)
+	require.Error(t, err, "invalid output mode must still produce an error")
+	assert.NotContains(t, err.Error(), "--all-tables",
+		"with --all-tables set the tables guard must not fire")
 }
 
 // TestRouterSetOwnedPartitions is a compile guard: if SetOwnedPartitions is
