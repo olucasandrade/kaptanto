@@ -451,88 +451,85 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 			break // guard against consumers added between Phase 1 and Phase 3
 		}
 		cs := &r.consumers[i]
+		r.dispatchUpdateCursor(ctx, cs, snap, entry, partitionID, groupKey, errs, i)
+	}
+}
 
-		if snap.blocked {
-			if r.metrics != nil {
-				r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
-			}
-			// Guard: cursor has already advanced past this seq (e.g. a previous
-			// poll cycle already enqueued this entry). Skip to avoid double-queuing.
-			if entry.Seq < snap.cursor {
-				continue
-			}
-			// Enqueue the follow-on entry behind the blocked head so it is
-			// preserved in order and retried after the head succeeds (RTR-04).
-			// Without this, any event for a blocked key that arrives while the
-			// group is still blocked is silently discarded.
-			rec := &RetryRecord{
-				Entry:       entry,
-				Attempts:    0,
-				NextRetryAt: time.Now().Add(NextDelay(0)),
-				ConsumerID:  cs.consumer.ID(),
-			}
-			r.rs.AddBlocked(cs.consumer, groupKey, rec)
-			// Advance the cursor past the enqueued follow-on so the EventLog does
-			// not re-serve this seq on the next poll cycle. The retry queue now
-			// holds delivery responsibility; re-reading would cause double-queuing.
-			// Trade-off: a process restart drops in-flight follow-ons (same as the
-			// blocked head — both are in-memory only).
-			nextForFollowOn := entry.Seq + 1
-			if nextForFollowOn > cs.cursorByPartition[partitionID] {
-				cs.cursorByPartition[partitionID] = nextForFollowOn
-			}
-			if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForFollowOn); err != nil {
-				slog.Warn("router: failed to save cursor for blocked follow-on",
-					"consumer", cs.consumer.ID(),
-					"partition", partitionID,
-					"seq", entry.Seq,
-					"err", err,
-				)
-			}
-			continue
+// dispatchUpdateCursor handles Phase 3 per-consumer cursor logic.
+// Must be called under r.mu write lock.
+func (r *Router) dispatchUpdateCursor(
+	ctx context.Context,
+	cs *consumerState,
+	snap consumerSnap,
+	entry eventlog.LogEntry,
+	partitionID uint32,
+	groupKey string,
+	errs []error,
+	i int,
+) {
+	if snap.blocked {
+		if r.metrics != nil {
+			r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
 		}
-
-		// Skipped in Phase 2 because this consumer already acked entry.Seq.
-		// Do not touch the cursor — advancing toward entry.Seq+1 would regress it.
 		if entry.Seq < snap.cursor {
-			continue
+			return
 		}
-
-		if err := errs[i]; err != nil {
-			slog.Warn("router: delivery failed, blocking message group",
-				"consumer", cs.consumer.ID(),
-				"key", groupKey,
-				"seq", entry.Seq,
-				"err", err,
-			)
-			rec := &RetryRecord{
-				Entry:       entry,
-				Attempts:    1,
-				NextRetryAt: time.Now(),
-				ConsumerID:  cs.consumer.ID(),
-			}
-			r.rs.AddBlocked(cs.consumer, groupKey, rec)
-			continue
+		rec := &RetryRecord{
+			Entry:       entry,
+			Attempts:    0,
+			NextRetryAt: time.Now().Add(NextDelay(0)),
+			ConsumerID:  cs.consumer.ID(),
 		}
-
-		// Advance cursor to entry.Seq+1 (the next seq to read from).
-		// Cursor semantics: the value stored is the NEXT seq to read, so that
-		// minCursorForPartition can be passed directly to ReadPartition as fromSeq.
-		nextForPartition := entry.Seq + 1
-		if nextForPartition > cs.cursorByPartition[partitionID] {
-			cs.cursorByPartition[partitionID] = nextForPartition
+		r.rs.AddBlocked(cs.consumer, groupKey, rec)
+		nextForFollowOn := entry.Seq + 1
+		if nextForFollowOn > cs.cursorByPartition[partitionID] {
+			cs.cursorByPartition[partitionID] = nextForFollowOn
 		}
-		// Best-effort cursor persistence; failures are logged only.
-		if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForPartition); err != nil {
-			slog.Warn("router: failed to save cursor",
+		if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForFollowOn); err != nil {
+			slog.Warn("router: failed to save cursor for blocked follow-on",
 				"consumer", cs.consumer.ID(),
 				"partition", partitionID,
 				"seq", entry.Seq,
 				"err", err,
 			)
 		}
-		if r.metrics != nil {
-			r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Set(0)
+		return
+	}
+
+	if entry.Seq < snap.cursor {
+		return
+	}
+
+	if err := errs[i]; err != nil {
+		slog.Warn("router: delivery failed, blocking message group",
+			"consumer", cs.consumer.ID(),
+			"key", groupKey,
+			"seq", entry.Seq,
+			"err", err,
+		)
+		rec := &RetryRecord{
+			Entry:       entry,
+			Attempts:    1,
+			NextRetryAt: time.Now(),
+			ConsumerID:  cs.consumer.ID(),
 		}
+		r.rs.AddBlocked(cs.consumer, groupKey, rec)
+		return
+	}
+
+	nextForPartition := entry.Seq + 1
+	if nextForPartition > cs.cursorByPartition[partitionID] {
+		cs.cursorByPartition[partitionID] = nextForPartition
+	}
+	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForPartition); err != nil {
+		slog.Warn("router: failed to save cursor",
+			"consumer", cs.consumer.ID(),
+			"partition", partitionID,
+			"seq", entry.Seq,
+			"err", err,
+		)
+	}
+	if r.metrics != nil {
+		r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Set(0)
 	}
 }
