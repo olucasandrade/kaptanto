@@ -20,7 +20,7 @@ func TestPostgresBackfillStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenPostgresBackfillStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	t.Run("LoadState returns nil nil for unknown table", func(t *testing.T) {
 		state, err := store.LoadState(ctx, "src-unknown", "public.nonexistent")

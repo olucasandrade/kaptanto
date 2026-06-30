@@ -1,0 +1,23 @@
+# gremlins mutation-testing configuration.
+#
+# Mutation testing runs per-package over the highest-value correctness packages
+# (see .github/workflows/mutation.yml). Measured baselines: router 100%,
+# backfill ~92%, eventlog ~73% test efficacy — so the gate is 60%, comfortably
+# below the weakest gated package to absorb run-to-run noise (e.g. timed-out
+# mutants). Ratchet upward as efficacy improves.
+#
+# parser/pgoutput is run report-only (overridden in the workflow): gremlins
+# mutates the //go:build rust FFI file (ffi_rust.go) that the pure-Go test build
+# cannot cover, which drives its reported efficacy to ~0% — a tooling artifact,
+# not a real coverage gap.
+unleash:
+  dry-run: false
+  # No special build tags: the targeted packages compile and test under the
+  # default pure-Go build.
+  tags: ""
+  # Gating thresholds. threshold-mutant-coverage stays 0 (uncovered build-tagged
+  # code would otherwise trip it); the gate is on test efficacy.
+  threshold-efficacy: 60
+  threshold-mutant-coverage: 0
+
+silent: false

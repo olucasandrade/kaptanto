@@ -408,6 +408,8 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 // virtiofs fsync overhead that was capping sustained throughput at ~2–3k eps.
 // CHK-01 is preserved: flushWALBuf is always called before sendStandbyStatus
 // on the commit path, ensuring events are durable before the LSN advances.
+//
+//nolint:gocyclo // the WAL receive loop dispatches every message type inline; splitting it would scatter the CHK-01 ordering guarantee. Tracked for incremental refactor.
 func (c *PostgresConnector) receiveLoop(
 	ctx context.Context,
 	replConn *pgconn.PgConn,

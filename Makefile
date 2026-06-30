@@ -1,6 +1,11 @@
 # Makefile for kaptanto — builds a single static binary with no CGO dependency.
 
-.PHONY: build test test-race verify-no-cgo clean build-rust
+.PHONY: build test test-race verify-no-cgo clean build-rust \
+        lint cover test-integration test-e2e mutation
+
+# Coverage gate threshold (percent). Mirrors COVERAGE_THRESHOLD in
+# .github/workflows/coverage.yml. Ratchet upward over time.
+COVERAGE_THRESHOLD ?= 50.0
 
 # Version injection — reads from git tag if available, falls back to "dev".
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -58,3 +63,34 @@ $(RUST_LIB):
 	@echo "[kaptanto] Building Rust static library..."
 	cd $(RUST_DIR) && cargo build --release
 	@echo "[kaptanto] Rust static library built -> $(RUST_LIB)"
+
+# ---- Quality gates (mirror the CI workflows; run locally before pushing) ----
+
+# lint runs the golangci-lint umbrella: cyclomatic complexity (gocyclo) and
+# dependency-structure rules (depguard). Config in .golangci.yml.
+lint:
+	CGO_ENABLED=0 golangci-lint run ./internal/... ./cmd/...
+
+# cover runs tests with coverage and fails if total is below COVERAGE_THRESHOLD.
+cover:
+	CGO_ENABLED=0 go test ./internal/... ./cmd/... -count=1 -coverprofile=coverage.out -covermode=count
+	@go tool cover -func=coverage.out | tail -1
+	@total=$$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$$3); print $$3}'); \
+	awk -v t="$$total" -v min="$(COVERAGE_THRESHOLD)" 'BEGIN { if (t+0 < min+0) { printf "FAIL: coverage %.1f%% < threshold %.1f%%\n", t, min; exit 1 } else { printf "PASS: coverage %.1f%% >= threshold %.1f%%\n", t, min } }'
+
+# test-integration runs the env-gated Postgres + MongoDB integration tests.
+# Requires POSTGRES_TEST_DSN (logical replication) and MONGO_TEST_URI (replica set).
+test-integration:
+	CGO_ENABLED=0 go test ./... -count=1 -timeout 300s
+
+# test-e2e runs the black-box binary tests against a live Postgres.
+# Requires POSTGRES_TEST_DSN (logical replication).
+test-e2e:
+	CGO_ENABLED=0 go test -tags e2e ./test/e2e/... -count=1 -timeout 300s -v
+
+# mutation runs gremlins over the core correctness packages. Config in .gremlins.yaml.
+mutation:
+	@for pkg in ./internal/router ./internal/eventlog ./internal/parser/pgoutput ./internal/backfill; do \
+		echo "=== gremlins $$pkg ==="; \
+		gremlins unleash $$pkg || exit 1; \
+	done
