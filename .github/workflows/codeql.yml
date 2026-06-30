@@ -9,8 +9,10 @@ on:
     # Weekly re-scan so newly published CodeQL queries catch existing code.
     - cron: "27 4 * * 1"
 
-# Advisory: findings surface in the Security tab; the job is not a required
-# check, so a finding does not block merges. See dependabot.yml / security.yml.
+# Blocking: findings surface in the Security tab and the "CodeQL" code-scanning
+# check fails on new error-level alerts. To enforce on merge, use a code-scanning
+# ruleset ("Require code scanning results") rather than a required status check —
+# the status check alone does not gate on CodeQL alerts. See security.yml.
 jobs:
   analyze:
     name: CodeQL (Go)
