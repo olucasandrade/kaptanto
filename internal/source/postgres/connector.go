@@ -251,6 +251,43 @@ func (c *PostgresConnector) AppendAndQueue(ctx context.Context, ev *event.Change
 	return nil
 }
 
+// AppendAndQueueBatch durably appends all events in evs to the event log in a
+// single transaction (via AppendBatch) and forwards each event to the events
+// channel. If AppendBatch fails, none of the events are forwarded and the error
+// is returned — callers must not advance their cursor past this batch (CHK-01).
+//
+// When eventLog is nil, AppendAndQueueBatch skips the durable write and
+// forwards all events directly (backward-compatible nil guard).
+func (c *PostgresConnector) AppendAndQueueBatch(ctx context.Context, evs []*event.ChangeEvent) error {
+	if len(evs) == 0 {
+		return nil
+	}
+	if c.eventLog != nil {
+		c.appendMu.Lock()
+		_, err := c.eventLog.AppendBatch(evs)
+		c.appendMu.Unlock()
+		if err != nil {
+			return fmt.Errorf("eventlog: append batch: %w", err)
+		}
+	}
+	if c.eventLog == nil {
+		// No durable log: events must be delivered in-order without drops.
+		for _, ev := range evs {
+			c.events <- ev
+		}
+		return nil
+	}
+	// Durable log path: non-blocking forward is safe — the router re-reads from
+	// eventLog.ReadPartition on the next poll and will pick up any missed sends.
+	for _, ev := range evs {
+		select {
+		case c.events <- ev:
+		default:
+		}
+	}
+	return nil
+}
+
 // Events returns the read-only channel on which ChangeEvents are emitted.
 // Callers should range over this channel concurrently with Run.
 func (c *PostgresConnector) Events() <-chan *event.ChangeEvent {
