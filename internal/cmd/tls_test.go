@@ -49,7 +49,11 @@ func generateSelfSignedCert(t *testing.T, dir string) (certFile, keyFile string)
 	if err != nil {
 		t.Fatalf("create cert file: %v", err)
 	}
-	defer cf.Close()
+	defer func() {
+		if err := cf.Close(); err != nil {
+			t.Errorf("close cert file: %v", err)
+		}
+	}()
 	if err := pem.Encode(cf, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
 		t.Fatalf("encode cert: %v", err)
 	}
@@ -62,7 +66,11 @@ func generateSelfSignedCert(t *testing.T, dir string) (certFile, keyFile string)
 	if err != nil {
 		t.Fatalf("create key file: %v", err)
 	}
-	defer kf.Close()
+	defer func() {
+		if err := kf.Close(); err != nil {
+			t.Errorf("close key file: %v", err)
+		}
+	}()
 	if err := pem.Encode(kf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER}); err != nil {
 		t.Fatalf("encode key: %v", err)
 	}
