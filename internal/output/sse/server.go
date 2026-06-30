@@ -17,7 +17,6 @@ import (
 // call does not trigger a wrong Content-Type header flush (SSE pitfall #1).
 type SSEServer struct {
 	router       *router.Router
-	cursorStore  router.ConsumerCursorStore
 	metrics      *observability.KaptantoMetrics
 	corsOrigin   string                       // allowed CORS origin; empty = no CORS header (no cross-origin access)
 	pingInterval time.Duration                // keepalive comment period; default 15s
@@ -34,7 +33,6 @@ type SSEServer struct {
 // pass-through (equivalent to no filter configured for any table).
 func NewSSEServer(
 	r *router.Router,
-	cs router.ConsumerCursorStore,
 	m *observability.KaptantoMetrics,
 	corsOrigin string,
 	pingInterval time.Duration,
@@ -46,7 +44,6 @@ func NewSSEServer(
 	}
 	return &SSEServer{
 		router:       r,
-		cursorStore:  cs,
 		metrics:      m,
 		corsOrigin:   corsOrigin,
 		pingInterval: pingInterval,
@@ -88,7 +85,7 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ops := filterNonEmpty(strings.Split(r.URL.Query().Get("operations"), ","))
 	filter := output.NewEventFilter(tables, ops)
 
-	consumer := NewSSEConsumer(consumerID, w, filter, s.cursorStore, s.metrics, s.rowFilters, s.colFilters)
+	consumer := NewSSEConsumer(consumerID, w, filter, s.metrics, s.rowFilters, s.colFilters)
 
 	// Last-Event-ID: consumerID is the resume key. The cursor store holds the
 	// persisted (partitionID, seq) from the prior connection's SaveCursor calls.

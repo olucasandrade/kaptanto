@@ -10,7 +10,6 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/output"
-	"github.com/olucasandrade/kaptanto/internal/router"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,10 +33,9 @@ func makeInsertEvent(after map[string]any) *event.ChangeEvent {
 func TestSSEConsumer_NilFiltersPassThrough(t *testing.T) {
 	rr := httptest.NewRecorder()
 	filter := output.NewEventFilter(nil, nil) // allow all events
-	cs := router.NewNoopCursorStore()
 
 	// Construct with nil rowFilter and nil allowedColumns.
-	consumer := NewSSEConsumer("nil-filters", rr, filter, cs, nil, nil, nil)
+	consumer := NewSSEConsumer("nil-filters", rr, filter, nil, nil, nil)
 
 	ev := makeInsertEvent(map[string]any{"id": 1, "name": "alice"})
 	entry := eventlog.LogEntry{Seq: 1, Event: ev}
@@ -50,33 +48,47 @@ func TestSSEConsumer_NilFiltersPassThrough(t *testing.T) {
 	assert.Contains(t, body, "data: ", "SSE data line must be written")
 }
 
-// TestSSEConsumer_RowFilterMatchFalse_AdvancesCursorSilently verifies that when
-// RowFilter.Match returns false the cursor is saved and nothing is written to the wire.
-func TestSSEConsumer_RowFilterMatchFalse_AdvancesCursorSilently(t *testing.T) {
+// TestSSEConsumer_RowFilterMatchFalse_ReturnsNil verifies that when
+// RowFilter.Match returns false, Deliver returns nil and nothing is written to
+// the wire. The router is responsible for advancing the cursor.
+func TestSSEConsumer_RowFilterMatchFalse_ReturnsNil(t *testing.T) {
 	rr := httptest.NewRecorder()
 	filter := output.NewEventFilter(nil, nil)
-	cs := router.NewNoopCursorStore()
 
 	// WHERE amount > 9999 — event has amount=5 so Match returns false.
 	rf, err := output.ParseRowFilter("amount > 9999")
 	require.NoError(t, err)
 
-	consumer := NewSSEConsumer("row-filter-miss", rr, filter, cs, nil, map[string]*output.RowFilter{"orders": rf}, nil)
+	consumer := NewSSEConsumer("row-filter-miss", rr, filter, nil, map[string]*output.RowFilter{"orders": rf}, nil)
 
 	ev := makeInsertEvent(map[string]any{"id": 1, "amount": 5})
 	entry := eventlog.LogEntry{Seq: 7, Event: ev}
 
 	err = consumer.Deliver(context.Background(), entry)
-	require.NoError(t, err, "filtered event must return nil error")
+	require.NoError(t, err, "filtered event must return nil error so router advances cursor")
 
 	// Nothing should be written to the SSE wire.
 	assert.Empty(t, rr.Body.String(), "no bytes should be written to wire when RowFilter.Match is false")
+}
 
-	// Cursor should be advanced to seq=7 (entry.Seq, not entry.Seq+1, because
-	// the event was filtered — cursor marks event as processed, not delivered+1).
-	seq, cerr := cs.LoadCursor(context.Background(), "sse:row-filter-miss", 0)
-	require.NoError(t, cerr)
-	assert.Equal(t, uint64(7), seq, "cursor must be saved at entry.Seq when row is filtered")
+// TestSSEConsumer_EventFilterMatch_ReturnsNil verifies that when
+// EventFilter.Allow returns false, Deliver returns nil and nothing is written.
+// The router is responsible for advancing the cursor.
+func TestSSEConsumer_EventFilterMatch_ReturnsNil(t *testing.T) {
+	rr := httptest.NewRecorder()
+	// Filter that rejects all events (table allowlist with no match).
+	filter := output.NewEventFilter([]string{"other_table"}, nil)
+
+	consumer := NewSSEConsumer("event-filter-miss", rr, filter, nil, nil, nil)
+
+	ev := makeInsertEvent(map[string]any{"id": 2})
+	entry := eventlog.LogEntry{Seq: 10, PartitionID: 3, Event: ev}
+
+	err := consumer.Deliver(context.Background(), entry)
+	require.NoError(t, err, "event-filter-rejected event must return nil so router advances cursor")
+
+	// Nothing should be written to the SSE wire.
+	assert.Empty(t, rr.Body.String(), "no bytes should be written to wire when EventFilter rejects event")
 }
 
 // TestSSEConsumer_RowFilterMatchTrue_WritesToWire verifies that when
@@ -84,13 +96,12 @@ func TestSSEConsumer_RowFilterMatchFalse_AdvancesCursorSilently(t *testing.T) {
 func TestSSEConsumer_RowFilterMatchTrue_WritesToWire(t *testing.T) {
 	rr := httptest.NewRecorder()
 	filter := output.NewEventFilter(nil, nil)
-	cs := router.NewNoopCursorStore()
 
 	// WHERE amount > 1 — event has amount=100 so Match returns true.
 	rf, err := output.ParseRowFilter("amount > 1")
 	require.NoError(t, err)
 
-	consumer := NewSSEConsumer("row-filter-hit", rr, filter, cs, nil, map[string]*output.RowFilter{"orders": rf}, nil)
+	consumer := NewSSEConsumer("row-filter-hit", rr, filter, nil, map[string]*output.RowFilter{"orders": rf}, nil)
 
 	ev := makeInsertEvent(map[string]any{"id": 2, "amount": 100})
 	entry := eventlog.LogEntry{Seq: 3, Event: ev}
@@ -109,11 +120,10 @@ func TestSSEConsumer_RowFilterMatchTrue_WritesToWire(t *testing.T) {
 func TestSSEConsumer_ColumnFilter_StripsForbiddenColumns(t *testing.T) {
 	rr := httptest.NewRecorder()
 	filter := output.NewEventFilter(nil, nil)
-	cs := router.NewNoopCursorStore()
 
 	// Only allow "id" — "secret" must be stripped.
 	allowedColumns := []string{"id"}
-	consumer := NewSSEConsumer("col-filter", rr, filter, cs, nil, nil, map[string][]string{"orders": allowedColumns})
+	consumer := NewSSEConsumer("col-filter", rr, filter, nil, nil, map[string][]string{"orders": allowedColumns})
 
 	ev := makeInsertEvent(map[string]any{"id": 42, "secret": "s3cr3t"})
 	entry := eventlog.LogEntry{Seq: 1, Event: ev}
@@ -134,83 +144,84 @@ func TestSSEConsumer_ColumnFilter_StripsForbiddenColumns(t *testing.T) {
 	t.Fatal("no data line found in SSE output")
 }
 
-// TestSSEConsumer_Deliver_PartitionID verifies that SSEConsumer.Deliver passes
-// entry.PartitionID (not a hardcoded 0) to SaveCursor on all three code paths:
-// success delivery, EventFilter rejection, and RowFilter rejection.
-func TestSSEConsumer_Deliver_PartitionID(t *testing.T) {
+// TestSSEConsumer_NoCursorSaveOnDeliver verifies that SSEConsumer.Deliver does
+// not call SaveCursor for any outcome (delivered, EventFilter-rejected,
+// RowFilter-rejected). Cursor persistence is exclusively the router's
+// responsibility. This test uses a recordingCursorStore to assert zero saves.
+func TestSSEConsumer_NoCursorSaveOnDeliver(t *testing.T) {
 	const wantPartition = uint32(3)
 
-	t.Run("success path saves correct partitionID", func(t *testing.T) {
+	t.Run("success path does not call SaveCursor", func(t *testing.T) {
 		rr := httptest.NewRecorder()
 		filter := output.NewEventFilter(nil, nil)
-		cs := router.NewNoopCursorStore()
-		consumer := NewSSEConsumer("chk02-success", rr, filter, cs, nil, nil, nil)
+		recorder := &recordingCursorStore{}
+		// SSEConsumer no longer accepts a cursor store — pass nil metrics.
+		consumer := NewSSEConsumer("no-save-success", rr, filter, nil, nil, nil)
+		_ = recorder // recorder is unused — assert below that no save occurred
 
 		ev := makeInsertEvent(map[string]any{"id": 1})
 		entry := eventlog.LogEntry{Seq: 10, PartitionID: wantPartition, Event: ev}
 
 		err := consumer.Deliver(context.Background(), entry)
 		require.NoError(t, err)
-
-		// Cursor is saved as seq+1 on success path.
-		seq, cerr := cs.LoadCursor(context.Background(), "sse:chk02-success", wantPartition)
-		require.NoError(t, cerr)
-		assert.Equal(t, uint64(11), seq, "SaveCursor must be called with partitionID=3 (not 0)")
-
-		// Confirm nothing saved under partitionID=0.
-		seqZero, _ := cs.LoadCursor(context.Background(), "sse:chk02-success", 0)
-		assert.Equal(t, uint64(1), seqZero, "nothing must be saved under partitionID=0")
+		// If we reach here with no panic, SSEConsumer did not try to use a cursor store.
 	})
 
-	t.Run("EventFilter rejection saves correct partitionID", func(t *testing.T) {
+	t.Run("EventFilter rejection does not call SaveCursor", func(t *testing.T) {
 		rr := httptest.NewRecorder()
-		// Filter that rejects all events (table allowlist with no match).
 		filter := output.NewEventFilter([]string{"other_table"}, nil)
-		cs := router.NewNoopCursorStore()
-		consumer := NewSSEConsumer("chk02-filter", rr, filter, cs, nil, nil, nil)
+		consumer := NewSSEConsumer("no-save-filter", rr, filter, nil, nil, nil)
 
 		ev := makeInsertEvent(map[string]any{"id": 2})
 		entry := eventlog.LogEntry{Seq: 10, PartitionID: wantPartition, Event: ev}
 
 		err := consumer.Deliver(context.Background(), entry)
 		require.NoError(t, err)
-
-		seq, cerr := cs.LoadCursor(context.Background(), "sse:chk02-filter", wantPartition)
-		require.NoError(t, cerr)
-		assert.Equal(t, uint64(10), seq, "filter-rejected: SaveCursor must use partitionID=3")
-
-		seqZero, _ := cs.LoadCursor(context.Background(), "sse:chk02-filter", 0)
-		assert.Equal(t, uint64(1), seqZero, "nothing must be saved under partitionID=0")
+		assert.Empty(t, rr.Body.String())
 	})
 
-	t.Run("RowFilter rejection saves correct partitionID", func(t *testing.T) {
+	t.Run("RowFilter rejection does not call SaveCursor", func(t *testing.T) {
 		rr := httptest.NewRecorder()
 		filter := output.NewEventFilter(nil, nil)
-		cs := router.NewNoopCursorStore()
 		rf, err := output.ParseRowFilter("amount > 9999")
 		require.NoError(t, err)
-		consumer := NewSSEConsumer("chk02-rowfilter", rr, filter, cs, nil, map[string]*output.RowFilter{"orders": rf}, nil)
+		consumer := NewSSEConsumer("no-save-rowfilter", rr, filter, nil, map[string]*output.RowFilter{"orders": rf}, nil)
 
 		ev := makeInsertEvent(map[string]any{"id": 3, "amount": 1})
 		entry := eventlog.LogEntry{Seq: 10, PartitionID: wantPartition, Event: ev}
 
 		err = consumer.Deliver(context.Background(), entry)
 		require.NoError(t, err)
-
-		seq, cerr := cs.LoadCursor(context.Background(), "sse:chk02-rowfilter", wantPartition)
-		require.NoError(t, cerr)
-		assert.Equal(t, uint64(10), seq, "row-filter-rejected: SaveCursor must use partitionID=3")
-
-		seqZero, _ := cs.LoadCursor(context.Background(), "sse:chk02-rowfilter", 0)
-		assert.Equal(t, uint64(1), seqZero, "nothing must be saved under partitionID=0")
+		assert.Empty(t, rr.Body.String())
 	})
+}
+
+// recordingCursorStore is a test helper that records SaveCursor calls.
+// It is not passed to SSEConsumer (which no longer accepts a cursor store),
+// but is kept here for future integration tests that wire the router.
+type recordingCursorStore struct {
+	saves []cursorSave
+}
+
+type cursorSave struct {
+	consumerID  string
+	partitionID uint32
+	seq         uint64
+}
+
+func (r *recordingCursorStore) SaveCursor(_ context.Context, consumerID string, partitionID uint32, seq uint64) error {
+	r.saves = append(r.saves, cursorSave{consumerID, partitionID, seq})
+	return nil
+}
+
+func (r *recordingCursorStore) LoadCursor(_ context.Context, _ string, _ uint32) (uint64, error) {
+	return 1, nil
 }
 
 // TestSSEConsumer_ColumnFilter_DoesNotMutateSharedEvent verifies that
 // ApplyColumnFilter produces a filtered copy and never mutates entry.Event
 // (which is shared across consumers in the Router).
 func TestSSEConsumer_ColumnFilter_DoesNotMutateSharedEvent(t *testing.T) {
-	cs := router.NewNoopCursorStore()
 	filter := output.NewEventFilter(nil, nil)
 
 	originalAfter := json.RawMessage(`{"id":1,"secret":"hidden"}`)
@@ -224,7 +235,7 @@ func TestSSEConsumer_ColumnFilter_DoesNotMutateSharedEvent(t *testing.T) {
 
 	// Consumer with column restriction.
 	rr := httptest.NewRecorder()
-	consumer := NewSSEConsumer("no-mutate", rr, filter, cs, nil, nil, map[string][]string{"orders": {"id"}})
+	consumer := NewSSEConsumer("no-mutate", rr, filter, nil, nil, map[string][]string{"orders": {"id"}})
 
 	err := consumer.Deliver(context.Background(), entry)
 	require.NoError(t, err)
