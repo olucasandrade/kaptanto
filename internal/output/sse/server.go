@@ -17,7 +17,6 @@ import (
 // call does not trigger a wrong Content-Type header flush (SSE pitfall #1).
 type SSEServer struct {
 	router       *router.Router
-	cursorStore  router.ConsumerCursorStore
 	metrics      *observability.KaptantoMetrics
 	corsOrigin   string                       // allowed CORS origin; empty = no CORS header (no cross-origin access)
 	pingInterval time.Duration                // keepalive comment period; default 15s
@@ -34,7 +33,6 @@ type SSEServer struct {
 // pass-through (equivalent to no filter configured for any table).
 func NewSSEServer(
 	r *router.Router,
-	cs router.ConsumerCursorStore,
 	m *observability.KaptantoMetrics,
 	corsOrigin string,
 	pingInterval time.Duration,
@@ -46,7 +44,6 @@ func NewSSEServer(
 	}
 	return &SSEServer{
 		router:       r,
-		cursorStore:  cs,
 		metrics:      m,
 		corsOrigin:   corsOrigin,
 		pingInterval: pingInterval,

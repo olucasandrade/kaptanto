@@ -94,16 +94,15 @@ type routerIface interface {
 // testSSEServer is a test-only variant of SSEServer that accepts a routerIface.
 type testSSEServer struct {
 	r            routerIface
-	cursorStore  router.ConsumerCursorStore
 	corsOrigin   string
 	pingInterval time.Duration
 }
 
-func newTestSSEServer(r routerIface, cs router.ConsumerCursorStore, corsOrigin string, pingInterval time.Duration) *testSSEServer {
+func newTestSSEServer(r routerIface, corsOrigin string, pingInterval time.Duration) *testSSEServer {
 	if pingInterval == 0 {
 		pingInterval = 15 * time.Second
 	}
-	return &testSSEServer{r: r, cursorStore: cs, corsOrigin: corsOrigin, pingInterval: pingInterval}
+	return &testSSEServer{r: r, corsOrigin: corsOrigin, pingInterval: pingInterval}
 }
 
 func (s *testSSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +156,7 @@ func newInMemoryDB(t *testing.T) *sql.DB {
 func TestSSEServer_ContentTypeHeader(t *testing.T) {
 	cs := router.NewNoopCursorStore()
 	fr := newFakeRouter(cs)
-	srv := httptest.NewServer(newTestSSEServer(fr, cs, "*", time.Hour))
+	srv := httptest.NewServer(newTestSSEServer(fr, "*", time.Hour))
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -175,7 +174,7 @@ func TestSSEServer_ContentTypeHeader(t *testing.T) {
 func TestSSEServer_CORSHeader(t *testing.T) {
 	cs := router.NewNoopCursorStore()
 	fr := newFakeRouter(cs)
-	srv := httptest.NewServer(newTestSSEServer(fr, cs, "https://example.com", time.Hour))
+	srv := httptest.NewServer(newTestSSEServer(fr, "https://example.com", time.Hour))
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -191,11 +190,10 @@ func TestSSEServer_CORSHeader(t *testing.T) {
 
 // Test 3: SSEServer sends ": ping\n\n" on the ping interval
 func TestSSEServer_PingKeepalive(t *testing.T) {
-	cs := router.NewNoopCursorStore()
 	// Use a router that doesn't deliver events so we don't get SSE data mixed with pings.
 	fr := &fakeRouterNoDeliver{}
 	pingInterval := 50 * time.Millisecond
-	srv := httptest.NewServer(newTestSSEServer(fr, cs, "*", pingInterval))
+	srv := httptest.NewServer(newTestSSEServer(fr, "*", pingInterval))
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -221,9 +219,8 @@ func TestSSEServer_PingKeepalive(t *testing.T) {
 
 // Test 4: When client context is cancelled, ServeHTTP returns (no goroutine leak)
 func TestSSEServer_ContextCancellation(t *testing.T) {
-	cs := router.NewNoopCursorStore()
 	fr := &fakeRouterNoDeliver{}
-	srv := httptest.NewServer(newTestSSEServer(fr, cs, "*", time.Hour))
+	srv := httptest.NewServer(newTestSSEServer(fr, "*", time.Hour))
 	defer srv.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -252,9 +249,8 @@ func TestSSEServer_ContextCancellation(t *testing.T) {
 
 // Test 5: Two concurrent GET /stream requests each receive their own SSEConsumer
 func TestSSEServer_IndependentConsumers(t *testing.T) {
-	cs := router.NewNoopCursorStore()
 	fr := &fakeRouterNoDeliver{}
-	srv := httptest.NewServer(newTestSSEServer(fr, cs, "*", time.Hour))
+	srv := httptest.NewServer(newTestSSEServer(fr, "*", time.Hour))
 	defer srv.Close()
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
@@ -377,7 +373,7 @@ func realServerCORS(t *testing.T, corsOrigin string) string {
 	// A short ping interval makes the handler emit a keepalive comment, which
 	// flushes the response headers so the client's Do() returns (no events are
 	// delivered here because Router.Run is never started).
-	srv := httptest.NewServer(NewSSEServer(rtr, cs, nil, corsOrigin, 20*time.Millisecond, nil, nil))
+	srv := httptest.NewServer(NewSSEServer(rtr, nil, corsOrigin, 20*time.Millisecond, nil, nil))
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
