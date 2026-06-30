@@ -82,6 +82,9 @@ func NewPubSubSinkConsumer(id string, cfg config.PubSubSinkConfig, clientOpts ..
 
 	// 2. Build client options: add CredentialsFile if specified (else ADC is used).
 	if cfg.CredentialsFile != "" {
+		// WithCredentialsFile is deprecated upstream, but an explicit key-file
+		// path is a supported sink config; ADC remains the default when unset.
+		//nolint:staticcheck // SA1019: deliberate support for an explicit credentials file
 		clientOpts = append(clientOpts, option.WithCredentialsFile(cfg.CredentialsFile))
 	}
 
@@ -268,5 +271,5 @@ func (c *PubSubSinkConsumer) Close() {
 	for _, pub := range pubs {
 		pub.Stop() // blocks until buffered messages are sent or publisher fails
 	}
-	c.client.Close() // then close the shared gRPC connection pool
+	_ = c.client.Close() // then close the shared gRPC connection pool
 }

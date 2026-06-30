@@ -12,7 +12,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the kaptanto version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), version.String())
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), version.String())
 		},
 	}
 }

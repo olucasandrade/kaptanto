@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
-	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	mongodb "github.com/olucasandrade/kaptanto/internal/source/mongodb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,31 +28,6 @@ func (m *mockWatermarkChecker) ShouldEmit(_ context.Context, _ string, pk json.R
 	}
 	return true, nil
 }
-
-// fakeSnapshotEventLog is an EventLog that records appended events.
-type fakeSnapshotEventLog struct {
-	appended []*event.ChangeEvent
-}
-
-func (f *fakeSnapshotEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
-	f.appended = append(f.appended, ev)
-	return uint64(len(f.appended)), nil
-}
-
-func (f *fakeSnapshotEventLog) ReadPartition(_ context.Context, _ uint32, _ uint64, _ int) ([]eventlog.LogEntry, error) {
-	return nil, nil
-}
-
-func (f *fakeSnapshotEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
-	seqs := make([]uint64, len(evs))
-	for i, ev := range evs {
-		f.appended = append(f.appended, ev)
-		seqs[i] = uint64(len(f.appended))
-	}
-	return seqs, nil
-}
-
-func (f *fakeSnapshotEventLog) Close() error { return nil }
 
 // buildRawDoc builds a minimal bson.Raw document with an _id and a field.
 func buildRawDoc(idHex string, field, val string) bson.Raw {
