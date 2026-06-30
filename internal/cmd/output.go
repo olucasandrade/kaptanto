@@ -160,7 +160,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("nats sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "nats", sink, rtr, metrics, healthProbes), nil
+		return buildSinkServer(cfg.Port, "nats", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
 	case "sqs":
 		if cfg.Sinks.SQS == nil {
 			return nil, fmt.Errorf("--output sqs requires a sinks.sqs block in config (queue-url, region)")
@@ -169,7 +169,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("sqs sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "sqs", sink, rtr, metrics, healthProbes), nil
+		return buildSinkServer(cfg.Port, "sqs", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
 	case "kafka":
 		if cfg.Sinks.Kafka == nil {
 			return nil, fmt.Errorf("--output kafka requires a sinks.kafka block in config (bootstrap-servers, topic-template)")
@@ -178,7 +178,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("kafka sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "kafka", sink, rtr, metrics, healthProbes), nil
+		return buildSinkServer(cfg.Port, "kafka", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
 	case "pubsub":
 		if cfg.Sinks.PubSub == nil {
 			return nil, fmt.Errorf("--output pubsub requires a sinks.pubsub block in config (project-id, topic-id)")
@@ -187,7 +187,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("pubsub sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "pubsub", sink, rtr, metrics, healthProbes), nil
+		return buildSinkServer(cfg.Port, "pubsub", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
 	case "rabbitmq":
 		if cfg.Sinks.RabbitMQ == nil {
 			return nil, fmt.Errorf("--output rabbitmq requires a sinks.rabbitmq block in config (url, exchange)")
@@ -196,7 +196,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("rabbitmq sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "rabbitmq", sink, rtr, metrics, healthProbes), nil
+		return buildSinkServer(cfg.Port, "rabbitmq", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
 	default:
 		return nil, fmt.Errorf("unknown output mode %q: valid modes are stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq", cfg.Output)
 	}
@@ -320,13 +320,21 @@ func buildSinkServer(
 	rtr *router.Router,
 	metrics *observability.KaptantoMetrics,
 	healthProbes []observability.HealthProbe,
+	authToken string,
 ) func(context.Context) error {
 	sink.SetMetrics(metrics)
 	rtr.Register(sink)
 	probes := append(healthProbes, observability.HealthProbe{Name: name, Check: sink.Ping})
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", metrics.Handler())
-	mux.Handle("/healthz", observability.NewHealthHandler(probes))
+	var metricsH, healthH http.Handler
+	metricsH = metrics.Handler()
+	healthH = observability.NewHealthHandler(probes)
+	if authToken != "" {
+		metricsH = auth.Middleware(authToken, metricsH)
+		healthH = auth.Middleware(authToken, healthH)
+	}
+	mux.Handle("/metrics", metricsH)
+	mux.Handle("/healthz", healthH)
 	srv := newHTTPServer(fmt.Sprintf(":%d", port), mux)
 	return func(ctx context.Context) error {
 		go func() {

@@ -31,10 +31,10 @@ func CheckBearer(provided, expected string) bool {
 // a different scheme, or has no token part.
 func ExtractBearerHTTP(r *http.Request) string {
 	hdr := r.Header.Get("Authorization")
-	if !strings.HasPrefix(hdr, "Bearer ") {
+	if len(hdr) < len("Bearer ") || !strings.EqualFold(hdr[:len("Bearer ")], "Bearer ") {
 		return ""
 	}
-	return strings.TrimPrefix(hdr, "Bearer ")
+	return hdr[len("Bearer "):]
 }
 
 // ExtractBearerGRPC returns the bearer token from the gRPC incoming metadata
@@ -50,8 +50,8 @@ func ExtractBearerGRPC(ctx context.Context) string {
 		return ""
 	}
 	v := vals[0]
-	if strings.HasPrefix(v, "Bearer ") {
-		return strings.TrimPrefix(v, "Bearer ")
+	if len(v) >= len("Bearer ") && strings.EqualFold(v[:len("Bearer ")], "Bearer ") {
+		return v[len("Bearer "):]
 	}
 	return v
 }
