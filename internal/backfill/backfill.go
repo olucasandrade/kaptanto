@@ -510,9 +510,18 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 				return fmt.Errorf("save state after batch: %w", saveErr)
 			}
 		} else {
-			// Persist end-of-page state (status + ProcessedRows) even when
-			// the batch path already advanced the cursor — this records the
-			// updated ProcessedRows count for crash-resume accounting.
+			// Advance cursor to the last SCANNED PK (including watermark-skipped
+			// rows) so the next page query does not re-scan rows that were already
+			// evaluated and skipped. flushEventBuf only advances to bufLastPKValues
+			// (last emitted PK), which can lag behind when trailing rows are skipped.
+			if lastPKValues != nil {
+				cursor.LastPK = lastPKValues
+				cursorJSON, marshalErr := json.Marshal(lastPKValues)
+				if marshalErr == nil {
+					state.CursorKey = cursorJSON
+				}
+			}
+			// Persist end-of-page state (status + ProcessedRows).
 			if saveErr := b.store.SaveState(ctx, state); saveErr != nil {
 				return fmt.Errorf("save state after batch: %w", saveErr)
 			}

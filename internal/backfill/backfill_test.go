@@ -613,7 +613,9 @@ func TestNewBackfillEngineWithBatch_StreamOnly(t *testing.T) {
 		idGen,
 		bl.appendSingle,
 		bl.appendBatch,
-		func(_ context.Context) (*pgx.Conn, error) { return nil, nil },
+		func(_ context.Context) (*pgx.Conn, error) {
+			return nil, fmt.Errorf("unexpected openConnFn call in stream_only test")
+		},
 	)
 
 	require.NoError(t, eng.Run(context.Background()))
@@ -654,7 +656,9 @@ func TestNewBackfillEngineWithBatch_HasPendingWhenNoState(t *testing.T) {
 		[]backfill.BackfillConfig{cfg},
 		store, idGen,
 		bl.appendSingle, bl.appendBatch,
-		func(_ context.Context) (*pgx.Conn, error) { return nil, nil },
+		func(_ context.Context) (*pgx.Conn, error) {
+			return nil, fmt.Errorf("unexpected openConnFn call in HasPendingBackfills test")
+		},
 	)
 
 	assert.True(t, eng.HasPendingBackfills(), "first-run snapshot_and_stream should report pending backfills")

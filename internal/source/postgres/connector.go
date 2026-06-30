@@ -265,11 +265,19 @@ func (c *PostgresConnector) AppendAndQueueBatch(ctx context.Context, evs []*even
 			return fmt.Errorf("eventlog: append batch: %w", err)
 		}
 	}
+	if c.eventLog == nil {
+		// No durable log: events must be delivered in-order without drops.
+		for _, ev := range evs {
+			c.events <- ev
+		}
+		return nil
+	}
+	// Durable log path: non-blocking forward is safe — the router re-reads from
+	// eventLog.ReadPartition on the next poll and will pick up any missed sends.
 	for _, ev := range evs {
 		select {
 		case c.events <- ev:
 		default:
-			// Router reads from eventLog.ReadPartition; drop is safe.
 		}
 	}
 	return nil
