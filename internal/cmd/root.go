@@ -137,6 +137,7 @@ func ensureDataDir(dir string) error {
 	return os.MkdirAll(dir, 0o700)
 }
 
+//nolint:gocyclo // pipeline assembly wires many optional components; splitting it would obscure the linear startup sequence. Tracked for incremental refactor.
 func runPipeline(ctx context.Context, cfg *config.Config) error {
 	slog.Info("kaptanto starting",
 		"source", redactDSN(cfg.Source),
@@ -171,7 +172,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("ha: open postgres checkpoint store: %w", err)
 		}
-		defer pgStore.Close()
+		defer func() { _ = pgStore.Close() }()
 	}
 
 	if err := ensureDataDir(cfg.DataDir); err != nil {
@@ -216,7 +217,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("open nats event log: %w", err)
 		}
-		defer natsEl.Close()
+		defer func() { _ = natsEl.Close() }()
 		el = natsEl
 		elPing = natsEl.Ping
 
@@ -230,7 +231,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("open event log: %w", err)
 		}
-		defer badgerEl.Close()
+		defer func() { _ = badgerEl.Close() }()
 		el = badgerEl
 		elPing = badgerEl.Ping
 	}
@@ -245,7 +246,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("open checkpoint store: %w", err)
 		}
-		defer sqliteStore.Close()
+		defer func() { _ = sqliteStore.Close() }()
 		ckStore = sqliteStore
 		ckProbe = sqliteStore.Ping
 	}
@@ -259,7 +260,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("open postgres cursor store: %w", err)
 		}
-		defer pgCursorStore.Close()
+		defer func() { _ = pgCursorStore.Close() }()
 		cursorStore = pgCursorStore
 		cursorPing = func() error { return pgCursorStore.Ping(context.Background()) }
 		cursorSetMetrics = pgCursorStore.SetMetrics
@@ -269,7 +270,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("open cursor db: %w", err)
 		}
-		defer cursorDB.Close()
+		defer func() { _ = cursorDB.Close() }()
 		for _, pragma := range []string{
 			"PRAGMA journal_mode=WAL;",
 			"PRAGMA synchronous=NORMAL;",
@@ -306,13 +307,13 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		if hbErr != nil {
 			return fmt.Errorf("open node heartbeater: %w", hbErr)
 		}
-		defer heartbeater.Close(context.Background())
+		defer func() { _ = heartbeater.Close(context.Background()) }()
 
 		partStore, psErr := cluster.OpenPartitionStore(ctx, cfg.ClusterDSN, heartbeater.NodeID())
 		if psErr != nil {
 			return fmt.Errorf("open partition store: %w", psErr)
 		}
-		defer partStore.Close(context.Background())
+		defer func() { _ = partStore.Close(context.Background()) }()
 
 		pm = cluster.NewPartitionManager(partStore, heartbeater, nil, 5*time.Second)
 		cursorStore = cluster.NewEpochCursorStore(cursorStore, pm)
@@ -390,14 +391,14 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("open postgres backfill store: %w", err)
 		}
-		defer pgBkStore.Close()
+		defer func() { _ = pgBkStore.Close() }()
 		bkStore = pgBkStore
 	} else {
 		sqliteBkStore, err := backfill.OpenSQLiteBackfillStore(filepath.Join(cfg.DataDir, "backfill.db"))
 		if err != nil {
 			return fmt.Errorf("open backfill store: %w", err)
 		}
-		defer sqliteBkStore.Close()
+		defer func() { _ = sqliteBkStore.Close() }()
 		bkStore = sqliteBkStore
 	}
 

@@ -149,7 +149,7 @@ func newInMemoryDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -166,7 +166,7 @@ func TestSSEServer_ContentTypeHeader(t *testing.T) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"?consumer=test1", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
 }
@@ -184,7 +184,7 @@ func TestSSEServer_CORSHeader(t *testing.T) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"?consumer=test2", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, "https://example.com", resp.Header.Get("Access-Control-Allow-Origin"))
 }
@@ -204,7 +204,7 @@ func TestSSEServer_PingKeepalive(t *testing.T) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"?consumer=test3", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read lines until we see a ping comment or timeout.
 	scanner := bufio.NewScanner(resp.Body)
@@ -234,7 +234,7 @@ func TestSSEServer_ContextCancellation(t *testing.T) {
 		defer close(done)
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}()
 
@@ -269,14 +269,14 @@ func TestSSEServer_IndependentConsumers(t *testing.T) {
 	go func() {
 		resp, err := http.DefaultClient.Do(req1)
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		errs <- err
 	}()
 	go func() {
 		resp, err := http.DefaultClient.Do(req2)
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		errs <- err
 	}()
@@ -386,7 +386,7 @@ func realServerCORS(t *testing.T, corsOrigin string) string {
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"?consumer=cors-test", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.Header.Get("Access-Control-Allow-Origin")
 }
 

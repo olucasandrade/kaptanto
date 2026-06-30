@@ -17,7 +17,29 @@ func TestSQLiteStore_OpenCreatesSchema(t *testing.T) {
 	store, err := checkpoint.Open(dbPath)
 	require.NoError(t, err, "Open should succeed")
 	require.NotNil(t, store)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
+}
+
+func TestSQLiteStore_Ping(t *testing.T) {
+	store, err := checkpoint.Open(filepath.Join(t.TempDir(), "checkpoint.db"))
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	assert.NoError(t, store.Ping(), "Ping on an open store should succeed")
+}
+
+func TestSQLiteStore_OpenInvalidPath(t *testing.T) {
+	// A path whose parent directory does not exist cannot be opened.
+	_, err := checkpoint.Open(filepath.Join(t.TempDir(), "no-such-dir", "checkpoint.db"))
+	require.Error(t, err, "Open should fail when the directory does not exist")
+}
+
+func TestSQLiteStore_LoadAfterClose(t *testing.T) {
+	store, err := checkpoint.Open(filepath.Join(t.TempDir(), "checkpoint.db"))
+	require.NoError(t, err)
+	require.NoError(t, store.Close())
+	// Operations after Close must surface an error, not panic.
+	_, err = store.Load(context.Background(), "source-1")
+	require.Error(t, err)
 }
 
 func TestSQLiteStore_SaveAndLoad(t *testing.T) {
@@ -26,7 +48,7 @@ func TestSQLiteStore_SaveAndLoad(t *testing.T) {
 
 	store, err := checkpoint.Open(dbPath)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	const sourceID = "source-1"
@@ -46,7 +68,7 @@ func TestSQLiteStore_SaveIsIdempotent(t *testing.T) {
 
 	store, err := checkpoint.Open(dbPath)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	const sourceID = "source-1"
@@ -70,7 +92,7 @@ func TestSQLiteStore_LoadNonexistentSourceID(t *testing.T) {
 
 	store, err := checkpoint.Open(dbPath)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	got, err := store.Load(ctx, "nonexistent-source")
@@ -95,7 +117,7 @@ func TestSQLiteStore_OpenExistingDB_ReturnsStoredLSN(t *testing.T) {
 	// Re-open the same file; it must return the stored LSN, not zero.
 	store2, err := checkpoint.Open(dbPath)
 	require.NoError(t, err)
-	defer store2.Close()
+	defer func() { _ = store2.Close() }()
 
 	got, err := store2.Load(ctx, "pg-main")
 	require.NoError(t, err)

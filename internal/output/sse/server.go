@@ -112,8 +112,8 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-pingTicker.C:
-			fmt.Fprint(w, ": ping\n\n")
-			rc.Flush() // ignore error; next Deliver will surface the broken pipe
+			_, _ = fmt.Fprint(w, ": ping\n\n")
+			_ = rc.Flush() // ignore error; next Deliver will surface the broken pipe
 		}
 	}
 }
