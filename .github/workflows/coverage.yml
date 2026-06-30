@@ -15,9 +15,17 @@ jobs:
     name: Test coverage threshold
     runs-on: ubuntu-latest
     env:
-      # In-repo gate. Current baseline over internal/ + cmd/ is ~54.3%; the gate
-      # sits a few points below to absorb noise. Ratchet upward over time.
-      COVERAGE_THRESHOLD: "50.0"
+      # In-repo gate over UNIT-TESTABLE code. Excluded from the metric because
+      # they need live services or a running binary and are covered by the
+      # integration/e2e jobs instead:
+      #   - infra-bound pkgs: ha (advisory-lock leader election), the Postgres/
+      #     Mongo source connectors, the RabbitMQ sink, the cluster partition mgr
+      #   - the cmd/ assembly layer (the e2e job runs the real binary)
+      #   - generated *.pb.go and the main() entrypoint
+      # Ratchet upward over time.
+      COVERAGE_THRESHOLD: "70.0"
+      # ERE of profile lines excluded from the threshold computation.
+      COVERAGE_EXCLUDE: 'internal/(ha|source/postgres|source/mongodb|output/rabbitmq|cluster|cmd)/|cmd/kaptanto/main\.go|\.pb\.go:'
     steps:
       - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
         with:
@@ -39,8 +47,12 @@ jobs:
 
       - name: Enforce coverage threshold
         run: |
-          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
-          echo "Total coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
+          # Drop infra-bound / generated / entrypoint lines, then recompute total.
+          # Keep the "mode:" header (line 1); filter only the body (line 2+).
+          head -1 coverage.out > coverage.filtered.out
+          tail -n +2 coverage.out | grep -vE "$COVERAGE_EXCLUDE" >> coverage.filtered.out
+          total=$(go tool cover -func=coverage.filtered.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
+          echo "Unit-testable coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
           awk -v t="$total" -v min="$COVERAGE_THRESHOLD" \
             'BEGIN { if (t+0 < min+0) { printf "FAIL: coverage %.1f%% is below threshold %.1f%%\n", t, min; exit 1 } else { printf "PASS: coverage %.1f%% meets threshold %.1f%%\n", t, min } }'
 

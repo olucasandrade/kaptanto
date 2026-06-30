@@ -22,4 +22,5 @@ func decodeAndSerializeRow(
 // toastHandle is the pure-Go TOAST cache reference (the *TOASTCache itself).
 // Under the !rust tag, Parser.toastHandle is unused — Parser.toast is used directly.
 // This type alias lets parser.go compile under both tags without ifdefs.
+//nolint:unused // used under the `rust` build tag; unused only in the pure-Go build.
 type toastHandle = *TOASTCache

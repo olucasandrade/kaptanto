@@ -37,15 +37,15 @@ const (
 func startFakeServer(t *testing.T) (*pstest.Server, *pubsub.Client) {
 	t.Helper()
 	srv := pstest.NewServer()
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 
 	client, err := pubsub.NewClient(context.Background(), testProject, option.WithGRPCConn(conn))
 	require.NoError(t, err)
-	t.Cleanup(func() { client.Close() })
+	t.Cleanup(func() { _ = client.Close() })
 
 	return srv, client
 }
@@ -82,7 +82,7 @@ func makeConsumerWithFakeServer(t *testing.T, srv *pstest.Server, projectID, top
 
 	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 
 	cfg := config.PubSubSinkConfig{
 		ProjectID: projectID,
@@ -199,7 +199,7 @@ func TestPubSubSinkConsumer_Close(t *testing.T) {
 
 	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	cfg := config.PubSubSinkConfig{
 		ProjectID: testProject,
@@ -243,7 +243,7 @@ func TestPubSubSinkConsumer_PerTableRouting(t *testing.T) {
 
 	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 
 	cfg := config.PubSubSinkConfig{
 		ProjectID:     testProject,
@@ -282,7 +282,7 @@ func TestPubSubSinkConsumer_PoolReusesSamePublisher(t *testing.T) {
 
 	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 
 	cfg := config.PubSubSinkConfig{
 		ProjectID:     testProject,
@@ -337,7 +337,7 @@ func TestPubSubSinkConsumer_CloseDrainsAllPublishers(t *testing.T) {
 
 	// Close must not panic — it must drain all 2 pooled publishers.
 	assert.NotPanics(t, func() { c.Close() })
-	assert.NotPanics(t, func() { conn.Close() })
+	assert.NotPanics(t, func() { _ = conn.Close() })
 }
 
 // TestPubSubSinkConsumer_Deliver_EmptyTemplateResult verifies that Deliver returns a
@@ -349,7 +349,7 @@ func TestPubSubSinkConsumer_Deliver_EmptyTemplateResult(t *testing.T) {
 
 	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 
 	// TopicTemplate that always renders to an empty string after TrimSpace.
 	cfg := config.PubSubSinkConfig{
