@@ -35,7 +35,7 @@ func makeEvent(idempotencyKey string, keyJSON string) *event.ChangeEvent {
 func TestBadgerEventLog_AppendAndRead(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	ev := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
 	seq, err := el.Append(ev)
@@ -59,12 +59,51 @@ func TestBadgerEventLog_AppendAndRead(t *testing.T) {
 	assert.True(t, found, "event should be retrievable from ReadPartition")
 }
 
+func TestBadgerEventLog_AppendBatch(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	// Empty batch is a no-op.
+	seqs, err := el.AppendBatch(nil)
+	require.NoError(t, err)
+	assert.Nil(t, seqs)
+
+	evs := []*event.ChangeEvent{
+		makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`),
+		makeEvent("src:public.t:2:insert:0/2", `{"id": 2}`),
+		makeEvent("src:public.t:3:insert:0/3", `{"id": 3}`),
+	}
+	seqs, err = el.AppendBatch(evs)
+	require.NoError(t, err)
+	require.Len(t, seqs, 3)
+	for i, s := range seqs {
+		assert.Greater(t, s, uint64(0), "seq[%d] should be > 0", i)
+	}
+
+	// Re-appending the same batch returns the duplicate sentinel (0) for each.
+	dupSeqs, err := el.AppendBatch(evs)
+	require.NoError(t, err)
+	require.Len(t, dupSeqs, 3)
+	for i, s := range dupSeqs {
+		assert.Equal(t, uint64(0), s, "duplicate seq[%d] should be 0 (LOG-03)", i)
+	}
+}
+
+func TestBadgerEventLog_Ping(t *testing.T) {
+	// 64 partitions: the canonical topology (BKF-02 FNV-1a hashing contract).
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+	assert.NoError(t, el.Ping(), "Ping on an open event log should succeed")
+}
+
 // TestBadgerEventLog_Dedup verifies that a second Append with the same IdempotencyKey
 // is silently skipped and ReadPartition returns exactly one entry (LOG-03).
 func TestBadgerEventLog_Dedup(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	ev := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
 
@@ -97,7 +136,7 @@ func TestBadgerEventLog_Dedup(t *testing.T) {
 func TestBadgerEventLog_Partitioning(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	ev1a := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
 	ev1b := makeEvent("src:public.t:1:insert:0/2", `{"id": 1}`) // same key, different op+pos
@@ -151,7 +190,7 @@ func TestBadgerEventLog_Partitioning(t *testing.T) {
 func TestBadgerEventLog_TTLExpiry(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 64, 1*time.Nanosecond)
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	ev := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
 	_, err = el.Append(ev)
@@ -175,7 +214,7 @@ func TestBadgerEventLog_TTLExpiry(t *testing.T) {
 func TestBadgerEventLog_ReadPartitionFromSeq(t *testing.T) {
 	el, err := eventlog.Open(t.TempDir(), 1, time.Hour) // 1 partition: all events go to partition 0
 	require.NoError(t, err)
-	defer el.Close()
+	defer func() { _ = el.Close() }()
 
 	// Write 5 events to partition 0 (1 partition so everything goes there).
 	var seqs []uint64
