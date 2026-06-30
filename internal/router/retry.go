@@ -169,6 +169,21 @@ func (rs *RetryScheduler) ForceRetryNow(c Consumer, groupKey string) {
 	queue[0].NextRetryAt = time.Now().Add(-time.Second)
 }
 
+// HasBlocked reports whether any consumer currently has at least one blocked
+// message group. Router.dispatch uses this as a cheap pre-check: when false,
+// the groupKey string conversion and per-consumer IsBlocked calls are skipped
+// entirely, eliminating an allocation on the hot path for the common case.
+func (rs *RetryScheduler) HasBlocked() bool {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	for _, s := range rs.states {
+		if len(s.blockedGroups) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // IsBlocked reports whether the given (consumerID, groupKey) pair is currently
 // in the blocked state managed by this RetryScheduler. Router.dispatch calls
 // this to skip events whose message group is awaiting a retry attempt.

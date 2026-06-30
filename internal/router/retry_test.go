@@ -108,6 +108,35 @@ func TestRetrySchedulerRetriesOnFailure(t *testing.T) {
 	}
 }
 
+// TestHasBlocked verifies the cheap pre-check method added to RetryScheduler:
+//   - Returns false on a fresh scheduler (no consumers registered).
+//   - Returns true once a blocked group is added.
+//   - Returns false again after the blocked group is cleared by a successful Tick.
+func TestHasBlocked(t *testing.T) {
+	rs := router.NewRetryScheduler()
+	if rs.HasBlocked() {
+		t.Fatal("expected HasBlocked=false on empty scheduler")
+	}
+
+	consumer := &countingConsumer{id: "hb-c1", failFor: 0}
+	entry := makeEntry(1, `{"id":1}`)
+	rs.AddBlocked(consumer, "key", &router.RetryRecord{
+		Entry:       entry,
+		Attempts:    1,
+		NextRetryAt: time.Now().Add(-time.Second),
+		ConsumerID:  "hb-c1",
+	})
+	if !rs.HasBlocked() {
+		t.Fatal("expected HasBlocked=true after AddBlocked")
+	}
+
+	// Tick with failFor=0 → consumer succeeds → group cleared.
+	rs.Tick(context.Background())
+	if rs.HasBlocked() {
+		t.Fatal("expected HasBlocked=false after successful Tick cleared the group")
+	}
+}
+
 // TestRetrySchedulerDeadLettersAfterMaxRetries verifies that after maxRetries
 // failed attempts, the entry is removed from blockedGroups (dead-lettered).
 func TestRetrySchedulerDeadLettersAfterMaxRetries(t *testing.T) {
