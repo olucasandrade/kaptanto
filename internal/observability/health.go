@@ -44,10 +44,10 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(failing) == 0 {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
-	json.NewEncoder(w).Encode(HealthStatus{Healthy: false, Checks: failing})
+	_ = json.NewEncoder(w).Encode(HealthStatus{Healthy: false, Checks: failing})
 }

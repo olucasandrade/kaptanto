@@ -248,7 +248,7 @@ func (s *MongoSnapshot) fetchDocs(ctx context.Context, collName string) ([]bson.
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var results []bson.Raw
 	for cursor.Next(ctx) {
