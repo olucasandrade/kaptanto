@@ -91,7 +91,8 @@ func TestBadgerEventLog_AppendBatch(t *testing.T) {
 }
 
 func TestBadgerEventLog_Ping(t *testing.T) {
-	el, err := eventlog.Open(t.TempDir(), 4, time.Hour)
+	// 64 partitions: the canonical topology (BKF-02 FNV-1a hashing contract).
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
 	require.NoError(t, err)
 	defer func() { _ = el.Close() }()
 	assert.NoError(t, el.Ping(), "Ping on an open event log should succeed")
