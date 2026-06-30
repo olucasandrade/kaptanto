@@ -1,0 +1,129 @@
+# golangci-lint configuration (v2 schema).
+#
+# This umbrella owns the deeper CI gates:
+#   - Standard suite (errcheck, govet, ineffassign, staticcheck, unused)
+#   - Cyclomatic complexity (#6)         -> gocyclo
+#   - Dependency-structure validation (#4) -> depguard (layered import rules)
+version: "2"
+
+linters:
+  # The standard suite is enabled (errcheck/govet/ineffassign/staticcheck/
+  # unused) for real correctness coverage, plus the two structural gates this
+  # umbrella owns (gocyclo, depguard).
+  default: standard
+  enable:
+    - gocyclo
+    - depguard
+
+  settings:
+    gocyclo:
+      # runPipeline (48) and tokenize (36) are //nolint:gocyclo-exempted with a
+      # refactor note; receiveLoop and snapshotTable (30) are too. The gate is
+      # 25: new functions must stay at or below it. Ratchet downward over time.
+      min-complexity: 25
+
+    depguard:
+      # Layered architecture (verified from the import graph):
+      #   event  <  eventlog / parser  <  backfill / checkpoint  <  source / output / router  <  cmd
+      # Lower layers must never import upper layers. Rules use deny-lists keyed
+      # by the offending upper-layer package prefixes (prefix match covers
+      # sub-packages, e.g. internal/source also matches internal/source/postgres).
+      rules:
+        # internal/event is a pure domain leaf: it must not import any other
+        # internal package.
+        event-leaf:
+          files:
+            - "**/internal/event/**"
+          deny:
+            - pkg: github.com/olucasandrade/kaptanto/internal/eventlog
+              desc: "internal/event is a leaf; it must not depend on other internal packages"
+            - pkg: github.com/olucasandrade/kaptanto/internal/parser
+              desc: "internal/event is a leaf; it must not depend on other internal packages"
+            - pkg: github.com/olucasandrade/kaptanto/internal/backfill
+              desc: "internal/event is a leaf; it must not depend on other internal packages"
+            - pkg: github.com/olucasandrade/kaptanto/internal/checkpoint
+              desc: "internal/event is a leaf; it must not depend on other internal packages"
+            - pkg: github.com/olucasandrade/kaptanto/internal/source
+              desc: "internal/event is a leaf; it must not depend on other internal packages"
+            - pkg: github.com/olucasandrade/kaptanto/internal/output
+              desc: "internal/event is a leaf; it must not depend on other internal packages"
+            - pkg: github.com/olucasandrade/kaptanto/internal/router
+              desc: "internal/event is a leaf; it must not depend on other internal packages"
+            - pkg: github.com/olucasandrade/kaptanto/internal/cmd
+              desc: "internal/event is a leaf; it must not depend on other internal packages"
+
+        # eventlog and parser sit just above event: they may use event (and
+        # observability) but must not reach into higher layers.
+        low-layer:
+          files:
+            - "**/internal/eventlog/**"
+            - "**/internal/parser/**"
+          deny:
+            - pkg: github.com/olucasandrade/kaptanto/internal/backfill
+              desc: "eventlog/parser must not import upper layers"
+            - pkg: github.com/olucasandrade/kaptanto/internal/checkpoint
+              desc: "eventlog/parser must not import upper layers"
+            - pkg: github.com/olucasandrade/kaptanto/internal/source
+              desc: "eventlog/parser must not import upper layers"
+            - pkg: github.com/olucasandrade/kaptanto/internal/output
+              desc: "eventlog/parser must not import upper layers"
+            - pkg: github.com/olucasandrade/kaptanto/internal/router
+              desc: "eventlog/parser must not import upper layers"
+            - pkg: github.com/olucasandrade/kaptanto/internal/cmd
+              desc: "eventlog/parser must not import upper layers"
+
+        # checkpoint persists state; it must not depend on the sources/outputs
+        # that drive it, nor on the CLI assembly layer.
+        checkpoint-layer:
+          files:
+            - "**/internal/checkpoint/**"
+          deny:
+            - pkg: github.com/olucasandrade/kaptanto/internal/source
+              desc: "checkpoint must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/output
+              desc: "checkpoint must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/router
+              desc: "checkpoint must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/cmd
+              desc: "checkpoint must not import source/output/router/cmd"
+
+        # backfill sits at the same layer as checkpoint (above eventlog/parser):
+        # it may use lower layers but must not reach into source/output/router/cmd.
+        backfill-layer:
+          files:
+            - "**/internal/backfill/**"
+          deny:
+            - pkg: github.com/olucasandrade/kaptanto/internal/source
+              desc: "backfill must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/output
+              desc: "backfill must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/router
+              desc: "backfill must not import source/output/router/cmd"
+            - pkg: github.com/olucasandrade/kaptanto/internal/cmd
+              desc: "backfill must not import source/output/router/cmd"
+
+        # source/output/router are the top layer below cmd: they may use any
+        # lower layer but only cmd (the assembly layer) may import them.
+        upper-layer:
+          files:
+            - "**/internal/source/**"
+            - "**/internal/output/**"
+            - "**/internal/router/**"
+          deny:
+            - pkg: github.com/olucasandrade/kaptanto/internal/cmd
+              desc: "source/output/router must not import the cmd assembly layer"
+
+  exclusions:
+    generated: lax
+    rules:
+      # Tests are allowed to be long/branchy and to cross layers freely.
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - depguard
+
+# Surface every finding (defaults cap duplicates at 3, which can hide real
+# regressions in the log even though they still fail the build).
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

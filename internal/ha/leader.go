@@ -88,6 +88,6 @@ func (le *LeaderElector) RunStandby(ctx context.Context, pollInterval time.Durat
 // releases the session-scoped advisory lock when the connection is closed.
 func (le *LeaderElector) Close() {
 	if le.conn != nil {
-		le.conn.Close(context.Background())
+		_ = le.conn.Close(context.Background())
 	}
 }

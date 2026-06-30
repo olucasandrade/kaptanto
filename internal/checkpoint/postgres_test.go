@@ -22,7 +22,7 @@ func TestPostgresStore_LoadEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenPostgres: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// First run: no row exists, Load must return ("", nil)
 	lsn, err := store.Load(ctx, "test-source-empty")
@@ -45,7 +45,7 @@ func TestPostgresStore_SaveAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenPostgres: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	sourceID := "test-source-save-load"
 	wantLSN := "0/1A2B3C4"
@@ -74,7 +74,7 @@ func TestPostgresStore_SaveTwiceUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenPostgres: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	sourceID := "test-source-double-save"
 	firstLSN := "0/AAAAAA"
