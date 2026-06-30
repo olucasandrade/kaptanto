@@ -14,11 +14,17 @@ import (
 // BadgerEventLog is the BadgerDB-backed implementation of EventLog.
 // It is safe for sequential calls from a single goroutine. Callers must
 // serialize concurrent Append calls externally.
+//
+// It also implements PartitionNotifier: each partition has a depth-1 buffered
+// notify channel that is pulsed (non-blocking send) after every successful
+// Append/AppendBatch write. Readers (e.g. Router.runPartition) can select on
+// the channel instead of polling, eliminating the idle 10ms poll floor.
 type BadgerEventLog struct {
 	db            *badger.DB
 	seqs          []*badger.Sequence
 	numPartitions uint32
 	retention     time.Duration
+	notifyChs     []chan struct{} // one depth-1 buffered channel per partition
 }
 
 // Open creates or reopens a BadgerEventLog at dir.
@@ -58,12 +64,38 @@ func Open(dir string, numPartitions uint32, retention time.Duration) (*BadgerEve
 		seqs[i] = seq
 	}
 
+	// Allocate one depth-1 buffered notify channel per partition.
+	notifyChs := make([]chan struct{}, numPartitions)
+	for i := uint32(0); i < numPartitions; i++ {
+		notifyChs[i] = make(chan struct{}, 1)
+	}
+
 	return &BadgerEventLog{
 		db:            db,
 		seqs:          seqs,
 		numPartitions: numPartitions,
 		retention:     retention,
+		notifyChs:     notifyChs,
 	}, nil
+}
+
+// NotifyCh returns the read-only notify channel for the given partition.
+// It implements PartitionNotifier. The channel carries at most one pending
+// signal (depth-1 buffer); a non-blocking send coalesces concurrent writes
+// so the reader is woken at least once without the sender ever blocking.
+func (b *BadgerEventLog) NotifyCh(partition uint32) <-chan struct{} {
+	return b.notifyChs[partition]
+}
+
+// notify pulses the notify channel for partition using a non-blocking send.
+// If the channel already has a pending signal (buffer full), the call is a
+// no-op — the reader will still wake up, satisfying the "at least once" goal
+// without ever blocking the caller (CHK-01 safety).
+func (b *BadgerEventLog) notify(partition uint32) {
+	select {
+	case b.notifyChs[partition] <- struct{}{}:
+	default:
+	}
 }
 
 // Append durably writes ev to the event store (LOG-01).
@@ -134,6 +166,11 @@ func (b *BadgerEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 		// a duplicate from a first write can check seq==0. This is documented behavior.
 		return 0, nil
 	}
+
+	// Pulse the per-partition notify channel so a waiting runPartition wakes
+	// immediately rather than waiting for the fallback timer. Non-blocking: a
+	// slow reader never stalls the writer (CHK-01 preserved).
+	b.notify(partition)
 
 	return seq, nil
 }
@@ -210,6 +247,17 @@ func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error)
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Pulse notify channels for every partition that received at least one new
+	// (non-duplicate) event. Coalescing via the depth-1 buffer means we call
+	// notify at most once per partition regardless of how many events landed there.
+	notified := make(map[uint32]bool, len(items))
+	for i, item := range items {
+		if seqs[i] != 0 && !notified[item.partition] {
+			b.notify(item.partition)
+			notified[item.partition] = true
+		}
 	}
 
 	return seqs, nil
