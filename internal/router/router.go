@@ -107,6 +107,15 @@ type consumerState struct {
 	cursorByPartition map[uint32]uint64
 }
 
+// consumerSnap is a lightweight snapshot of a consumer's state captured at
+// the start of dispatch. It is reused across events via per-partition scratch
+// buffers to avoid per-event heap allocations.
+type consumerSnap struct {
+	consumer Consumer
+	blocked  bool
+	cursor   uint64 // this consumer's next-seq for the partition at snapshot time
+}
+
 // Router reads from the EventLog and delivers events to all registered
 // Consumers. One goroutine per partition is used; goroutines run for the
 // lifetime of the context passed to Run.
@@ -229,6 +238,10 @@ func (r *Router) Run(ctx context.Context) error {
 // it waits for a notify signal from the EventLog writer or a fallback timer
 // before retrying. The fallback timer (pollInterval) acts as a safety net for
 // missed signals; the notify path delivers sub-millisecond wakeup on write.
+//
+// Each goroutine owns its own snaps and deliveryErrs scratch slices that are
+// grown as needed and reset ([:0]) per event. This eliminates the two
+// per-event heap allocations that the previous dispatch signature caused.
 func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
 	// Capture the notify channel once; nil if EventLog doesn't implement
 	// PartitionNotifier (fakes/tests fall back to pure timer polling).
@@ -249,6 +262,11 @@ func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
 			return true
 		}
 	}
+
+	// Per-partition scratch buffers — owned exclusively by this goroutine.
+	// Grown on demand; reset to [:0] before each dispatch call.
+	var snaps []consumerSnap
+	var deliveryErrs []error
 
 	for {
 		select {
@@ -284,7 +302,7 @@ func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
 				return
 			default:
 			}
-			r.dispatch(ctx, partitionID, entry)
+			r.dispatch(ctx, partitionID, entry, &snaps, &deliveryErrs)
 		}
 
 		// Fix E: flush once per batch for consumers that implement BatchFlusher.
@@ -339,28 +357,46 @@ func (r *Router) minCursorForPartition(partitionID uint32) uint64 {
 // partition goroutines from serialising through one synchronous network write.
 // The lock is held only for the consumer snapshot (RLock) and cursor updates
 // (Lock), both of which are fast in-memory operations.
-func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlog.LogEntry) {
-	groupKey := string(entry.Event.Key)
+//
+// snapsPtr and errsPtr are per-partition scratch buffers owned by the calling
+// runPartition goroutine. They are grown on demand and reset ([:0]) at the
+// start of each call, eliminating two per-event heap allocations on the hot path.
+func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlog.LogEntry, snapsPtr *[]consumerSnap, errsPtr *[]error) {
+	// Compute the groupKey lazily: only allocate the string if at least one
+	// consumer has a blocked message group. In the common steady-state (no
+	// failures) this avoids a string alloc and all per-consumer IsBlocked calls.
+	var groupKey string
+	hasBlocked := r.rs.HasBlocked()
+	if hasBlocked {
+		groupKey = string(entry.Event.Key)
+	}
 
 	// Phase 1: snapshot consumer list and blocked state under RLock.
 	// r.consumers only grows (no Unregister), so indices captured here
 	// remain valid for Phase 3's write lock.
 	r.mu.RLock()
-	type consumerSnap struct {
-		consumer Consumer
-		blocked  bool
-		cursor   uint64 // this consumer's next-seq for the partition at snapshot time
+	n := len(r.consumers)
+	// Grow scratch slices if needed; reuse existing capacity otherwise.
+	snaps := (*snapsPtr)[:0]
+	if cap(snaps) < n {
+		snaps = make([]consumerSnap, n)
+	} else {
+		snaps = snaps[:n]
 	}
-	snaps := make([]consumerSnap, len(r.consumers))
 	for i, cs := range r.consumers {
+		blocked := false
+		if hasBlocked {
+			// IsBlocked acquires its own mutex — safe to call under RLock.
+			blocked = r.rs.IsBlocked(cs.consumer.ID(), groupKey)
+		}
 		snaps[i] = consumerSnap{
 			consumer: cs.consumer,
-			// IsBlocked acquires its own mutex — safe to call under RLock.
-			blocked: r.rs.IsBlocked(cs.consumer.ID(), groupKey),
-			cursor:  cs.cursorByPartition[partitionID],
+			blocked:  blocked,
+			cursor:   cs.cursorByPartition[partitionID],
 		}
 	}
 	r.mu.RUnlock()
+	*snapsPtr = snaps
 
 	// Phase 2: deliver outside the lock. Concurrent partitions can deliver
 	// independently; SSE flush latency no longer serialises all goroutines.
@@ -370,7 +406,16 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 	// a healthy consumer has already acked. Skip delivery to any consumer whose
 	// own cursor is already past entry.Seq — otherwise an unrelated slow consumer
 	// causes repeated duplicate delivery to every other consumer in the partition.
-	deliveryErrs := make([]error, len(snaps))
+	errs := (*errsPtr)[:0]
+	if cap(errs) < n {
+		errs = make([]error, n)
+	} else {
+		errs = errs[:n]
+		// Clear stale errors from previous event.
+		for i := range errs {
+			errs[i] = nil
+		}
+	}
 	for i, snap := range snaps {
 		if snap.blocked || ctx.Err() != nil {
 			continue
@@ -378,11 +423,23 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 		if entry.Seq < snap.cursor {
 			continue // already delivered and acked by this consumer
 		}
-		deliveryErrs[i] = snap.consumer.Deliver(ctx, entry)
+		errs[i] = snap.consumer.Deliver(ctx, entry)
 	}
+	*errsPtr = errs
 
 	if ctx.Err() != nil {
 		return
+	}
+
+	// Materialise groupKey if it was skipped above but a delivery just failed —
+	// we need it for the slog warning and AddBlocked call in Phase 3.
+	if !hasBlocked {
+		for _, err := range errs {
+			if err != nil {
+				groupKey = string(entry.Event.Key)
+				break
+			}
+		}
 	}
 
 	// Phase 3: update in-memory cursors and persist them under write lock.
@@ -394,88 +451,85 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 			break // guard against consumers added between Phase 1 and Phase 3
 		}
 		cs := &r.consumers[i]
+		r.dispatchUpdateCursor(ctx, cs, snap, entry, partitionID, groupKey, errs, i)
+	}
+}
 
-		if snap.blocked {
-			if r.metrics != nil {
-				r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
-			}
-			// Guard: cursor has already advanced past this seq (e.g. a previous
-			// poll cycle already enqueued this entry). Skip to avoid double-queuing.
-			if entry.Seq < snap.cursor {
-				continue
-			}
-			// Enqueue the follow-on entry behind the blocked head so it is
-			// preserved in order and retried after the head succeeds (RTR-04).
-			// Without this, any event for a blocked key that arrives while the
-			// group is still blocked is silently discarded.
-			rec := &RetryRecord{
-				Entry:       entry,
-				Attempts:    0,
-				NextRetryAt: time.Now().Add(NextDelay(0)),
-				ConsumerID:  cs.consumer.ID(),
-			}
-			r.rs.AddBlocked(cs.consumer, groupKey, rec)
-			// Advance the cursor past the enqueued follow-on so the EventLog does
-			// not re-serve this seq on the next poll cycle. The retry queue now
-			// holds delivery responsibility; re-reading would cause double-queuing.
-			// Trade-off: a process restart drops in-flight follow-ons (same as the
-			// blocked head — both are in-memory only).
-			nextForFollowOn := entry.Seq + 1
-			if nextForFollowOn > cs.cursorByPartition[partitionID] {
-				cs.cursorByPartition[partitionID] = nextForFollowOn
-			}
-			if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForFollowOn); err != nil {
-				slog.Warn("router: failed to save cursor for blocked follow-on",
-					"consumer", cs.consumer.ID(),
-					"partition", partitionID,
-					"seq", entry.Seq,
-					"err", err,
-				)
-			}
-			continue
+// dispatchUpdateCursor handles Phase 3 per-consumer cursor logic.
+// Must be called under r.mu write lock.
+func (r *Router) dispatchUpdateCursor(
+	ctx context.Context,
+	cs *consumerState,
+	snap consumerSnap,
+	entry eventlog.LogEntry,
+	partitionID uint32,
+	groupKey string,
+	errs []error,
+	i int,
+) {
+	if snap.blocked {
+		if r.metrics != nil {
+			r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
 		}
-
-		// Skipped in Phase 2 because this consumer already acked entry.Seq.
-		// Do not touch the cursor — advancing toward entry.Seq+1 would regress it.
 		if entry.Seq < snap.cursor {
-			continue
+			return
 		}
-
-		if err := deliveryErrs[i]; err != nil {
-			slog.Warn("router: delivery failed, blocking message group",
-				"consumer", cs.consumer.ID(),
-				"key", groupKey,
-				"seq", entry.Seq,
-				"err", err,
-			)
-			rec := &RetryRecord{
-				Entry:       entry,
-				Attempts:    1,
-				NextRetryAt: time.Now(),
-				ConsumerID:  cs.consumer.ID(),
-			}
-			r.rs.AddBlocked(cs.consumer, groupKey, rec)
-			continue
+		rec := &RetryRecord{
+			Entry:       entry,
+			Attempts:    0,
+			NextRetryAt: time.Now().Add(NextDelay(0)),
+			ConsumerID:  cs.consumer.ID(),
 		}
-
-		// Advance cursor to entry.Seq+1 (the next seq to read from).
-		// Cursor semantics: the value stored is the NEXT seq to read, so that
-		// minCursorForPartition can be passed directly to ReadPartition as fromSeq.
-		nextForPartition := entry.Seq + 1
-		if nextForPartition > cs.cursorByPartition[partitionID] {
-			cs.cursorByPartition[partitionID] = nextForPartition
+		r.rs.AddBlocked(cs.consumer, groupKey, rec)
+		nextForFollowOn := entry.Seq + 1
+		if nextForFollowOn > cs.cursorByPartition[partitionID] {
+			cs.cursorByPartition[partitionID] = nextForFollowOn
 		}
-		// Best-effort cursor persistence; failures are logged only.
-		if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForPartition); err != nil {
-			slog.Warn("router: failed to save cursor",
+		if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForFollowOn); err != nil {
+			slog.Warn("router: failed to save cursor for blocked follow-on",
 				"consumer", cs.consumer.ID(),
 				"partition", partitionID,
 				"seq", entry.Seq,
 				"err", err,
 			)
 		}
-		if r.metrics != nil {
-			r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Set(0)
+		return
+	}
+
+	if entry.Seq < snap.cursor {
+		return
+	}
+
+	if err := errs[i]; err != nil {
+		slog.Warn("router: delivery failed, blocking message group",
+			"consumer", cs.consumer.ID(),
+			"key", groupKey,
+			"seq", entry.Seq,
+			"err", err,
+		)
+		rec := &RetryRecord{
+			Entry:       entry,
+			Attempts:    1,
+			NextRetryAt: time.Now(),
+			ConsumerID:  cs.consumer.ID(),
 		}
+		r.rs.AddBlocked(cs.consumer, groupKey, rec)
+		return
+	}
+
+	nextForPartition := entry.Seq + 1
+	if nextForPartition > cs.cursorByPartition[partitionID] {
+		cs.cursorByPartition[partitionID] = nextForPartition
+	}
+	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForPartition); err != nil {
+		slog.Warn("router: failed to save cursor",
+			"consumer", cs.consumer.ID(),
+			"partition", partitionID,
+			"seq", entry.Seq,
+			"err", err,
+		)
+	}
+	if r.metrics != nil {
+		r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Set(0)
 	}
 }
