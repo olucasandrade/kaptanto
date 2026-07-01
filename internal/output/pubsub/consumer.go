@@ -44,20 +44,37 @@ import (
 // Compile-time assertion: PubSubSinkConsumer must implement router.Consumer.
 var _ router.Consumer = (*PubSubSinkConsumer)(nil)
 
+// pendingPubSubMessage holds a pending Pub/Sub PublishResult for batch ack collection.
+type pendingPubSubMessage struct {
+	result     *pubsub.PublishResult
+	orderingKey string
+	topicID    string
+}
+
 // PubSubSinkConsumer is a router.Consumer that publishes CDC events to Google Cloud
-// Pub/Sub using the pubsub/v2 client library with synchronous result.Get confirmation (CHK-01).
+// Pub/Sub using the pubsub/v2 client library.
+//
+// When used with the Router's BatchFlusher interface, Deliver calls Publish
+// (non-blocking) and stores the PublishResult; FlushBatch collects all results
+// via result.Get concurrently. This amortises per-event Get round-trips into
+// a single wait-for-all. CHK-01 is preserved: the router only advances the
+// cursor after FlushBatch returns nil.
 //
 // Use NewPubSubSinkConsumer to construct — do not create directly.
 type PubSubSinkConsumer struct {
 	id         string
 	client     *pubsub.Client
 	publishers map[string]*pubsub.Publisher // keyed by resolved topic ID
-	mu         sync.RWMutex                 // protects publishers map
+	mu         sync.RWMutex                 // protects publishers map and pending
 	projectID  string
 	topicID    string                         // default topic (cfg.TopicID)
 	topicT     *template.Template             // nil when TopicTemplate is empty
+	pending    map[uint32][]pendingPubSubMessage
 	m          *observability.KaptantoMetrics
 }
+
+// Compile-time assertion: PubSubSinkConsumer implements router.BatchFlusher.
+var _ router.BatchFlusher = (*PubSubSinkConsumer)(nil)
 
 // NewPubSubSinkConsumer creates a PubSubSinkConsumer that publishes to cfg.TopicID in cfg.ProjectID.
 //
@@ -107,6 +124,7 @@ func NewPubSubSinkConsumer(id string, cfg config.PubSubSinkConfig, clientOpts ..
 		projectID:  cfg.ProjectID,
 		topicID:    cfg.TopicID,
 		topicT:     topicT,
+		pending:    make(map[uint32][]pendingPubSubMessage),
 	}, nil
 }
 
@@ -166,23 +184,21 @@ func (c *PubSubSinkConsumer) getOrCreatePublisher(topicID string) *pubsub.Publis
 	return pub
 }
 
-// Deliver publishes entry.Event to Pub/Sub synchronously using result.Get(ctx) (CHK-01).
+// Deliver enqueues entry.Event into the consumer's pending buffer by calling
+// the non-blocking Publish and storing the PublishResult. No blocking ack wait
+// happens here; FlushBatch collects all results via Get concurrently.
 //
-// It blocks until the Pub/Sub server acknowledges the publish.
-// The router's cursor is NOT advanced until this function returns nil.
+// This amortises per-event result.Get round-trips by pipelining Publish calls
+// before waiting for acks. CHK-01 is preserved: the router only advances the
+// cursor after FlushBatch returns nil.
 //
 // The Pub/Sub message is built as follows:
 //   - Data:        JSON-marshalled entry.Event
 //   - OrderingKey: string(entry.Event.Key) — the CDC primary key (DLV-02)
 //   - Attributes:  {"Kaptanto-Idempotency-Key": entry.Event.IdempotencyKey} (DLV-04)
 //
-// When TopicTemplate is set, Deliver evaluates the template against entry.Event per-message
-// and routes to the resolved topic's publisher. When TopicTemplate is empty, all messages
-// are published to the default cfg.TopicID publisher.
-//
-// On error, Deliver calls ResumePublish if ErrPublishingPaused is detected, then returns
-// a non-nil error. The RetryScheduler is responsible for rescheduling; Deliver never
-// retries internally (DLV-03).
+// On encoding error Deliver returns a non-nil error immediately; the
+// RetryScheduler will block the key (DLV-03).
 func (c *PubSubSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
 	// 1. Resolve ordering key: string(entry.Event.Key).
 	orderingKey := string(entry.Event.Key)
@@ -210,8 +226,7 @@ func (c *PubSubSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 	// 4. Get or lazily create the publisher for the resolved topic.
 	pub := c.getOrCreatePublisher(topicID)
 
-	// 5. Publish the message; Publish is non-blocking — it returns a PublishResult.
-	start := time.Now()
+	// 5. Publish the message non-blocking — store the result for FlushBatch.
 	result := pub.Publish(ctx, &pubsub.Message{
 		Data:        data,
 		OrderingKey: orderingKey,
@@ -220,33 +235,67 @@ func (c *PubSubSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 		},
 	})
 
-	// 6. Block until the server acknowledges (CHK-01 — cursor does not advance before ack).
-	_, publishErr := result.Get(ctx)
+	// 6. Append result to pending buffer — FlushBatch awaits all acks.
+	c.mu.Lock()
+	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingPubSubMessage{
+		result:      result,
+		orderingKey: orderingKey,
+		topicID:     topicID,
+	})
+	c.mu.Unlock()
+	return nil
+}
 
-	// 7. Observe publish latency regardless of outcome.
+// FlushBatch awaits all buffered PublishResults via result.Get. This collects
+// acks for all messages published during the current batch without per-message
+// round-trip serialisation.
+//
+// If any result reports ErrPublishingPaused, ResumePublish is called on the
+// affected ordering key before the error is returned.
+//
+// CHK-01 is preserved: the router only advances the cursor after FlushBatch
+// returns nil for the entire pending set.
+func (c *PubSubSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) error {
+	c.mu.Lock()
+	if len(c.pending[partitionID]) == 0 {
+		c.mu.Unlock()
+		return nil
+	}
+	batch := c.pending[partitionID]
+	delete(c.pending, partitionID)
+	c.mu.Unlock()
+
+	start := time.Now()
+	var firstErr error
+	successCount := 0
+
+	for _, pm := range batch {
+		_, publishErr := pm.result.Get(ctx)
+		if publishErr != nil {
+			// Resume paused ordering key so subsequent Deliver calls can proceed.
+			pub := c.getOrCreatePublisher(pm.topicID)
+			var paused pubsub.ErrPublishingPaused
+			if errors.As(publishErr, &paused) {
+				pub.ResumePublish(paused.OrderingKey)
+			}
+			if firstErr == nil {
+				firstErr = fmt.Errorf("pubsub sink: publish for key %q to topic %q: %w", pm.orderingKey, pm.topicID, publishErr)
+			}
+		} else {
+			successCount++
+		}
+	}
+
 	if c.m != nil {
 		c.m.QueuePublishLatency.WithLabelValues("pubsub").Observe(time.Since(start).Seconds())
-	}
-
-	// 8. Handle publish error.
-	if publishErr != nil {
-		// If ordering-key publishing is paused due to a previous error, resume it
-		// before returning so the next Deliver call can proceed (not permanently blocked).
-		var paused pubsub.ErrPublishingPaused
-		if errors.As(publishErr, &paused) {
-			pub.ResumePublish(paused.OrderingKey)
+		if successCount > 0 {
+			c.m.QueuePublishTotal.WithLabelValues("pubsub").Add(float64(successCount))
 		}
-		if c.m != nil {
-			c.m.QueuePublishErrors.WithLabelValues("pubsub").Inc()
+		if firstErr != nil {
+			c.m.QueuePublishErrors.WithLabelValues("pubsub").Add(float64(len(batch) - successCount))
 		}
-		return fmt.Errorf("pubsub sink: publish for key %q to topic %q: %w", orderingKey, topicID, publishErr)
 	}
-
-	// 9. Success — increment total counter.
-	if c.m != nil {
-		c.m.QueuePublishTotal.WithLabelValues("pubsub").Inc()
-	}
-	return nil
+	return firstErr
 }
 
 // Ping verifies the configured Pub/Sub topic is reachable by issuing a GetTopic RPC.

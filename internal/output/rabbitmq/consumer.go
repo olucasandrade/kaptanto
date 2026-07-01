@@ -92,24 +92,42 @@ func (r *realChannel) PublishWithDeferredConfirmWithContext(
 	return &realDeferredConfirm{dc: dc}, nil
 }
 
+// pendingRabbitMQMessage holds a published DeferredConfirmation waiting for broker ack.
+type pendingRabbitMQMessage struct {
+	dc          DeferredConfirmAPI
+	exchange    string
+	routingKey  string
+}
+
 // RabbitMQSinkConsumer is a router.Consumer that publishes CDC events to a
 // RabbitMQ exchange. It maintains a pool of 64 channels — one per EventLog
 // partition — ensuring per-channel ordering (AMQP channels are not goroutine-safe).
+//
+// When used with the Router's BatchFlusher interface, Deliver calls
+// PublishWithDeferredConfirmWithContext and stores the DeferredConfirmation;
+// FlushBatch waits for all confirms concurrently. This amortises per-event
+// WaitContext round-trips. CHK-01 is preserved: the router only advances the
+// cursor after FlushBatch returns nil.
 //
 // A background reconnect goroutine watches for connection drops and re-dials
 // with exponential backoff (1s → 30s + jitter).
 //
 // Use NewRabbitMQSinkConsumer to construct — do not create directly.
 type RabbitMQSinkConsumer struct {
-	id             string
-	cfg            config.RabbitMQSinkConfig
-	conn           *amqp.Connection
-	channels       [64]AMQPChannelAPI
-	mu             sync.RWMutex
-	routingKeyT    *template.Template
+	id              string
+	cfg             config.RabbitMQSinkConfig
+	conn            *amqp.Connection
+	channels        [64]AMQPChannelAPI
+	mu              sync.RWMutex
+	pendingMu       sync.Mutex
+	pending         map[uint32][]pendingRabbitMQMessage
+	routingKeyT     *template.Template
 	cancelReconnect context.CancelFunc
-	m              *observability.KaptantoMetrics
+	m               *observability.KaptantoMetrics
 }
+
+// Compile-time assertion: RabbitMQSinkConsumer implements router.BatchFlusher.
+var _ router.BatchFlusher = (*RabbitMQSinkConsumer)(nil)
 
 // NewRabbitMQSinkConsumer creates a RabbitMQSinkConsumer connected to cfg.URL.
 //
@@ -152,6 +170,7 @@ func NewRabbitMQSinkConsumer(id string, cfg config.RabbitMQSinkConfig) (*RabbitM
 		channels:        channels,
 		routingKeyT:     tmpl,
 		cancelReconnect: cancel,
+		pending:         make(map[uint32][]pendingRabbitMQMessage),
 	}
 
 	// 5. Start reconnect goroutine.
@@ -174,6 +193,7 @@ func NewConsumerWithChannels(id string, cfg config.RabbitMQSinkConfig, channels 
 		channels:        channels,
 		routingKeyT:     tmpl,
 		cancelReconnect: func() {}, // no-op: no reconnect goroutine in tests
+		pending:         make(map[uint32][]pendingRabbitMQMessage),
 	}, nil
 }
 
@@ -189,18 +209,20 @@ func (c *RabbitMQSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 	c.m = m
 }
 
-// Deliver publishes entry.Event to the RabbitMQ exchange synchronously (CHK-01).
+// Deliver publishes entry.Event to the RabbitMQ exchange and stores the
+// DeferredConfirmation for batch ack collection via FlushBatch.
 //
-// It selects channels[entry.PartitionID % 64], derives the routing key from the
-// template, marshals the event to JSON, and publishes with DeliveryMode=Persistent.
+// It selects channels[entry.PartitionID % 64], derives the routing key from
+// the template, marshals the event to JSON, and calls
+// PublishWithDeferredConfirmWithContext. The DeferredConfirmation is stored
+// in the pending buffer; WaitContext is called in FlushBatch, not here.
 //
-// The Kaptanto-Idempotency-Key AMQP header is set on every message (DLV-04).
+// This amortises per-event WaitContext latency: all confirms in a batch are
+// awaited concurrently in FlushBatch. CHK-01 is preserved: the router only
+// advances the cursor after FlushBatch returns nil.
 //
-// WaitContext blocks until the broker sends a publisher confirm (ack or nack).
-// The router cursor is NOT advanced until this function returns nil.
-//
-// On any error Deliver returns immediately — retry is the RetryScheduler's
-// responsibility (DLV-03).
+// On any publish error Deliver returns immediately — retry is the
+// RetryScheduler's responsibility (DLV-03).
 func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
 	// 1. Select channel for this partition (read lock — channels may be swapped
 	//    by reconnectLoop under write lock).
@@ -232,10 +254,7 @@ func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEn
 		}
 	}
 
-	// 4. Start latency timer.
-	start := time.Now()
-
-	// 5. Publish with publisher confirms.
+	// 4. Publish with publisher confirms — do NOT wait for ack here.
 	dc, err := ch.PublishWithDeferredConfirmWithContext(ctx, c.cfg.Exchange, routingKey,
 		false, false,
 		amqp.Publishing{
@@ -255,33 +274,64 @@ func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEn
 			c.cfg.Exchange, routingKey, err)
 	}
 
-	// 6. Wait for broker ack (CHK-01 — cursor does not advance before confirm).
-	acked, waitErr := dc.WaitContext(ctx)
+	// 5. Store deferred confirmation for batch ack collection in FlushBatch.
+	c.pendingMu.Lock()
+	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingRabbitMQMessage{
+		dc:         dc,
+		exchange:   c.cfg.Exchange,
+		routingKey: routingKey,
+	})
+	c.pendingMu.Unlock()
+	return nil
+}
 
-	// 7. Observe latency regardless of outcome.
+// FlushBatch awaits all buffered DeferredConfirmations via WaitContext. This
+// amortises per-event WaitContext round-trips by waiting for all confirms in a
+// batch concurrently.
+//
+// CHK-01 is preserved: the router only advances the cursor after FlushBatch
+// returns nil for the entire pending set.
+func (c *RabbitMQSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) error {
+	c.pendingMu.Lock()
+	if len(c.pending[partitionID]) == 0 {
+		c.pendingMu.Unlock()
+		return nil
+	}
+	batch := c.pending[partitionID]
+	delete(c.pending, partitionID)
+	c.pendingMu.Unlock()
+
+	start := time.Now()
+	var firstErr error
+	successCount := 0
+
+	for _, pm := range batch {
+		acked, waitErr := pm.dc.WaitContext(ctx)
+		if waitErr != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("rabbitmq sink: wait confirm for exchange %q routing-key %q: %w",
+					pm.exchange, pm.routingKey, waitErr)
+			}
+		} else if !acked {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("rabbitmq sink: broker nacked message on exchange %q routing-key %q",
+					pm.exchange, pm.routingKey)
+			}
+		} else {
+			successCount++
+		}
+	}
+
 	if c.m != nil {
 		c.m.QueuePublishLatency.WithLabelValues("rabbitmq").Observe(time.Since(start).Seconds())
-	}
-
-	if waitErr != nil {
-		if c.m != nil {
-			c.m.QueuePublishErrors.WithLabelValues("rabbitmq").Inc()
+		if successCount > 0 {
+			c.m.QueuePublishTotal.WithLabelValues("rabbitmq").Add(float64(successCount))
 		}
-		return fmt.Errorf("rabbitmq sink: wait confirm for exchange %q routing-key %q: %w",
-			c.cfg.Exchange, routingKey, waitErr)
-	}
-	if !acked {
-		if c.m != nil {
-			c.m.QueuePublishErrors.WithLabelValues("rabbitmq").Inc()
+		if firstErr != nil {
+			c.m.QueuePublishErrors.WithLabelValues("rabbitmq").Add(float64(len(batch) - successCount))
 		}
-		return fmt.Errorf("rabbitmq sink: broker nacked message on exchange %q routing-key %q",
-			c.cfg.Exchange, routingKey)
 	}
-
-	if c.m != nil {
-		c.m.QueuePublishTotal.WithLabelValues("rabbitmq").Inc()
-	}
-	return nil
+	return firstErr
 }
 
 // Ping returns nil when the AMQP connection is open, or a non-nil error when

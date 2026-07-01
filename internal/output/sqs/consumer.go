@@ -50,12 +50,25 @@ var _ router.Consumer = (*SQSSinkConsumer)(nil)
 // Extracting an interface enables test injection without a live AWS endpoint.
 type sqsAPI interface {
 	SendMessage(ctx context.Context, params *sqs.SendMessageInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error)
+	SendMessageBatch(ctx context.Context, params *sqs.SendMessageBatchInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageBatchOutput, error)
 	GetQueueAttributes(ctx context.Context, params *sqs.GetQueueAttributesInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueAttributesOutput, error)
+}
+
+// pendingSQSMessage holds the pre-encoded fields for a single buffered message,
+// ready to be included in a SendMessageBatch entry.
+type pendingSQSMessage struct {
+	queueURL string
+	entry    types.SendMessageBatchRequestEntry
 }
 
 // SQSSinkConsumer is a router.Consumer that publishes CDC events to an AWS SQS
 // FIFO queue. It is safe for concurrent Deliver calls across different message
 // group keys (RTR-04): the AWS SDK serialises concurrent HTTP requests internally.
+//
+// When used with the Router's BatchFlusher interface, Deliver enqueues messages
+// into a per-consumer buffer and FlushBatch sends them via SendMessageBatch
+// (up to 10 per request). Cursor advancement only happens after FlushBatch
+// returns, preserving CHK-01 durability.
 //
 // Use NewSQSSinkConsumer to construct — do not create directly.
 type SQSSinkConsumer struct {
@@ -64,9 +77,13 @@ type SQSSinkConsumer struct {
 	queueURL        string             // default queue URL (cfg.QueueURL); used when template absent
 	queueURLT       *template.Template // nil when QueueURLTemplate is empty
 	validatedQueues map[string]bool    // set of FIFO-validated queue URLs
-	mu              sync.RWMutex       // protects validatedQueues
+	mu              sync.RWMutex       // protects validatedQueues and pending
+	pending         map[uint32][]pendingSQSMessage // buffered messages for FlushBatch
 	m               *observability.KaptantoMetrics
 }
+
+// Compile-time assertion: SQSSinkConsumer implements router.BatchFlusher.
+var _ router.BatchFlusher = (*SQSSinkConsumer)(nil)
 
 // NewSQSSinkConsumer creates a SQSSinkConsumer that publishes to the FIFO queue
 // identified by cfg.QueueURL.
@@ -177,6 +194,7 @@ func newConsumerWithClient(id string, queueURL string, client sqsAPI, queueURLT 
 		queueURL:        queueURL,
 		queueURLT:       queueURLT,
 		validatedQueues: map[string]bool{queueURL: true},
+		pending:         make(map[uint32][]pendingSQSMessage),
 	}, nil
 }
 
@@ -242,19 +260,23 @@ func (c *SQSSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 	c.m = m
 }
 
-// Deliver publishes entry.Event to the SQS FIFO queue synchronously (CHK-01).
+// Deliver enqueues entry.Event into the consumer's pending buffer for batch
+// publishing. No network I/O happens here; the actual publish is performed by
+// FlushBatch, which is called by the Router once per ReadPartition batch.
 //
-// It blocks until SendMessage returns. The router's cursor is NOT advanced until
-// this function returns nil, preserving at-least-once delivery semantics.
+// This amortises per-event SendMessage round-trips into SendMessageBatch calls
+// (up to 10 messages per HTTPS request), significantly increasing throughput
+// under sustained high eps. CHK-01 is preserved: the router only advances the
+// cursor after FlushBatch returns nil.
 //
-// MessageGroupId is set to FNV-1a 64-bit hex of entry.Event.Key (always 16 chars,
-// within SQS's 128-char limit) to preserve per-key ordering in the FIFO queue.
+// MessageGroupId is FNV-1a 64-bit hex of entry.Event.Key (16 chars, within
+// SQS's 128-char limit) to preserve per-key ordering in the FIFO queue.
 //
-// MessageDeduplicationId is set to SHA-256[:64] of entry.Event.IdempotencyKey
-// (always 64 chars, within SQS's 128-char limit) for content-based deduplication.
+// MessageDeduplicationId is SHA-256[:64] of entry.Event.IdempotencyKey
+// (64 chars, within SQS's 128-char limit) for content-based deduplication.
 //
-// On error Deliver returns a non-nil error immediately. The RetryScheduler is
-// responsible for rescheduling; Deliver never retries internally (DLV-03).
+// On encoding error Deliver returns a non-nil error immediately; the
+// RetryScheduler will block the key (DLV-03).
 func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
 	// 0. Resolve target queue URL (template path or default).
 	targetURL, err := c.resolveQueueURL(entry)
@@ -288,39 +310,128 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 		}
 	}
 
-	// 4. Record send start time for latency observation.
-	start := time.Now()
+	// 4. Use a unique per-batch ID based on the dedupID prefix (max 80 alphanumeric chars).
+	// We use the first 16 hex chars of the dedup ID to keep it short and unique within a batch.
+	batchID := dedupID[:16]
 
-	// 5. Send the message to SQS using the resolved target URL.
-	_, sendErr := c.client.SendMessage(ctx, &sqs.SendMessageInput{
-		QueueUrl:               aws.String(targetURL),
-		MessageBody:            aws.String(string(data)),
-		MessageGroupId:         aws.String(groupID),
-		MessageDeduplicationId: aws.String(dedupID),
-		MessageAttributes: map[string]types.MessageAttributeValue{
-			"Kaptanto-Idempotency-Key": {
-				DataType:    aws.String("String"),
-				StringValue: aws.String(entry.Event.IdempotencyKey),
+	// 5. Append to pending buffer — FlushBatch performs the actual network call.
+	c.mu.Lock()
+	// Ensure the batch ID is unique within the current partition's pending slice. If a
+	// collision occurs (two events with the same idempotency key prefix in the
+	// same batch), append a counter suffix.
+	finalID := batchID
+	for i := 0; ; i++ {
+		collision := false
+		for _, p := range c.pending[entry.PartitionID] {
+			if p.entry.Id != nil && *p.entry.Id == finalID {
+				collision = true
+				break
+			}
+		}
+		if !collision {
+			break
+		}
+		finalID = fmt.Sprintf("%s%x", batchID[:14], i)
+	}
+	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingSQSMessage{
+		queueURL: targetURL,
+		entry: types.SendMessageBatchRequestEntry{
+			Id:                     aws.String(finalID),
+			MessageBody:            aws.String(string(data)),
+			MessageGroupId:         aws.String(groupID),
+			MessageDeduplicationId: aws.String(dedupID),
+			MessageAttributes: map[string]types.MessageAttributeValue{
+				"Kaptanto-Idempotency-Key": {
+					DataType:    aws.String("String"),
+					StringValue: aws.String(entry.Event.IdempotencyKey),
+				},
 			},
 		},
 	})
-
-	// 6. Observe latency regardless of success/failure (only when metrics are wired).
-	if c.m != nil {
-		c.m.QueuePublishLatency.WithLabelValues("sqs").Observe(time.Since(start).Seconds())
-	}
-
-	if sendErr != nil {
-		if c.m != nil {
-			c.m.QueuePublishErrors.WithLabelValues("sqs").Inc()
-		}
-		return fmt.Errorf("sqs sink: send message to %q: %w", targetURL, sendErr)
-	}
-
-	if c.m != nil {
-		c.m.QueuePublishTotal.WithLabelValues("sqs").Inc()
-	}
+	c.mu.Unlock()
 	return nil
+}
+
+// FlushBatch publishes all buffered messages via SendMessageBatch (≤10 per
+// request). Messages are grouped by target queue URL and chunked into batches
+// of at most 10 (the SQS API limit). All batch entries in a chunk must succeed;
+// any per-entry failure causes FlushBatch to return an error so the Router's
+// RetryScheduler can block the affected key groups.
+//
+// CHK-01 is preserved: the router only advances the cursor after FlushBatch
+// returns nil for the entire pending set.
+func (c *SQSSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) error {
+	c.mu.Lock()
+	if len(c.pending[partitionID]) == 0 {
+		c.mu.Unlock()
+		return nil
+	}
+	batch := c.pending[partitionID]
+	delete(c.pending, partitionID)
+	c.mu.Unlock()
+
+	// Group messages by target queue URL.
+	byQueue := make(map[string][]types.SendMessageBatchRequestEntry)
+	for _, pm := range batch {
+		byQueue[pm.queueURL] = append(byQueue[pm.queueURL], pm.entry)
+	}
+
+	start := time.Now()
+	var firstErr error
+
+	for queueURL, entries := range byQueue {
+		// Chunk into batches of at most 10 (SQS API limit).
+		for i := 0; i < len(entries); i += 10 {
+			end := i + 10
+			if end > len(entries) {
+				end = len(entries)
+			}
+			chunk := entries[i:end]
+
+			out, sendErr := c.client.SendMessageBatch(ctx, &sqs.SendMessageBatchInput{
+				QueueUrl: aws.String(queueURL),
+				Entries:  chunk,
+			})
+
+			if c.m != nil {
+				c.m.QueuePublishLatency.WithLabelValues("sqs").Observe(time.Since(start).Seconds())
+			}
+
+			if sendErr != nil {
+				if c.m != nil {
+					c.m.QueuePublishErrors.WithLabelValues("sqs").Add(float64(len(chunk)))
+				}
+				if firstErr == nil {
+					firstErr = fmt.Errorf("sqs sink: send batch to %q: %w", queueURL, sendErr)
+				}
+				continue
+			}
+
+			// Record per-entry failures from the batch response.
+			if out != nil && len(out.Failed) > 0 {
+				if c.m != nil {
+					c.m.QueuePublishErrors.WithLabelValues("sqs").Add(float64(len(out.Failed)))
+				}
+				if firstErr == nil {
+					failed := out.Failed[0]
+					msg := "unknown"
+					if failed.Message != nil {
+						msg = *failed.Message
+					}
+					code := ""
+					if failed.Code != nil {
+						code = *failed.Code
+					}
+					firstErr = fmt.Errorf("sqs sink: batch entry failed on %q: code=%s message=%s", queueURL, code, msg)
+				}
+			}
+			if c.m != nil {
+				c.m.QueuePublishTotal.WithLabelValues("sqs").Add(float64(len(chunk) - len(out.Failed)))
+			}
+		}
+	}
+
+	return firstErr
 }
 
 // Ping verifies the queue is reachable by calling GetQueueAttributes (read-only).

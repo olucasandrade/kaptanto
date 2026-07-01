@@ -7,6 +7,7 @@ package kafkasink_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	kafkasink "github.com/olucasandrade/kaptanto/internal/output/kafka"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 // startTestCluster starts a kfake cluster with topics pre-seeded and registers
@@ -100,9 +102,13 @@ func TestKafkaSinkConsumer_Deliver_Success(t *testing.T) {
 	err = c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
 
-	// Verify QueuePublishTotal incremented to 1.
+	// Deliver only buffers — must flush to publish.
+	err = c.FlushBatch(context.Background(), 0)
+	require.NoError(t, err)
+
+	// Verify QueuePublishTotal incremented to 1 after flush.
 	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("kafka"))
-	assert.Equal(t, float64(1), got, "QueuePublishTotal must be 1 after successful deliver")
+	assert.Equal(t, float64(1), got, "QueuePublishTotal must be 1 after FlushBatch")
 }
 
 // TestKafkaSinkConsumer_Deliver_EmptyTopic verifies that a topic template
@@ -140,6 +146,57 @@ func TestKafkaSinkConsumer_Ping(t *testing.T) {
 	require.NoError(t, err, "Ping on live kfake connection should return nil")
 }
 
+// TestKafkaSinkConsumer_FlushBatch_BatchesMultipleEvents verifies that N events
+// delivered then flushed produce all N records in Kafka exactly once, and that
+// QueuePublishTotal is N after FlushBatch.
+func TestKafkaSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
+	const topicName = "cdc.public.items"
+	cluster := startTestCluster(t, topicName)
+
+	cfg := config.KafkaSinkConfig{
+		BootstrapServers: cluster.ListenAddrs(),
+		TopicTemplate:    topicName,
+	}
+	c, err := kafkasink.NewKafkaSinkConsumer("test-flush", cfg)
+	require.NoError(t, err)
+	defer c.Close()
+
+	m := observability.NewKaptantoMetrics()
+	c.SetMetrics(m)
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		entry := eventlog.LogEntry{
+			Event: &event.ChangeEvent{
+				Schema:         "public",
+				Table:          "items",
+				Key:            json.RawMessage(fmt.Sprintf(`{"id":%d}`, i)),
+				IdempotencyKey: fmt.Sprintf("key-%d", i),
+			},
+		}
+		require.NoError(t, c.Deliver(context.Background(), entry))
+	}
+
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+
+	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("kafka"))
+	assert.Equal(t, float64(n), got, "QueuePublishTotal must equal N after FlushBatch")
+}
+
+// TestKafkaSinkConsumer_BatchFlusher_Interface verifies that KafkaSinkConsumer
+// implements router.BatchFlusher at compile time.
+func TestKafkaSinkConsumer_BatchFlusher_Interface(t *testing.T) {
+	cluster := startTestCluster(t)
+	cfg := config.KafkaSinkConfig{
+		BootstrapServers: cluster.ListenAddrs(),
+		TopicTemplate:    "cdc.{{.Schema}}.{{.Table}}",
+	}
+	c, err := kafkasink.NewKafkaSinkConsumer("iface-test", cfg)
+	require.NoError(t, err)
+	defer c.Close()
+	var _ router.BatchFlusher = c
+}
+
 // TestKafkaSinkConsumer_RecordKey verifies that after a successful Deliver,
 // the Kafka record's key matches entry.Event.Key (the CDC primary key bytes).
 // This confirms the DLV-02 partition-by-key ordering guarantee.
@@ -156,6 +213,10 @@ func TestKafkaSinkConsumer_RecordKey(t *testing.T) {
 
 	entry := makeEntry("public", "orders")
 	err = c.Deliver(context.Background(), entry)
+	require.NoError(t, err)
+
+	// Flush to actually publish the buffered record.
+	err = c.FlushBatch(context.Background(), 0)
 	require.NoError(t, err)
 
 	// Create a consumer client pointed at the same kfake cluster to read back the record.
