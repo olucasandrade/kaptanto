@@ -24,8 +24,8 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">latency</div>
             <h3>Low-latency streaming</h3>
             <p>
-              Events flow from the WAL as each transaction commits. Steady-state p50 latency: 1.1s at
-              10K eps load. No polling interval.
+              Events flow from the WAL as each transaction commits. Burst p50 latency: 6.7s at 4k eps.
+              No polling interval.
             </p>
           </div>
           <div class="fc">
@@ -92,7 +92,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
         <div class="sl sr">Use Cases</div>
         <div class="stt sr">Built for event-driven pipelines at product scale.</div>
         <div class="sd sr">
-          Best fit: notification fan-out, search index sync, cache invalidation, audit trails. Up to ~5k eps steady state.
+          Best fit: notification fan-out, search index sync, cache invalidation, audit trails. Up to ~4k eps burst throughput.
         </div>
         <div class="fg sr">
           <div class="fc">
