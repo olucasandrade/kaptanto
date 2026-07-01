@@ -29,16 +29,23 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 // fakeSQSClient implements sqsAPI for tests — no live AWS endpoint required.
 type fakeSQSClient struct {
 	// sendMessageFunc is called by SendMessage; nil means return success.
 	sendMessageFunc func(ctx context.Context, params *sqs.SendMessageInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error)
+	// sendMessageBatchFunc is called by SendMessageBatch; nil means return all-success.
+	sendMessageBatchFunc func(ctx context.Context, params *sqs.SendMessageBatchInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageBatchOutput, error)
 	// getQueueAttributesFunc is called by GetQueueAttributes; nil means return FIFO=true.
 	getQueueAttributesFunc func(ctx context.Context, params *sqs.GetQueueAttributesInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueAttributesOutput, error)
 	// lastSendInput captures the most recent SendMessageInput passed to SendMessage.
 	lastSendInput *sqs.SendMessageInput
+	// lastBatchInput captures the most recent SendMessageBatchInput passed to SendMessageBatch.
+	lastBatchInput *sqs.SendMessageBatchInput
+	// sendMessageBatchCallCount tracks how many times SendMessageBatch is called.
+	sendMessageBatchCallCount int
 	// getQueueAttributesCallCount tracks how many times GetQueueAttributes is called.
 	getQueueAttributesCallCount int
 }
@@ -49,6 +56,28 @@ func (f *fakeSQSClient) SendMessage(ctx context.Context, params *sqs.SendMessage
 		return f.sendMessageFunc(ctx, params, optFns...)
 	}
 	return &sqs.SendMessageOutput{}, nil
+}
+
+func (f *fakeSQSClient) SendMessageBatch(ctx context.Context, params *sqs.SendMessageBatchInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageBatchOutput, error) {
+	f.lastBatchInput = params
+	f.sendMessageBatchCallCount++
+	if f.sendMessageBatchFunc != nil {
+		return f.sendMessageBatchFunc(ctx, params, optFns...)
+	}
+	// Default: all entries succeed.
+	var successful []types.SendMessageBatchResultEntry
+	for _, e := range params.Entries {
+		id := ""
+		if e.Id != nil {
+			id = *e.Id
+		}
+		successful = append(successful, types.SendMessageBatchResultEntry{
+			Id:        &id,
+			MessageId: &id,
+			MD5OfMessageBody: func() *string { s := "fake-md5"; return &s }(),
+		})
+	}
+	return &sqs.SendMessageBatchOutput{Successful: successful}, nil
 }
 
 func (f *fakeSQSClient) GetQueueAttributes(ctx context.Context, params *sqs.GetQueueAttributesInput, optFns ...func(*sqs.Options)) (*sqs.GetQueueAttributesOutput, error) {
@@ -74,6 +103,7 @@ func newTestConsumer(t *testing.T, fake *fakeSQSClient, id string) *SQSSinkConsu
 		client:          fake,
 		queueURL:        defaultURL,
 		validatedQueues: map[string]bool{defaultURL: true},
+		pending:         make(map[uint32][]pendingSQSMessage),
 	}
 }
 
@@ -102,6 +132,7 @@ func newTemplateConsumer(t *testing.T, fake *fakeSQSClient, id string, queueURLT
 		queueURL:        defaultURL,
 		queueURLT:       tmpl,
 		validatedQueues: map[string]bool{defaultURL: true},
+		pending:         make(map[uint32][]pendingSQSMessage),
 	}
 }
 
@@ -117,7 +148,11 @@ func TestSQSSinkConsumer_Deliver_Success(t *testing.T) {
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
 
-	// QueuePublishTotal must be incremented to 1 after a successful deliver.
+	// Deliver only buffers — flush to trigger the actual send.
+	err = c.FlushBatch(context.Background(), 0)
+	require.NoError(t, err)
+
+	// QueuePublishTotal must be incremented to 1 after a successful flush.
 	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("sqs"))
 	assert.Equal(t, float64(1), got)
 }
@@ -130,11 +165,14 @@ func TestSQSSinkConsumer_Deliver_MessageGroupId(t *testing.T) {
 	entry := makeEntry(key, "idem-key-2")
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
+	err = c.FlushBatch(context.Background(), 0)
+	require.NoError(t, err)
 
-	require.NotNil(t, fake.lastSendInput)
-	require.NotNil(t, fake.lastSendInput.MessageGroupId)
+	require.NotNil(t, fake.lastBatchInput)
+	require.Len(t, fake.lastBatchInput.Entries, 1)
+	require.NotNil(t, fake.lastBatchInput.Entries[0].MessageGroupId)
 
-	groupID := *fake.lastSendInput.MessageGroupId
+	groupID := *fake.lastBatchInput.Entries[0].MessageGroupId
 	// FNV-1a 64-bit hex is always exactly 16 chars (zero-padded).
 	assert.Len(t, groupID, 16, "MessageGroupId must be exactly 16 hex chars")
 
@@ -143,7 +181,11 @@ func TestSQSSinkConsumer_Deliver_MessageGroupId(t *testing.T) {
 	c2 := newTestConsumer(t, fake2, "test-consumer")
 	err = c2.Deliver(context.Background(), entry)
 	require.NoError(t, err)
-	assert.Equal(t, groupID, *fake2.lastSendInput.MessageGroupId, "MessageGroupId must be deterministic")
+	err = c2.FlushBatch(context.Background(), 0)
+	require.NoError(t, err)
+	require.NotNil(t, fake2.lastBatchInput)
+	require.Len(t, fake2.lastBatchInput.Entries, 1)
+	assert.Equal(t, groupID, *fake2.lastBatchInput.Entries[0].MessageGroupId, "MessageGroupId must be deterministic")
 }
 
 func TestSQSSinkConsumer_Deliver_MessageDeduplicationId(t *testing.T) {
@@ -163,11 +205,14 @@ func TestSQSSinkConsumer_Deliver_MessageDeduplicationId(t *testing.T) {
 
 			err := c.Deliver(context.Background(), entry)
 			require.NoError(t, err)
+			err = c.FlushBatch(context.Background(), 0)
+			require.NoError(t, err)
 
-			require.NotNil(t, fake.lastSendInput)
-			require.NotNil(t, fake.lastSendInput.MessageDeduplicationId)
+			require.NotNil(t, fake.lastBatchInput)
+			require.Len(t, fake.lastBatchInput.Entries, 1)
+			require.NotNil(t, fake.lastBatchInput.Entries[0].MessageDeduplicationId)
 
-			dedupID := *fake.lastSendInput.MessageDeduplicationId
+			dedupID := *fake.lastBatchInput.Entries[0].MessageDeduplicationId
 			// SHA-256 hex[:64] is always exactly 64 chars regardless of input length.
 			assert.Len(t, dedupID, 64, "MessageDeduplicationId must be exactly 64 hex chars")
 		})
@@ -183,9 +228,12 @@ func TestSQSSinkConsumer_Deliver_IdempotencyKeyAttribute(t *testing.T) {
 
 	err := c.Deliver(context.Background(), entry)
 	require.NoError(t, err)
+	err = c.FlushBatch(context.Background(), 0)
+	require.NoError(t, err)
 
-	require.NotNil(t, fake.lastSendInput)
-	attr, ok := fake.lastSendInput.MessageAttributes["Kaptanto-Idempotency-Key"]
+	require.NotNil(t, fake.lastBatchInput)
+	require.Len(t, fake.lastBatchInput.Entries, 1)
+	attr, ok := fake.lastBatchInput.Entries[0].MessageAttributes["Kaptanto-Idempotency-Key"]
 	require.True(t, ok, "MessageAttributes must contain Kaptanto-Idempotency-Key")
 	require.NotNil(t, attr.StringValue, "StringValue must not be nil")
 	assert.Equal(t, rawKey, *attr.StringValue)
@@ -193,11 +241,11 @@ func TestSQSSinkConsumer_Deliver_IdempotencyKeyAttribute(t *testing.T) {
 	assert.Equal(t, "String", *attr.DataType)
 }
 
-func TestSQSSinkConsumer_Deliver_Error(t *testing.T) {
-	sendErr := errors.New("send failed: throttled")
+func TestSQSSinkConsumer_FlushBatch_Error(t *testing.T) {
+	batchErr := errors.New("send batch failed: throttled")
 	fake := &fakeSQSClient{
-		sendMessageFunc: func(ctx context.Context, params *sqs.SendMessageInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
-			return nil, sendErr
+		sendMessageBatchFunc: func(ctx context.Context, params *sqs.SendMessageBatchInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageBatchOutput, error) {
+			return nil, batchErr
 		},
 	}
 	m := observability.NewKaptantoMetrics()
@@ -206,8 +254,11 @@ func TestSQSSinkConsumer_Deliver_Error(t *testing.T) {
 
 	entry := makeEntry([]byte(`{"id":1}`), "idem-key-err")
 	err := c.Deliver(context.Background(), entry)
+	require.NoError(t, err, "Deliver should not error — it only buffers")
+
+	err = c.FlushBatch(context.Background(), 0)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "send failed: throttled")
+	assert.ErrorContains(t, err, "send batch failed: throttled")
 
 	// QueuePublishErrors must be incremented; QueuePublishTotal must NOT be.
 	errCount := testutil.ToFloat64(m.QueuePublishErrors.WithLabelValues("sqs"))
@@ -436,8 +487,10 @@ func TestSQSSinkConsumer_Routing_PerTable(t *testing.T) {
 		Key: []byte(`{"id":1}`), IdempotencyKey: "key1",
 	}}
 	require.NoError(t, c.Deliver(context.Background(), entry1))
-	require.NotNil(t, fake.lastSendInput)
-	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123/public-orders.fifo", *fake.lastSendInput.QueueUrl)
+	// Flush entry1 alone so we can assert its queue URL.
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+	require.NotNil(t, fake.lastBatchInput)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123/public-orders.fifo", *fake.lastBatchInput.QueueUrl)
 
 	// Event from public.users — should route to public-users.fifo.
 	entry2 := eventlog.LogEntry{Event: &event.ChangeEvent{
@@ -445,8 +498,9 @@ func TestSQSSinkConsumer_Routing_PerTable(t *testing.T) {
 		Key: []byte(`{"id":2}`), IdempotencyKey: "key2",
 	}}
 	require.NoError(t, c.Deliver(context.Background(), entry2))
-	require.NotNil(t, fake.lastSendInput)
-	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123/public-users.fifo", *fake.lastSendInput.QueueUrl)
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+	require.NotNil(t, fake.lastBatchInput)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123/public-users.fifo", *fake.lastBatchInput.QueueUrl)
 }
 
 // TestSQSSinkConsumer_Routing_PoolCaching confirms that GetQueueAttributes is
@@ -461,7 +515,7 @@ func TestSQSSinkConsumer_Routing_PoolCaching(t *testing.T) {
 		Key: []byte(`{"id":1}`), IdempotencyKey: "key-cache",
 	}}
 
-	// Deliver 3 times to the same resolved URL.
+	// Deliver 3 times to the same resolved URL (buffered, no flush needed for this test).
 	require.NoError(t, c.Deliver(context.Background(), entry))
 	require.NoError(t, c.Deliver(context.Background(), entry))
 	require.NoError(t, c.Deliver(context.Background(), entry))
@@ -491,6 +545,7 @@ func TestSQSSinkConsumer_Routing_TemplateExecError(t *testing.T) {
 		Schema: "public", Table: "orders",
 		Key: []byte(`{"id":1}`), IdempotencyKey: "key-empty",
 	}}
+	// Template execution error surfaces in Deliver (before buffering).
 	err := c.Deliver(context.Background(), entry)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "rendered to empty string")
@@ -505,12 +560,117 @@ func TestSQSSinkConsumer_Routing_Regression_NoTemplate(t *testing.T) {
 
 	entry := makeEntry([]byte(`{"id":1}`), "key-regression")
 	require.NoError(t, c.Deliver(context.Background(), entry))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
 
-	require.NotNil(t, fake.lastSendInput)
-	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123456789/test-queue.fifo", *fake.lastSendInput.QueueUrl,
-		"Without template, Deliver must use the default queueURL")
+	require.NotNil(t, fake.lastBatchInput)
+	assert.Equal(t, "https://sqs.us-east-1.amazonaws.com/123456789/test-queue.fifo", *fake.lastBatchInput.QueueUrl,
+		"Without template, FlushBatch must use the default queueURL")
 	// Default URL is pre-validated at construction (seeded in validatedQueues) —
-	// GetQueueAttributes must NOT be called during Deliver.
+	// GetQueueAttributes must NOT be called during Deliver or FlushBatch.
 	assert.Equal(t, 0, fake.getQueueAttributesCallCount,
 		"Default URL is pre-validated at construction; no GetQueueAttributes call expected")
+}
+
+// --- Batch-specific tests ---
+
+// TestSQSSinkConsumer_FlushBatch_BatchesMultipleEvents verifies that N events
+// produce ceil(N/10) SendMessageBatch calls and all events are delivered exactly once.
+func TestSQSSinkConsumer_FlushBatch_BatchesMultipleEvents(t *testing.T) {
+	fake := &fakeSQSClient{}
+	m := observability.NewKaptantoMetrics()
+	c := newTestConsumer(t, fake, "batch-test")
+	c.SetMetrics(m)
+
+	const n = 12 // requires 2 batches (10 + 2)
+	for i := 0; i < n; i++ {
+		entry := makeEntry([]byte(fmt.Sprintf(`{"id":%d}`, i)), fmt.Sprintf("key-%d", i))
+		require.NoError(t, c.Deliver(context.Background(), entry))
+	}
+
+	err := c.FlushBatch(context.Background(), 0)
+	require.NoError(t, err)
+
+	// 12 events → 2 batches of ≤10 (10 + 2).
+	assert.Equal(t, 2, fake.sendMessageBatchCallCount, "12 events should produce 2 batch calls")
+
+	// All 12 events should be counted as published.
+	got := testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("sqs"))
+	assert.Equal(t, float64(n), got)
+}
+
+// TestSQSSinkConsumer_FlushBatch_EmptyPending verifies that FlushBatch on an
+// empty buffer returns nil and makes no network calls.
+func TestSQSSinkConsumer_FlushBatch_EmptyPending(t *testing.T) {
+	fake := &fakeSQSClient{}
+	c := newTestConsumer(t, fake, "empty-test")
+	err := c.FlushBatch(context.Background(), 0)
+	require.NoError(t, err)
+	assert.Equal(t, 0, fake.sendMessageBatchCallCount)
+}
+
+// TestSQSSinkConsumer_FlushBatch_PartialFailure verifies that per-entry batch
+// failures are reported and metrics are correct (failed entries counted as errors).
+func TestSQSSinkConsumer_FlushBatch_PartialFailure(t *testing.T) {
+	failCode := "MessageGroupIdNotAllowed"
+	failMsg := "entry 0 failed"
+	failID := "" // will be populated after deliver
+
+	fake := &fakeSQSClient{
+		sendMessageBatchFunc: func(ctx context.Context, params *sqs.SendMessageBatchInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageBatchOutput, error) {
+			// Fail the first entry, succeed the rest.
+			firstID := ""
+			if len(params.Entries) > 0 && params.Entries[0].Id != nil {
+				firstID = *params.Entries[0].Id
+			}
+			_ = failID // suppress unused warning
+			var successful []types.SendMessageBatchResultEntry
+			var failed []types.BatchResultErrorEntry
+			for i, e := range params.Entries {
+				id := ""
+				if e.Id != nil {
+					id = *e.Id
+				}
+				if i == 0 {
+					fc := failCode
+					fm := failMsg
+					failed = append(failed, types.BatchResultErrorEntry{
+						Id:      &firstID,
+						Code:    &fc,
+						Message: &fm,
+					})
+				} else {
+					mid := id
+					md5 := "fake"
+					successful = append(successful, types.SendMessageBatchResultEntry{
+						Id: &mid, MessageId: &mid, MD5OfMessageBody: &md5,
+					})
+				}
+			}
+			return &sqs.SendMessageBatchOutput{Successful: successful, Failed: failed}, nil
+		},
+	}
+	m := observability.NewKaptantoMetrics()
+	c := newTestConsumer(t, fake, "partial-fail")
+	c.SetMetrics(m)
+
+	entry1 := makeEntry([]byte(`{"id":1}`), "key-fail")
+	entry2 := makeEntry([]byte(`{"id":2}`), "key-ok")
+	require.NoError(t, c.Deliver(context.Background(), entry1))
+	require.NoError(t, c.Deliver(context.Background(), entry2))
+
+	err := c.FlushBatch(context.Background(), 0)
+	require.Error(t, err, "FlushBatch should return error when any entry fails")
+	assert.ErrorContains(t, err, failCode)
+
+	// 1 success, 1 failure.
+	assert.Equal(t, float64(1), testutil.ToFloat64(m.QueuePublishTotal.WithLabelValues("sqs")))
+	assert.Equal(t, float64(1), testutil.ToFloat64(m.QueuePublishErrors.WithLabelValues("sqs")))
+}
+
+// TestSQSSinkConsumer_BatchFlusher_Interface verifies at compile time that
+// SQSSinkConsumer implements router.BatchFlusher.
+func TestSQSSinkConsumer_BatchFlusher_Interface(t *testing.T) {
+	fake := &fakeSQSClient{}
+	c := newTestConsumer(t, fake, "iface-test")
+	var _ router.BatchFlusher = c
 }

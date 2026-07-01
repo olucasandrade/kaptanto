@@ -191,7 +191,7 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 // FlushBatch implements router.BatchFlusher. It flushes all events written
 // since the last FlushBatch call to the underlying HTTP transport in a single
 // system call. Called by the Router after each ReadPartition batch.
-func (c *SSEConsumer) FlushBatch(ctx context.Context) error {
+func (c *SSEConsumer) FlushBatch(ctx context.Context, _ uint32) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
