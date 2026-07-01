@@ -126,9 +126,15 @@ func buildOutputServer(
 	colFilters map[string][]string,
 ) (func(context.Context) error, error) {
 	// Startup auth policy: refuse network outputs without an auth token unless
-	// --insecure is explicitly set. This prevents accidentally exposing raw row
-	// data (PII, secrets, financial records) to unauthenticated callers.
-	if (cfg.Output == "sse" || cfg.Output == "grpc") && cfg.AuthToken == "" {
+	// --insecure is explicitly set. This covers both data-plane outputs (sse,
+	// grpc) and broker sink outputs (nats, sqs, kafka, pubsub, rabbitmq) whose
+	// observability endpoints (/metrics, /healthz) would otherwise leak topology
+	// information to unauthenticated callers.
+	networkOutputs := map[string]bool{
+		"sse": true, "grpc": true,
+		"nats": true, "sqs": true, "kafka": true, "pubsub": true, "rabbitmq": true,
+	}
+	if networkOutputs[cfg.Output] && cfg.AuthToken == "" {
 		if !cfg.Insecure {
 			return nil, fmt.Errorf(
 				"output %q requires --auth-token (or KAPTANTO_AUTH_TOKEN env var) to protect the data stream; "+
