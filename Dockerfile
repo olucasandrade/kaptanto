@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build stage — produces a static binary with no CGO.
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25.8-alpine AS builder
 
 ARG VERSION=dev
 ARG COMMIT=none
