@@ -1,5 +1,6 @@
 source: postgres://bench:bench@postgres:5432/bench
 output: nats
+insecure: true
 port: 7658
 data-dir: /data
 source-id: bench_nats

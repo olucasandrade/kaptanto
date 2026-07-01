@@ -1,5 +1,6 @@
 source: postgres://bench:bench@postgres:5432/bench
 output: kafka
+insecure: true
 port: 7660
 data-dir: /data
 source-id: cluster_node2
