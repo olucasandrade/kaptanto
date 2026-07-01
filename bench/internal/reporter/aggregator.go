@@ -117,18 +117,14 @@ func Aggregate(acc *Accumulator, stats []StatRecord) *ReportData {
 		ss.P95us = percentile(latencies, 95)
 		ss.P99us = percentile(latencies, 99)
 
-		// Throughput — use scenario window duration (start→end marker) as denominator
-		// so that tools with a delivery backlog (events arrive late in a burst) still
-		// show correct eps. Falls back to receive span if no window markers exist.
+		// Throughput — use per-tool receive span (first→last event received) as
+		// denominator. This shows each tool's actual drain rate: a fast tool that
+		// processes 100k events in 2s shows ~50k eps regardless of any post-wait
+		// window added to let slow tools catch up. Window duration would collapse
+		// all tools to the same value when they all finish within the window.
 		count := acc.EventCounts[k]
 		if count > 0 {
-			dur := 0.0
-			if win, ok := acc.ScenarioWindows[scenario]; ok && !win.Start.IsZero() && !win.End.IsZero() {
-				dur = win.End.Sub(win.Start).Seconds()
-			}
-			if dur <= 0 {
-				dur = acc.MaxTS[k].Sub(acc.MinTS[k]).Seconds()
-			}
+			dur := acc.MaxTS[k].Sub(acc.MinTS[k]).Seconds()
 			if dur > 0 {
 				ss.ThroughputEPS = float64(count) / dur
 			}
@@ -178,6 +174,13 @@ func normalizeContainer(container string) string {
 		if _, err := strconv.Atoi(s[i+1:]); err == nil {
 			s = s[:i]
 		}
+	}
+	// Alias map for compose service names that differ from canonical tool names.
+	aliases := map[string]string{
+		"debezium-connect": "debezium-connector",
+	}
+	if canonical, ok := aliases[s]; ok {
+		return canonical
 	}
 	// Sort canonical tools by descending length so longer names match first.
 	sorted := make([]string, len(canonicalTools))

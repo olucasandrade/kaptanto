@@ -602,10 +602,10 @@ services:
       context: .
       dockerfile: Dockerfile.statsd
     <<: *default-logging
-    pid: "host"
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./results:/results
-    command: ["--containers=kaptanto,kaptanto-rust,debezium,sequin,peerdb,redpanda", "--output=/results/docker_stats.jsonl"]
+    command: ["--containers=bench-kaptanto-1,bench-kaptanto-rust-1,bench-debezium-1,bench-sequin-1,bench-peerdb-server-1,bench-redpanda-1,bench-debezium-connect-1", "--output=/results/docker_stats.jsonl"]
     depends_on:
       kaptanto:
         condition: service_healthy
