@@ -89,6 +89,7 @@ services:
       - public.bench_events
       - --data-dir
       - /data
+      - --insecure
     volumes:
       - kaptanto-data:/data
     depends_on:
@@ -125,6 +126,7 @@ services:
       - /data
       - --source-id
       - rust
+      - --insecure
     volumes:
       - kaptanto-rust-data:/data
     depends_on:
