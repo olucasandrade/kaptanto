@@ -375,6 +375,7 @@ func TestOutputMode_Nats_MissingConfig(t *testing.T) {
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "nats",
 		"--all-tables",
+		"--insecure",
 	}, &buf)
 	require.Error(t, err, "--output nats without sinks.nats config must return an error")
 	assert.Contains(t, err.Error(), "sinks.nats",
@@ -406,6 +407,7 @@ func TestOutputMode_SQS_MissingConfig(t *testing.T) {
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "sqs",
 		"--all-tables",
+		"--insecure",
 	}, &buf)
 	require.Error(t, err, "--output sqs without sinks.sqs config must return an error")
 	assert.Contains(t, err.Error(), "sinks.sqs",
@@ -435,6 +437,7 @@ func TestOutputMode_Kafka_MissingConfig(t *testing.T) {
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "kafka",
 		"--all-tables",
+		"--insecure",
 	}, &buf)
 	require.Error(t, err, "--output kafka without sinks.kafka config must return an error")
 	assert.Contains(t, err.Error(), "sinks.kafka",
@@ -466,6 +469,7 @@ func TestOutputMode_PubSub_MissingConfig(t *testing.T) {
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "pubsub",
 		"--all-tables",
+		"--insecure",
 	}, &buf)
 	require.Error(t, err, "--output pubsub without sinks.pubsub config must return an error")
 	assert.Contains(t, err.Error(), "sinks.pubsub",
@@ -497,6 +501,7 @@ func TestOutputMode_RabbitMQ_MissingConfig(t *testing.T) {
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
 		"--output", "rabbitmq",
 		"--all-tables",
+		"--insecure",
 	}, &buf)
 	require.Error(t, err, "--output rabbitmq without sinks.rabbitmq config must return an error")
 	assert.Contains(t, err.Error(), "sinks.rabbitmq",

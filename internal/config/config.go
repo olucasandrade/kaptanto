@@ -153,7 +153,8 @@ type Config struct {
 	NatsClusterPort int                    `yaml:"nats-cluster-port"` // NATS cluster route port; 0 → 6222 applied at runtime
 	Sinks           SinksConfig            `yaml:"sinks"`             // queue sink connection settings
 	ServerTLS       ServerTLSConfig        `yaml:"server-tls"`        // inbound server TLS (SSE / gRPC); distinct from sink-side TLS
-	Insecure        bool                   `yaml:"insecure"`          // allow plaintext for sse/grpc without TLS (loud warning at startup)
+	AuthToken       string                 `yaml:"auth-token"`        // static bearer token for SSE/gRPC data plane; also read from KAPTANTO_AUTH_TOKEN env var
+	Insecure        bool                   `yaml:"insecure"`          // allow plaintext/unauthenticated sse/grpc (loud warning at startup; not for production)
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
@@ -163,6 +164,18 @@ func (c *Config) SourceType() string {
 		return "mongodb"
 	}
 	return "postgres"
+}
+
+// ApplyEnv overlays environment-variable values onto cfg. Only variables that
+// are set to a non-empty value override the corresponding field.
+//
+// Variables:
+//   - KAPTANTO_AUTH_TOKEN → cfg.AuthToken (preferred over --auth-token argv so
+//     the secret is not visible in process listings)
+func ApplyEnv(cfg *Config) {
+	if v := os.Getenv("KAPTANTO_AUTH_TOKEN"); v != "" {
+		cfg.AuthToken = v
+	}
 }
 
 // Load reads the YAML file at path and unmarshals it into a new Config.
@@ -219,6 +232,7 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 		{"tls-cert", &cfg.ServerTLS.CertFile},
 		{"tls-key", &cfg.ServerTLS.KeyFile},
 		{"tls-client-ca", &cfg.ServerTLS.ClientCAFile},
+		{"auth-token", &cfg.AuthToken},
 	} {
 		if err := mergeString(flags, f.name, f.dest); err != nil {
 			return err
