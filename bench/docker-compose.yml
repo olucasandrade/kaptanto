@@ -605,11 +605,15 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./results:/results
-    command: ["--containers=bench-kaptanto-1,bench-kaptanto-rust-1,bench-debezium-1,bench-sequin-1,bench-peerdb-server-1,bench-redpanda-1,bench-debezium-connect-1", "--output=/results/docker_stats.jsonl"]
+    command: ["--containers=bench-kaptanto-1,bench-kaptanto-rust-1,bench-kaptanto-kafka-1,bench-kaptanto-nats-1,bench-debezium-1,bench-sequin-1,bench-peerdb-server-1,bench-redpanda-1,bench-debezium-connect-1", "--output=/results/docker_stats.jsonl"]
     depends_on:
       kaptanto:
         condition: service_healthy
       kaptanto-rust:
+        condition: service_healthy
+      kaptanto-kafka:
+        condition: service_healthy
+      kaptanto-nats:
         condition: service_healthy
 
 # Named volumes
