@@ -489,14 +489,12 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               >
                 Config
               </a>
-              <a href="#">Blog</a>
             </div>
             <div class="fcol">
               <h4>Community</h4>
               <a href="https://github.com/olucasandrade/kaptanto">GitHub</a>
-              <a href="#">Discord</a>
-              <a href="#">X</a>
-              <a href="#">Contributing</a>
+              <a href="https://github.com/olucasandrade/kaptanto/issues">Issues</a>
+              <a href="https://github.com/olucasandrade/kaptanto/pulls">Contributing</a>
             </div>
           </div>
           <div class="fbot">
