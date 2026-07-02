@@ -95,7 +95,7 @@ func TestFlagTables(t *testing.T) {
 	root := cmd.NewRootCmd()
 	f := root.PersistentFlags().Lookup("tables")
 	require.NotNil(t, f, "flag 'tables' must exist")
-	assert.Equal(t, "stringArray", f.Value.Type())
+	assert.Equal(t, "stringSlice", f.Value.Type())
 }
 
 func TestFlagOutput(t *testing.T) {

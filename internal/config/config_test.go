@@ -210,6 +210,23 @@ func TestMerge_ChangedTables_NilColumns(t *testing.T) {
 	assert.Nil(t, cfg.Tables["public.orders"].Columns)
 }
 
+// TestMerge_ChangedTables_CommaSeparated verifies that a single --tables flag
+// with a comma-separated value (the form used throughout the README and
+// landing docs) splits into distinct table entries rather than registering
+// one table literally named "public.orders,public.payments".
+func TestMerge_ChangedTables_CommaSeparated(t *testing.T) {
+	cfg := config.Defaults()
+	cmd := newCmdWithFlags()
+	setFlagStringArray(cmd, "tables", []string{"public.orders,public.payments"})
+
+	err := config.Merge(cfg, cmd)
+	require.NoError(t, err)
+
+	require.Contains(t, cfg.Tables, "public.orders")
+	require.Contains(t, cfg.Tables, "public.payments")
+	assert.NotContains(t, cfg.Tables, "public.orders,public.payments")
+}
+
 // --- SourceType tests ---
 
 func TestSourceType_Postgres(t *testing.T) {
@@ -259,7 +276,7 @@ func writeTempYAML(t *testing.T, content string) string {
 func newCmdWithFlags() *cobra.Command {
 	cmd := &cobra.Command{Use: "test", RunE: func(cmd *cobra.Command, args []string) error { return nil }}
 	cmd.Flags().String("source", "", "")
-	cmd.Flags().StringArray("tables", nil, "")
+	cmd.Flags().StringSlice("tables", nil, "")
 	cmd.Flags().String("output", "stdout", "")
 	cmd.Flags().Int("port", 7654, "")
 	cmd.Flags().String("data-dir", "./data", "")

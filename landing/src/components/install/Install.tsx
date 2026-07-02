@@ -5,7 +5,7 @@ interface InstallProps {
   currentDoc: Signal<string | null>;
 }
 
-type Tab = 'curl' | 'docker' | 'brew' | 'src';
+type Tab = 'curl' | 'docker' | 'src';
 
 export const Install = component$<InstallProps>(({ currentDoc }) => {
   const activeTab = useSignal<Tab>('curl');
@@ -23,13 +23,13 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
               <div class="qs-label">Install</div>
               <div style="max-width:540px">
                 <div class="its">
-                  {(['curl', 'docker', 'brew', 'src'] as Tab[]).map((t) => (
+                  {(['curl', 'docker', 'src'] as Tab[]).map((t) => (
                     <button
                       key={t}
                       class={`it${activeTab.value === t ? ' a' : ''}`}
                       onClick$={() => { activeTab.value = t; }}
                     >
-                      {t === 'curl' ? 'curl' : t === 'docker' ? 'Docker' : t === 'brew' ? 'Homebrew' : 'Source'}
+                      {t === 'curl' ? 'curl' : t === 'docker' ? 'Docker' : 'Source'}
                     </button>
                   ))}
                 </div>
@@ -49,12 +49,6 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
                     <br />&nbsp;&nbsp;<span class="tbl">--tables</span>{' '}
                     <span class="ty">orders</span> <span class="tbl">--output</span>{' '}
                     <span class="ty">stdout</span>
-                  </div>
-                )}
-                {activeTab.value === 'brew' && (
-                  <div class="ic">
-                    <CopyButton />
-                    <span class="tg">$</span> brew install kaptanto/tap/kaptanto
                   </div>
                 )}
                 {activeTab.value === 'src' && (
@@ -85,7 +79,19 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
               </div>
               <p class="qs-hint">
                 Use <code>--output sse</code> or <code>--output grpc</code> for multi-consumer setups. Use{' '}
-                <code>--output nats|sqs|kafka|pubsub|rabbitmq</code> to push directly to a queue.
+                <code>--output nats|sqs|kafka|pubsub|rabbitmq</code> to push directly to a queue. All of these
+                require <code>--auth-token</code> (or <code>--insecure</code> for local dev) — see the{' '}
+                <a
+                  href="/?doc=docs-config"
+                  onClick$={(e) => {
+                    e.preventDefault();
+                    currentDoc.value = 'docs-config';
+                    window.scrollTo(0, 0);
+                  }}
+                >
+                  Configuration
+                </a>{' '}
+                docs.
               </p>
             </div>
           </div>

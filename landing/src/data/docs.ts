@@ -7,7 +7,7 @@ export type SeoDoc = {
 export const SEO_DOCS: SeoDoc[] = [
   { slug: 'docs-intro', title: 'Introduction', description: 'What Kaptanto is and how CDC works across Postgres and MongoDB.' },
   { slug: 'docs-quickstart', title: 'Quick Start', description: 'Install Kaptanto and stream your first events in minutes.' },
-  { slug: 'docs-install', title: 'Installation', description: 'Install on Linux, macOS, Windows, Docker, and Homebrew.' },
+  { slug: 'docs-install', title: 'Installation', description: 'Install on Linux, macOS, Windows via curl, Docker, or from source.' },
   { slug: 'docs-postgres', title: 'Connect Postgres', description: 'Configure WAL logical replication and failover-safe connections.' },
   { slug: 'docs-mongo', title: 'Connect MongoDB', description: 'Use Change Streams with replica sets and resume tokens.' },
   { slug: 'docs-schema', title: 'Event Schema', description: 'Understand Kaptanto event structure and idempotency keys.' },
