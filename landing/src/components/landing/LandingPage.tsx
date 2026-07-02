@@ -24,7 +24,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">latency</div>
             <h3>Low-latency streaming</h3>
             <p>
-              Events flow from the WAL as each transaction commits. Burst p50 latency: 2.7s at 4k eps.
+              Events flow from the WAL as each transaction commits. Burst p50 latency: 1.2s at 3.6k eps.
               No polling interval.
             </p>
           </div>

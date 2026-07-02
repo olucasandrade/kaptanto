@@ -735,31 +735,31 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dtable-wrap"><table class="dtable">
 <thead><tr><th>Tool</th><th>Steady (eps)</th><th>Peak (eps)</th><th>p50 Burst Latency</th><th>Recovery</th><th>Infrastructure</th></tr></thead>
 <tbody>
-<tr><td><strong>kaptanto</strong></td><td><strong>2,165</strong></td><td><strong>4,182</strong></td><td>2.7 s</td><td>3.7 s</td><td>1 binary (Go) · ~720 MB RSS</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td><strong>2,273</strong></td><td><strong>3,647</strong></td><td>2.8 s</td><td>4.0 s</td><td>1 binary (Go+Rust FFI) · ~690 MB RSS</td></tr>
-<tr><td><strong>kaptanto-kafka</strong></td><td><strong>2,792</strong></td><td><strong>3,894</strong></td><td>5.0 s</td><td>—</td><td>1 binary + Redpanda</td></tr>
-<tr><td><strong>kaptanto-nats</strong></td><td><strong>2,655</strong></td><td><strong>3,466</strong></td><td>2.2 s</td><td>—</td><td>1 binary + NATS JetStream</td></tr>
-<tr><td>PeerDB</td><td>2,794</td><td>3,813</td><td>4.8 s</td><td>3.6 s</td><td>4 Go services + Temporal + Kafka + PG</td></tr>
-<tr><td>Debezium (Kafka Connect)</td><td>1,043</td><td>2,801</td><td>8.8 s</td><td>—</td><td>JVM + Kafka Connect + Redpanda</td></tr>
-<tr><td>Debezium (HTTP sink)</td><td>101</td><td>1,209</td><td>26.0 s</td><td>3.3 s</td><td>JVM only</td></tr>
-<tr><td>Sequin</td><td>72</td><td>770</td><td>9.1 s</td><td>2.8 s</td><td>Elixir + Redis + PG</td></tr>
+<tr><td><strong>kaptanto</strong></td><td><strong>2,829</strong></td><td><strong>3,575</strong></td><td>1.2 s</td><td>3.7 s</td><td>1 binary (Go) · ~629 MB RSS</td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td><strong>2,776</strong></td><td><strong>3,670</strong></td><td>1.2 s</td><td>4.7 s</td><td>1 binary (Go+Rust FFI) · ~573 MB RSS</td></tr>
+<tr><td><strong>kaptanto-kafka</strong></td><td><strong>2,451</strong></td><td><strong>3,462</strong></td><td>2.0 s</td><td>—</td><td>1 binary + Redpanda · ~578 MB RSS</td></tr>
+<tr><td><strong>kaptanto-nats</strong></td><td><strong>2,489</strong></td><td><strong>3,262</strong></td><td>2.3 s</td><td>—</td><td>1 binary + NATS JetStream · ~568 MB RSS</td></tr>
+<tr><td>PeerDB</td><td>2,453</td><td>3,455</td><td>2.1 s</td><td>3.7 s</td><td>4 Go services + Temporal + Kafka + PG</td></tr>
+<tr><td>Debezium (Kafka Connect)</td><td>800</td><td>2,500</td><td>14.3 s</td><td>—</td><td>JVM + Kafka Connect + Redpanda</td></tr>
+<tr><td>Debezium (HTTP sink)</td><td>97</td><td>1,431</td><td>28.6 s</td><td>3.8 s</td><td>JVM only</td></tr>
+<tr><td>Sequin</td><td>63</td><td>670</td><td>8.2 s</td><td>3.5 s</td><td>Elixir + Redis + PG</td></tr>
 </tbody>
 </table></div>
-<p class="dp">kaptanto delivers <strong>21× the steady-state throughput</strong> of Debezium HTTP and <strong>30× Sequin</strong> as a single binary, and matches PeerDB across all scenarios with a fraction of the infrastructure.</p>
-<div class="dcall"><p><strong>Memory note:</strong> At steady load, kaptanto uses ~720 MB RSS and kaptanto-rust ~690 MB RSS. Peak during large-batch ingestion reaches ~1.1 GB for kaptanto. Not edge-suitable — minimum instance is a t3.medium (4 GB). Debezium uses ~354 MB, Sequin ~612 MB.</p></div>
+<p class="dp">kaptanto delivers <strong>29× the steady-state throughput</strong> of Debezium HTTP and <strong>45× Sequin</strong> as a single binary, and matches PeerDB across all scenarios with a fraction of the infrastructure.</p>
+<div class="dcall"><p><strong>Memory note:</strong> At steady load, kaptanto uses ~629 MB RSS and kaptanto-rust ~573 MB RSS. Peak during crash-recovery reaches ~1.0 GB. Not edge-suitable — minimum instance is a t3.medium (4 GB). Debezium uses ~360 MB, Sequin ~627 MB.</p></div>
 
 <h2 class="dh2">Throughput by Scenario (eps)</h2>
 <div class="dtable-wrap"><table class="dtable">
 <thead><tr><th>Tool</th><th>Steady</th><th>Burst</th><th>Large Batch</th><th>Crash Recovery</th></tr></thead>
 <tbody>
-<tr><td><strong>kaptanto</strong></td><td>2,165</td><td>2,530</td><td>4,182</td><td>2,247</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td>2,273</td><td>2,797</td><td>3,647</td><td>2,381</td></tr>
-<tr><td><strong>kaptanto-kafka</strong></td><td>2,792</td><td>2,445</td><td>3,894</td><td>2,467</td></tr>
-<tr><td><strong>kaptanto-nats</strong></td><td>2,655</td><td>2,248</td><td>3,466</td><td>2,436</td></tr>
-<tr><td>PeerDB</td><td>2,794</td><td>2,410</td><td>3,813</td><td>2,466</td></tr>
-<tr><td>Debezium (Kafka Connect)</td><td>1,043</td><td>1,478</td><td>2,801</td><td>1,515</td></tr>
-<tr><td>Debezium (HTTP sink)</td><td>101</td><td>38</td><td>1,209</td><td>93</td></tr>
-<tr><td>Sequin</td><td>72</td><td>124</td><td>770</td><td>39</td></tr>
+<tr><td><strong>kaptanto</strong></td><td>2,829</td><td>2,368</td><td>3,575</td><td>2,308</td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td>2,776</td><td>2,003</td><td>3,670</td><td>2,523</td></tr>
+<tr><td><strong>kaptanto-kafka</strong></td><td>2,451</td><td>2,461</td><td>3,462</td><td>2,285</td></tr>
+<tr><td><strong>kaptanto-nats</strong></td><td>2,489</td><td>2,405</td><td>3,262</td><td>2,216</td></tr>
+<tr><td>PeerDB</td><td>2,453</td><td>2,461</td><td>3,455</td><td>2,257</td></tr>
+<tr><td>Debezium (Kafka Connect)</td><td>800</td><td>759</td><td>2,500</td><td>1,013</td></tr>
+<tr><td>Debezium (HTTP sink)</td><td>97</td><td>121</td><td>1,431</td><td>31</td></tr>
+<tr><td>Sequin</td><td>63</td><td>88</td><td>670</td><td>31</td></tr>
 </tbody>
 </table></div>
 <p class="dp">Throughput is the actual consumer receive rate (events / per-tool receive span), so each tool shows its true drain speed regardless of scenario window duration.</p>
@@ -768,14 +768,14 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dtable-wrap"><table class="dtable">
 <thead><tr><th>Tool</th><th>Steady</th><th>Burst</th><th>Crash Recovery</th></tr></thead>
 <tbody>
-<tr><td><strong>kaptanto</strong></td><td>12,704 / 36,826 / 40,324</td><td>2,659 / 7,264 / 7,764</td><td>30,003 / 76,872 / 79,948</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td>11,828 / 37,849 / 40,577</td><td>2,781 / 5,875 / 6,429</td><td>29,633 / 66,269 / 71,677</td></tr>
-<tr><td><strong>kaptanto-kafka</strong></td><td>11,646 / 35,700 / 37,514</td><td>5,013 / 8,035 / 8,306</td><td>26,750 / 70,788 / 71,648</td></tr>
-<tr><td><strong>kaptanto-nats</strong></td><td>14,369 / 36,877 / 38,790</td><td>2,218 / 9,040 / 9,551</td><td>26,049 / 70,235 / 72,180</td></tr>
-<tr><td>PeerDB</td><td>11,528 / 35,824 / 37,684</td><td>4,783 / 7,225 / 8,299</td><td>26,706 / 70,809 / 71,646</td></tr>
-<tr><td>Debezium (Kafka Connect)</td><td>36,684 / 53,175 / 53,570</td><td>8,806 / 16,998 / 18,026</td><td>55,320 / 90,604 / 92,784</td></tr>
-<tr><td>Debezium (HTTP sink)</td><td>41,066 / 61,958 / 64,080</td><td>26,024 / 33,852 / 34,643</td><td>88,554 / 118,828 / 121,745</td></tr>
-<tr><td>Sequin</td><td>40,057 / 63,308 / 64,806</td><td>9,121 / 29,496 / 30,824</td><td>30,617 / 121,100 / 123,462</td></tr>
+<tr><td><strong>kaptanto</strong></td><td>9,527 / 28,001 / 29,911</td><td>1,153 / 6,080 / 9,146</td><td>32,128 / 72,977 / 78,827</td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td>12,383 / 30,147 / 31,109</td><td>1,191 / 9,984 / 11,637</td><td>31,456 / 72,174 / 74,413</td></tr>
+<tr><td><strong>kaptanto-kafka</strong></td><td>14,875 / 33,612 / 34,911</td><td>2,031 / 7,722 / 10,013</td><td>27,953 / 76,587 / 78,357</td></tr>
+<tr><td><strong>kaptanto-nats</strong></td><td>15,969 / 32,234 / 33,915</td><td>2,333 / 7,488 / 8,741</td><td>30,857 / 76,356 / 81,174</td></tr>
+<tr><td>PeerDB</td><td>15,013 / 33,546 / 34,662</td><td>2,067 / 7,709 / 10,036</td><td>27,768 / 76,531 / 78,456</td></tr>
+<tr><td>Debezium (Kafka Connect)</td><td>32,431 / 51,166 / 53,076</td><td>14,301 / 23,376 / 24,571</td><td>68,429 / 102,226 / 103,867</td></tr>
+<tr><td>Debezium (HTTP sink)</td><td>46,621 / 59,856 / 63,498</td><td>28,649 / 31,816 / 32,048</td><td>97,832 / 119,538 / 121,926</td></tr>
+<tr><td>Sequin</td><td>42,017 / 63,671 / 64,694</td><td>8,206 / 30,977 / 32,291</td><td>34,701 / 122,716 / 124,076</td></tr>
 </tbody>
 </table></div>
 
@@ -784,10 +784,10 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <thead><tr><th>Tool</th><th>Recovery Time</th></tr></thead>
 <tbody>
 <tr><td><strong>kaptanto</strong></td><td>3.7 s</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td>4.0 s</td></tr>
-<tr><td>PeerDB</td><td>3.6 s</td></tr>
-<tr><td>Debezium (HTTP sink)</td><td>3.3 s</td></tr>
-<tr><td>Sequin</td><td>2.8 s</td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td>4.7 s</td></tr>
+<tr><td>PeerDB</td><td>3.7 s</td></tr>
+<tr><td>Debezium (HTTP sink)</td><td>3.8 s</td></tr>
+<tr><td>Sequin</td><td>3.5 s</td></tr>
 </tbody>
 </table></div>
 <p class="dp">All tools recover within ~4 seconds. Crash recovery time measures from process restart to the first event received after re-connection.</p>
@@ -803,7 +803,7 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <p class="dp">Throughput is measured as events-per-second at the consumer (event count / per-tool receive span). Latency is end-to-end: row committed in Postgres to event received by consumer. All eight tools ran concurrently in Docker on a shared 4 vCPU GitHub Actions runner.</p>
 <h2 class="dh2">When kaptanto is not the right fit</h2>
 <ul class="dul">
-<li><strong>Edge / IoT deployments</strong> — ~720 MB RSS at steady load, peaking ~1.1 GB during large-batch ingestion. Requires at least a t3.medium (4 GB). Not suitable for constrained environments.</li>
+<li><strong>Edge / IoT deployments</strong> — ~629 MB RSS at steady load, peaking ~1.0 GB during crash-recovery. Requires at least a t3.medium (4 GB). Not suitable for constrained environments.</li>
 <li><strong>Petabyte-scale ETL</strong> — kaptanto streams continuously; it is not an atomic batch system and does not write to S3/Snowflake natively. Use Debezium with Kafka connectors for data warehouse pipelines.</li>
 <li><strong>Sub-second p99 SLAs at high volume</strong> — burst p99 is ~8 s under shared-CPU load. If your pipeline requires guaranteed low tail latency under sustained load, evaluate purpose-built streaming systems.</li>
 <li><strong>Crash-recovery p99 SLAs</strong> — kaptanto Go p99 crash-recovery latency is ~80 s. Use kaptanto-rust (~72 s p99) or accept this tradeoff explicitly.</li>
