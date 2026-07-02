@@ -234,6 +234,7 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <div class="dcode">GET https://localhost:7654/events?tables=orders,payments&consumer=my-service
 Authorization: Bearer &lt;token&gt;</div>
 <p class="dp">Each HTTP connection is an independent consumer with its own cursor. Supports <code>Last-Event-ID</code> header for automatic resume on reconnect.</p>
+<div class="dcall"><p><strong>Shared-principal model:</strong> the bearer token grants access to the whole data plane, and consumer IDs are chosen by the client. Any client holding the token can attach with another service's <code>consumer</code> value and advance that cursor, causing the original consumer to skip events. Treat every token holder as fully trusted, use distinct consumer IDs per service by convention, and monitor <code>kaptanto_consumer_lag_events</code> for unexpected cursor jumps.</p></div>
 
 <h2 class="dh2">Event format</h2>
 <div class="dcode">id: 01HX7K9M3N4P5Q6R7S8T9U0V
