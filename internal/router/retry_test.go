@@ -254,8 +254,11 @@ func TestDeadLetterLogOmitsRawPK(t *testing.T) {
 	rs := router.NewRetryScheduler()
 	consumer := &fakeConsumer{id: "dl-consumer", badKey: `"pii@example.com"`}
 
+	entry := makeEntry(1, `"pii@example.com"`)
+	// The idempotency key embeds the PK — it must not be logged either.
+	entry.Event.IdempotencyKey = "pg:public.users:pii@example.com:update:0/1A"
 	rec := &router.RetryRecord{
-		Entry:       makeEntry(1, `"pii@example.com"`),
+		Entry:       entry,
 		Attempts:    14, // maxRetries is 15 — the next failure dead-letters
 		NextRetryAt: time.Now().Add(-time.Second),
 		ConsumerID:  "dl-consumer",
