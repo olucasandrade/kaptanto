@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -38,9 +39,15 @@ func TestCanonicalByteIdentical(t *testing.T) {
 			snapMap: map[string]any{"code": "ABC"},
 		},
 		{
+			// Postgres boolout (used by pgoutput) emits "t"/"f", not "true"/"false".
 			name:    "bool pk",
-			walMap:  map[string]any{"flag": "true"},
+			walMap:  map[string]any{"flag": "t"},
 			snapMap: map[string]any{"flag": true},
+		},
+		{
+			name:    "bool pk false",
+			walMap:  map[string]any{"flag": "f"},
+			snapMap: map[string]any{"flag": false},
 		},
 		{
 			name:    "null pk",
@@ -59,9 +66,29 @@ func TestCanonicalByteIdentical(t *testing.T) {
 		},
 		{
 			// pgtype.UUID implements fmt.Stringer, producing the standard dash-separated form.
-			name:    "uuid pk",
+			name:    "uuid pk via pgtype.UUID",
 			walMap:  map[string]any{"id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"},
 			snapMap: map[string]any{"id": pgtype.UUID{Bytes: [16]byte{0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11}, Valid: true}},
+		},
+		{
+			// pgx v5 rows.Values() actually returns [16]byte for uuid columns
+			// (UUIDCodec.DecodeValue → UUID.Bytes), not pgtype.UUID.
+			name:    "uuid pk via [16]byte",
+			walMap:  map[string]any{"id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"},
+			snapMap: map[string]any{"id": [16]byte{0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11}},
+		},
+		{
+			// timestamptz PK: pgx decodes to time.Time in UTC; the WAL path text
+			// from a TimeZone=UTC server is ISO with "+00" offset and trailing
+			// zeros trimmed from fractional seconds.
+			name:    "timestamptz pk",
+			walMap:  map[string]any{"created_at": "2026-07-02 15:04:05.123+00"},
+			snapMap: map[string]any{"created_at": time.Date(2026, 7, 2, 15, 4, 5, 123000000, time.UTC)},
+		},
+		{
+			name:    "timestamptz pk no fraction",
+			walMap:  map[string]any{"created_at": "2026-07-02 15:04:05+00"},
+			snapMap: map[string]any{"created_at": time.Date(2026, 7, 2, 15, 4, 5, 0, time.UTC)},
 		},
 		{
 			// bytea PKs: WAL delivers \x<hex>, snapshot delivers []byte.
