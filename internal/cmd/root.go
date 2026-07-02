@@ -86,7 +86,7 @@ The name means "who captures" in Esperanto.`,
 	}
 
 	root.PersistentFlags().String("source", "", "database connection string (e.g. postgres://user:pass@host/db)")
-	root.PersistentFlags().StringArray("tables", nil, "tables to replicate, e.g. --tables public.orders --tables public.users")
+	root.PersistentFlags().StringSlice("tables", nil, "tables to replicate, e.g. --tables public.orders,public.users or --tables public.orders --tables public.users")
 	root.PersistentFlags().String("config", "", "path to YAML config file (flags take precedence over file)")
 	root.PersistentFlags().String("output", "stdout", "output mode: stdout | sse | grpc | nats | sqs | kafka | pubsub | rabbitmq")
 	root.PersistentFlags().Int("port", 7654, "TCP port for SSE / gRPC server")

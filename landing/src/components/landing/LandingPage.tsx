@@ -24,7 +24,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">latency</div>
             <h3>Low-latency streaming</h3>
             <p>
-              Events flow from the WAL as each transaction commits. Burst p50 latency: 1.2s at 3.6k eps.
+              Events flow from the WAL as each transaction commits. Burst p50 latency: 1.2s at ~2.4k eps.
               No polling interval.
             </p>
           </div>
@@ -92,7 +92,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
         <div class="sl sr">Use Cases</div>
         <div class="stt sr">Built for event-driven pipelines at product scale.</div>
         <div class="sd sr">
-          Best fit: notification fan-out, search index sync, cache invalidation, audit trails. Up to ~4k eps burst throughput.
+          Best fit: notification fan-out, search index sync, cache invalidation, audit trails. Up to ~3.6k eps large-batch throughput.
         </div>
         <div class="fg sr">
           <div class="fc">
@@ -371,12 +371,16 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
                 RabbitMQ: publisher confirms, 64-partition channel pool, exponential-backoff reconnect
                 loop
               </li>
+              <li>
+                Distributed mode — embedded NATS JetStream replicated event log, 64-partition
+                active/active delivery, epoch fencing
+              </li>
             </ul>
           </div>
           <div class="chver chver-old">
             <div class="chver-h">
               <span class="chtag chtag-old">v0.1.0</span>
-              <span class="chdate">Mar 2026</span>
+              <span class="chdate">Apr 2026</span>
               <span class="chname">Initial Release</span>
             </div>
             <ul class="chlist">
@@ -398,10 +402,6 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               <li>
                 High availability — Postgres advisory lock leader election, ~5s failover, shared
                 checkpoint store
-              </li>
-              <li>
-                Distributed mode — NATS JetStream replicated event log, 64-partition active/active
-                delivery, epoch fencing
               </li>
               <li>Optional Rust FFI acceleration for pgoutput decoding and JSON serialization</li>
               <li>

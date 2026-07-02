@@ -29,7 +29,7 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 <li><strong>High availability</strong> — Leader election via Postgres advisory locks. Automatic primary detection and failover.</li>
 <li><strong>Cluster mode</strong> — Active-active delivery across nodes with embedded NATS JetStream and shared partition ownership.</li>
 <li><strong>Queue sinks</strong> — Push CDC events to NATS JetStream, AWS SQS, Apache Kafka, Google Cloud Pub/Sub, or RabbitMQ with per-table routing and TLS/mTLS support.</li>
-<li><strong>Multi-source</strong> — Capture from multiple databases in one process.</li>
+<li><strong>Named sources</strong> — One database per process today; <code>--source-id</code> namespaces the replication slot and publication so you can run several kaptanto instances against the same or different databases without collisions.</li>
 <li><strong>Filtering</strong> — Table, operation, column, and SQL WHERE condition filters.</li>
 </ul>`},
 
@@ -57,11 +57,12 @@ max_wal_senders = 4</div>
 <h2 class="dh2">4. Use SSE or gRPC</h2>
 <p class="dp">For multi-consumer setups, use SSE or gRPC instead of stdout:</p>
 <div class="dcode"><span class="tc"># SSE server</span>
-<span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654
+<span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654 --insecure
 
 <span class="tc"># gRPC server</span>
-<span class="tg">$</span> kaptanto --source postgres://... --output grpc --port 50051</div>
-<p class="dp">Each connected client gets an independent consumer with its own cursor and checkpoint.</p>`},
+<span class="tg">$</span> kaptanto --source postgres://... --output grpc --port 50051 --insecure</div>
+<p class="dp">Each connected client gets an independent consumer with its own cursor and checkpoint.</p>
+<div class="dcall"><p><strong>Auth is required by default:</strong> SSE, gRPC, and every queue sink refuse to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) and TLS certificates (SSE/gRPC only). <code>--insecure</code> disables both checks for local development — never use it in production. See <a onclick="go('docs-config')">Configuration</a> for the production setup.</p></div>`},
 
 'docs-install': {title:'Installation',sub:'Install kaptanto on Linux, macOS, or Windows.',body:`
 <h2 class="dh2">Binary (recommended)</h2>
@@ -71,9 +72,6 @@ max_wal_senders = 4</div>
 <h2 class="dh2">Docker</h2>
 <div class="dcode"><span class="tg">$</span> docker pull olucasandrade/kaptanto:latest
 <span class="tg">$</span> docker run olucasandrade/kaptanto --source postgres://host.docker.internal:5432/mydb --output stdout</div>
-
-<h2 class="dh2">Homebrew</h2>
-<div class="dcode"><span class="tg">$</span> brew install kaptanto/tap/kaptanto</div>
 
 <h2 class="dh2">From source</h2>
 <p class="dp">Requires Go 1.25+:</p>
@@ -88,7 +86,7 @@ max_wal_senders = 4</div>
 'docs-postgres': {title:'Connect Postgres',sub:'Configure Postgres for CDC with kaptanto.',body:`
 <h2 class="dh2">Requirements</h2>
 <ul class="dul">
-<li><strong>Postgres 14+</strong> — Required for pgoutput logical decoding.</li>
+<li><strong>Postgres 14–17</strong> — The tested and supported range for the <code>pgoutput</code> logical decoding plugin (included in Postgres core since v10).</li>
 <li><strong>wal_level = logical</strong> — Enables the write-ahead log to include logical change data.</li>
 <li><strong>max_replication_slots >= 1</strong> — At least one slot for kaptanto.</li>
 <li><strong>max_wal_senders >= 1</strong> — Allows kaptanto to connect as a replication client.</li>
@@ -142,17 +140,17 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
   "timestamp": "2026-03-06T14:32:01.847Z",
   "source": "main-pg",
   "operation": "update",
+  "schema": "public",
   "table": "orders",
   "key": { "id": 1234 },
   "before": { "id": 1234, "status": "pending", "amount": 149.90 },
   "after":  { "id": 1234, "status": "settled", "amount": 149.90 },
   "metadata": {
     "lsn": "0/1A2B3C4",
-    "tx_id": 84729,
-    "checkpoint": "cGdfc2xvdF8x...",
     "snapshot": false
   }
 }</div>
+<p class="dp">Postgres sources populate <code>schema</code>; MongoDB sources populate <code>database</code> instead (the database name), since MongoDB has no schema concept. Both fields are omitted when empty.</p>
 
 <h2 class="dh2">Operations</h2>
 <table class="dtbl"><thead><tr><th>Operation</th><th>Source</th><th>Description</th></tr></thead><tbody>
@@ -205,7 +203,7 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <p class="dp">Every event is durably written to the embedded Event Log (Badger) before the source checkpoint is advanced. If kaptanto crashes between receiving a WAL message and writing it, the source re-sends on reconnection. The Event Log deduplicates by the deterministic <code>idempotency_key</code>, so replayed messages collapse to a single event.</p>
 
 <h2 class="dh2">Poison pill handling</h2>
-<p class="dp">Failed events are retried with exponential backoff (1s, 5s, 30s, 2min, 10min). After max retries, events move to a dead-letter partition. A failed event blocks only its own message group, not other groups in the same partition.</p>`},
+<p class="dp">Failed events are retried with exponential backoff (1s → 5s → 30s → 2min → 10min plateau). After 15 failed attempts, the event is logged at Error level and dropped — there is no persistent dead-letter store to replay from, so alert on <code>kaptanto_errors_total</code> to catch this. A failed event blocks only its own message group, not other groups in the same partition.</p>`},
 
 'docs-ordering': {title:'Ordering and Partitions',sub:'How kaptanto maintains per-key order while maximizing throughput.',body:`
 <h2 class="dh2">Message groups</h2>
@@ -224,14 +222,17 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output stdout | jq 'select(.operation == "insert")'</div>
 
 <h2 class="dh2">Limitations</h2>
-<p class="dp">Single consumer only. No acknowledgment — events are fire-and-forget. The consumer is responsible for its own checkpointing using the <code>metadata.checkpoint</code> field.</p>`},
+<p class="dp">Single consumer only. No acknowledgment — events are fire-and-forget. The consumer is responsible for its own checkpointing using <code>metadata.lsn</code> (Postgres) or the <code>idempotency_key</code>, which is stable across restarts.</p>`},
 
 'docs-sse': {title:'SSE Output',sub:'Server-Sent Events for multi-consumer HTTP streaming.',body:`
 <h2 class="dh2">Usage</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654 \\
+    --tls-cert server.pem --tls-key server.key --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
+<div class="dcall"><p><strong>Required:</strong> SSE refuses to start without TLS certificates and an auth token unless you pass <code>--insecure</code> (development only — see <a onclick="go('docs-config')">Configuration</a>).</p></div>
 
 <h2 class="dh2">Connecting</h2>
-<div class="dcode">GET http://localhost:7654/events?tables=orders,payments&consumer=my-service</div>
+<div class="dcode">GET https://localhost:7654/events?tables=orders,payments&consumer=my-service
+Authorization: Bearer &lt;token&gt;</div>
 <p class="dp">Each HTTP connection is an independent consumer with its own cursor. Supports <code>Last-Event-ID</code> header for automatic resume on reconnect.</p>
 
 <h2 class="dh2">Event format</h2>
@@ -244,12 +245,14 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 
 'docs-grpc': {title:'gRPC Output',sub:'High-performance streaming with Protocol Buffers.',body:`
 <h2 class="dh2">Usage</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output grpc --port 50051</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output grpc --port 50051 \\
+    --tls-cert server.pem --tls-key server.key --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
+<div class="dcall"><p><strong>Required:</strong> gRPC refuses to start without TLS certificates and an auth token unless you pass <code>--insecure</code> (development only — see <a onclick="go('docs-config')">Configuration</a>).</p></div>
 
 <h2 class="dh2">Proto definition</h2>
 <div class="dcode">service CdcStream {
   rpc Subscribe(SubscribeRequest) returns (stream ChangeEvent);
-  rpc Acknowledge(AckRequest) returns (AckResponse);
+  rpc Acknowledge(AcknowledgeRequest) returns (AcknowledgeResponse);
 }</div>
 
 <h2 class="dh2">Consumer pattern</h2>
@@ -260,25 +263,29 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 <h2 class="dh2">CLI flags</h2>
 <table class="dtbl"><thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>--source</code></td><td>required</td><td>Database connection string</td></tr>
-<tr><td><code>--tables</code></td><td>required</td><td>Comma-separated table names</td></tr>
+<tr><td><code>--tables</code></td><td>required</td><td>Table names — comma-separated (<code>--tables orders,payments</code>) or repeated (<code>--tables orders --tables payments</code>)</td></tr>
 <tr><td><code>--output</code></td><td>stdout</td><td>Output mode: stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq</td></tr>
 <tr><td><code>--port</code></td><td>7654</td><td>Port for SSE/gRPC server</td></tr>
+<tr><td><code>--cors-origin</code></td><td>-</td><td>SSE <code>Access-Control-Allow-Origin</code> value; empty (default) sends no CORS header, blocking cross-origin browser access</td></tr>
 <tr><td><code>--config</code></td><td>-</td><td>Path to YAML config file</td></tr>
 <tr><td><code>--data-dir</code></td><td>./data</td><td>Directory for Event Log and checkpoints</td></tr>
 <tr><td><code>--retention</code></td><td>1h</td><td>Event Log retention period</td></tr>
+<tr><td><code>--log-level</code></td><td>info</td><td>Log verbosity: debug, info, warn, error</td></tr>
 <tr><td><code>--ha</code></td><td>false</td><td>Enable Postgres advisory lock leader election</td></tr>
 <tr><td><code>--node-id</code></td><td>auto</td><td>Unique node identifier for HA and cluster modes</td></tr>
+<tr><td><code>--source-id</code></td><td>default</td><td>Logical source identifier; determines the replication slot name (<code>kaptanto_&lt;id&gt;</code>) and publication name (<code>kaptanto_pub_&lt;id&gt;</code>) — set a distinct value per instance when running multiple kaptanto processes against the same database</td></tr>
 <tr><td><code>--cluster</code></td><td>false</td><td>Enable active-active cluster mode (embedded NATS JetStream)</td></tr>
 <tr><td><code>--cluster-dsn</code></td><td>-</td><td>Postgres DSN for shared cursor and backfill state in cluster mode</td></tr>
 <tr><td><code>--cluster-peers</code></td><td>-</td><td>Comma-separated NATS cluster peer addresses, e.g. node2:6222,node3:6222</td></tr>
 <tr><td><code>--nats-cluster-port</code></td><td>6222</td><td>NATS cluster route port for inter-node communication</td></tr>
-<tr><td><code>--auth-token</code></td><td>-</td><td>Static bearer token required by SSE/gRPC clients (prefer <code>KAPTANTO_AUTH_TOKEN</code> env var)</td></tr>
-<tr><td><code>--insecure</code></td><td>false</td><td>Allow plaintext SSE/gRPC without TLS or auth token — logs a security warning; not for production</td></tr>
+<tr><td><code>--auth-token</code></td><td>-</td><td>Static bearer token for the SSE/gRPC/sink data plane (prefer <code>KAPTANTO_AUTH_TOKEN</code> env var). <strong>Required</strong> for every network output unless <code>--insecure</code> is set — see below.</td></tr>
+<tr><td><code>--insecure</code></td><td>false</td><td>Allow plaintext/unauthenticated SSE, gRPC, and sink observability endpoints without TLS or an auth token — logs a security warning; not for production</td></tr>
 <tr><td><code>--tls-cert</code></td><td>-</td><td>Path to TLS certificate PEM for the SSE/gRPC server</td></tr>
 <tr><td><code>--tls-key</code></td><td>-</td><td>Path to TLS private key PEM for the SSE/gRPC server</td></tr>
 <tr><td><code>--tls-client-ca</code></td><td>-</td><td>Path to CA PEM for client certificate verification (mTLS); requires <code>--tls-cert</code> and <code>--tls-key</code></td></tr>
 <tr><td><code>--all-tables</code></td><td>false</td><td>Capture all tables in the database — explicit opt-in required when <code>--tables</code> is omitted</td></tr>
 </tbody></table>
+<div class="dcall"><p><strong>Startup auth policy:</strong> every network output — <code>sse</code>, <code>grpc</code>, and all five queue sinks — refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) because each one serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>. <code>sse</code> and <code>grpc</code> additionally require <code>--tls-cert</code>/<code>--tls-key</code>. Pass <code>--insecure</code> to bypass both checks for local development only.</p></div>
 
 <h2 class="dh2">YAML config (full example)</h2>
 <div class="dcode">source: postgres://user:pass@host:5432/db
@@ -287,6 +294,8 @@ data-dir: /var/lib/kaptanto
 retention: 4h
 ha: true
 node-id: node-1
+<span class="tc"># auth-token is intentionally omitted here — set KAPTANTO_AUTH_TOKEN in the</span>
+<span class="tc"># process environment instead of committing a token to the config file</span>
 
 tables:
   orders:
@@ -371,7 +380,7 @@ sinks:
 <tr><td><code>grpc</code></td><td><code>--port</code> + 1 (gRPC owns <code>--port</code>)</td></tr>
 <tr><td><code>stdout</code></td><td>not served</td></tr>
 </tbody></table>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654 --insecure
 <span class="tc"># GET http://localhost:7654/metrics</span></div>
 
 <h2 class="dh2">Key metrics</h2>
@@ -420,9 +429,10 @@ GET http://localhost:7654/healthz
 
 'docs-queue-sinks': {title:'Queue Sinks',sub:'Push CDC events to NATS, SQS, Kafka, Pub/Sub, or RabbitMQ.',body:`
 <p class="dp">Queue sinks let kaptanto publish each CDC event to a message broker instead of (or in addition to) serving SSE or gRPC consumers. At-least-once delivery is guaranteed. Per-table topic/subject/queue routing is supported on every sink via Go templates.</p>
+<div class="dcall"><p><strong>Auth required:</strong> every sink below exposes <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>, so kaptanto refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) unless you pass <code>--insecure</code> — see <a onclick="go('docs-config')">Configuration</a>.</p></div>
 
 <h2 class="dh2">NATS JetStream</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output nats</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output nats --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
 <div class="dcode">sinks:
   nats:
     url: nats://localhost:4222
@@ -435,7 +445,7 @@ GET http://localhost:7654/healthz
 <p class="dp">Events are published to the NATS JetStream subject derived from the template. The subject must fall within the stream's subject filter. If <code>stream-name</code> is set, kaptanto verifies the stream exists at startup and returns an error if not.</p>
 
 <h2 class="dh2">AWS SQS (FIFO)</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sqs</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sqs --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
 <div class="dcode">sinks:
   sqs:
     region: us-east-1
@@ -452,7 +462,7 @@ GET http://localhost:7654/healthz
 <div class="dcall"><p><strong>High-throughput FIFO mode</strong> is a queue-level AWS setting that does not require any config change in kaptanto. Enable it on the queue in the AWS console to exceed 300 TPS.</p></div>
 
 <h2 class="dh2">Apache Kafka</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output kafka</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output kafka --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
 <div class="dcode">sinks:
   kafka:
     bootstrap-servers: [broker1:9092, broker2:9092]
@@ -467,7 +477,7 @@ GET http://localhost:7654/healthz
 <p class="dp">The event primary key is used as the Kafka message key, so partitioning by key is consistent with kaptanto's per-key ordering guarantee. Create topics in advance or enable auto-topic creation on the broker.</p>
 
 <h2 class="dh2">Google Cloud Pub/Sub</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output pubsub</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output pubsub --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
 <div class="dcode">sinks:
   pubsub:
     project-id: my-gcp-project
@@ -477,7 +487,7 @@ GET http://localhost:7654/healthz
 <p class="dp">When <code>credentials-file</code> is omitted, Application Default Credentials are used — set <code>GOOGLE_APPLICATION_CREDENTIALS</code> or run <code>gcloud auth application-default login</code>. Publishers are lazily created and pooled per resolved topic.</p>
 
 <h2 class="dh2">RabbitMQ</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output rabbitmq</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output rabbitmq --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
 <div class="dcode">sinks:
   rabbitmq:
     url: amqp://user:pass@broker:5672/
@@ -509,10 +519,12 @@ GET http://localhost:7654/healthz
 <div class="dcall"><p><strong>Requires:</strong> Cluster mode uses an embedded NATS JetStream server for the distributed Event Log and a shared Postgres database for cursor and backfill state. No separate NATS installation is needed.</p></div>
 
 <h2 class="dh2">Quick start (3-node cluster)</h2>
+<p class="dp">Like every network output, SSE refuses to start without TLS certificates and an auth token unless <code>--insecure</code> is set — see <a onclick="go('docs-config')">Configuration</a>.</p>
 <div class="dcode"><span class="tc"># Node 1</span>
 <span class="tg">$</span> kaptanto \\
     --source postgres://... \\
     --output sse \\
+    --tls-cert server.pem --tls-key server.key --auth-token "$KAPTANTO_AUTH_TOKEN" \\
     --cluster \\
     --node-id node-1 \\
     --cluster-dsn postgres://user:pass@shared-pg:5432/kaptanto \\
@@ -522,6 +534,7 @@ GET http://localhost:7654/healthz
 <span class="tg">$</span> kaptanto \\
     --source postgres://... \\
     --output sse \\
+    --tls-cert server.pem --tls-key server.key --auth-token "$KAPTANTO_AUTH_TOKEN" \\
     --cluster \\
     --node-id node-2 \\
     --cluster-dsn postgres://user:pass@shared-pg:5432/kaptanto \\
@@ -603,16 +616,21 @@ await db.query(
     "--tables", "orders,payments",
     "--output", "sse",
     "--port",   "7654",
-    "--data-dir", "/data"
+    "--data-dir", "/data",
+    "--tls-cert", "/certs/server.pem",
+    "--tls-key",  "/certs/server.key"
   ],
+  "secrets": [{ "name": "KAPTANTO_AUTH_TOKEN", "valueFrom": "arn:aws:secretsmanager:...:secret:kaptanto-auth-token" }],
   "mountPoints": [{ "sourceVolume": "kaptanto-data", "containerPath": "/data" }]
 }</div>
-<p class="dp">Consumers anywhere in the VPC subscribe over HTTP. No broker, no queue, no extra AWS service:</p>
+<div class="dcall"><p><strong>Required:</strong> SSE refuses to start without both TLS certificates and an auth token — the task definition above mounts a cert pair and injects <code>KAPTANTO_AUTH_TOKEN</code> from Secrets Manager. See <a onclick="go('docs-config')">Configuration</a> for the full startup policy.</p></div>
+<p class="dp">Consumers anywhere in the VPC subscribe over HTTP with a bearer token. No broker, no queue, no extra AWS service:</p>
 <div class="dcode"><span class="tc">// inventory-service.js — consuming kaptanto SSE</span>
 import EventSource from <span class="ty">'eventsource'</span>;
 
 const es = new EventSource(
-  <span class="ty">'http://kaptanto.internal:7654/events?consumer=inventory'</span>
+  <span class="ty">'https://kaptanto.internal:7654/events?consumer=inventory'</span>,
+  { headers: { Authorization: <span class="ty">'Bearer ' + process.env.KAPTANTO_AUTH_TOKEN</span> } }
 );
 
 es.onmessage = (e) =&gt; {
@@ -621,14 +639,21 @@ es.onmessage = (e) =&gt; {
     reserveInventory(evt.after.sku, evt.after.qty);
   }
 };</div>
-<div class="dcall"><p><strong>Instance sizing:</strong> kaptanto uses ~1.1 GB RSS at sustained load. Allocate at least 1 vCPU / 4 GB memory. A 0.25 vCPU / 0.5 GB task will OOM under production traffic.</p></div>
-<p class="dp"><strong>AWS cost:</strong> ~$85/mo for a 1 vCPU / 4 GB Fargate task (t3.medium equivalent — minimum viable for 1.1 GB RSS at load). EFS volume for the event log (~$0.30/GB/mo). Total overhead: roughly <strong>$85–100/mo</strong> with EFS.</p>
+<div class="dcall"><p><strong>Instance sizing:</strong> kaptanto uses ~629 MB RSS at steady load, peaking ~1.0 GB during crash recovery. Allocate at least 1 vCPU / 4 GB memory. A 0.25 vCPU / 0.5 GB task will OOM under production traffic.</p></div>
+<p class="dp"><strong>AWS cost:</strong> ~$85/mo for a 1 vCPU / 4 GB Fargate task (t3.medium equivalent — minimum viable to cover the ~1.0 GB crash-recovery peak). EFS volume for the event log (~$0.30/GB/mo). Total overhead: roughly <strong>$85–100/mo</strong> with EFS.</p>
 <div class="dcall"><p><strong>Failure model:</strong> If kaptanto restarts, it replays from its last checkpoint. The consumer reconnects with the same consumer ID and resumes from where it left off. No events lost.</p></div>
 
-<h2 class="dh2">Option 2 — kaptanto-rust on ECS Fargate</h2>
-<p class="dp">Identical setup to kaptanto. Change only the image tag:</p>
-<div class="dcode">"image": "olucasandrade/kaptanto:latest-rust"</div>
-<p class="dp">Same cost, same operational model. The difference is behavioral: the Rust FFI WAL parser drains post-crash backlogs ~4x faster. Choose this over plain kaptanto when your consumers have SLAs on event freshness after a restart — for example, a financial reconciliation service that must be fully caught up within 60 seconds.</p>
+<h2 class="dh2">Option 2 — kaptanto with Rust FFI acceleration</h2>
+<p class="dp">There is no published <code>kaptanto-rust</code> Docker image today — the Rust FFI parser requires <code>CGO_ENABLED=1</code> and a host Rust toolchain (<code>make build-rust</code>), so it is not part of the cross-compiled release pipeline. To run it on Fargate, build a custom image from source in your own CI:</p>
+<div class="dcode"><span class="tc"># Dockerfile — build stage, requires Rust 1.77+ and cbindgen</span>
+FROM golang:1.25 AS build
+RUN apt-get update &amp;&amp; apt-get install -y curl build-essential
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${'$'}{PATH}"
+WORKDIR /src
+COPY . .
+RUN make build-rust</div>
+<p class="dp">Same operational model as Option 1 once built — same flags, same auth/TLS requirements. In the current benchmark run, the Rust FFI path does <strong>not</strong> show a crash-recovery advantage (3.7s for the Go parser vs. 4.7s for Rust — see the <a onclick="go('docs-benchmarks')">Benchmarks</a> comparison table below). Evaluate it for its lower CPU usage during steady-state pgoutput decoding, not for faster crash recovery.</p>
 
 <h2 class="dh2">Option 3 — Debezium on ECS + Amazon MSK</h2>
 <p class="dp"><strong>Infrastructure required:</strong> Amazon MSK cluster, Kafka Connect cluster (ECS or MSK Connect), Debezium connector config, Schema Registry (optional but typical).</p>
@@ -724,8 +749,8 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 
 <h2 class="dh2">Which to choose</h2>
 <ul class="dul">
-<li><strong>kaptanto</strong> — you're starting from scratch, want the lowest operational cost, and your consumers can hold a persistent HTTP connection. Covers 95% of use cases.</li>
-<li><strong>kaptanto-rust</strong> — same as above, but your deployment restarts frequently (spot instances, rolling deploys) and you need sub-10s post-crash drain. The Rust build is worth the CI complexity.</li>
+<li><strong>kaptanto</strong> — you're starting from scratch, want the lowest operational cost, and your consumers can hold a persistent HTTP connection. Covers 95% of use cases. Use the official Docker image as-is.</li>
+<li><strong>kaptanto with Rust FFI</strong> — same as above, but you want the lower steady-state RSS/CPU of the Rust pgoutput decoder (see <a onclick="go('docs-benchmarks')">Benchmarks</a>) and are willing to build and maintain your own image from source, since no prebuilt Rust image is published.</li>
 <li><strong>Debezium + MSK</strong> — your organization already pays for MSK and has Kafka-literate engineers. You need Kafka sink connectors (Snowflake, S3, BigQuery) or exactly-once semantics. Never set this up solely for CDC.</li>
 <li><strong>Sequin</strong> — a product team that wants webhook-style delivery and will never exceed ~500 events/sec. The simplest possible consumer integration: just respond 200.</li>
 </ul>
@@ -735,7 +760,8 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 </div>`},
 
 'docs-benchmarks': {title:'Benchmarks',sub:'Throughput and latency results vs. Debezium, Sequin, and PeerDB across 4 scenarios.',body:`
-<p class="dp">Tested on GitHub Actions ubuntu-latest (4 vCPU, 16 GB RAM), Postgres 16, 4 CDC scenarios, 2026-07-01. Eight tools ran concurrently from the same database; all numbers reflect shared-CPU conditions.</p>
+<p class="dp">Tested on GitHub Actions ubuntu-latest (4 vCPU, 16 GB RAM), Postgres 16, 4 CDC scenarios, 2026-07-02. Eight tools ran concurrently from the same database; all numbers reflect shared-CPU conditions.</p>
+<div class="dcall"><p><strong>Reproducing this run:</strong> the harness lives in <code>bench/</code> and is driven by <code>docker compose</code> plus <code>go run ./cmd/scenarios</code> — see the repo's <code>bench/README.md</code>. <code>bench/results/REPORT.md</code> in the repository tracks the most recent local run for development purposes and may show different numbers than the CI run summarized here; treat the table below as the current published result.</p></div>
 
 <h2 class="dh2">Executive Summary</h2>
 <div class="dtable-wrap"><table class="dtable">

@@ -278,7 +278,7 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 	}
 
 	if flags.Changed("tables") {
-		names, err := flags.GetStringArray("tables")
+		names, err := flags.GetStringSlice("tables")
 		if err != nil {
 			return fmt.Errorf("config: merge tables: %w", err)
 		}
