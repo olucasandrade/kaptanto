@@ -190,9 +190,30 @@ services:
       start_period: 10s
 
   # ---------------------------------------------------------------------------
+  # nats-init — one-shot service that pre-creates the bench_cdc JetStream stream.
+  # kaptanto-nats does a fail-fast check at startup (stream must exist), so this
+  # must complete before kaptanto-nats starts. The scenarios runner also calls
+  # CreateOrUpdateStream, so this is idempotent.
+  # ---------------------------------------------------------------------------
+  nats-init:
+    image: natsio/nats-box:0.14.5
+    <<: *default-logging
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/stream.json << 'EOF'
+        {"name":"bench_cdc","subjects":["cdc.>"],"storage":"memory","retention":"limits","max_msgs":-1,"max_bytes":-1,"max_age":0,"num_replicas":1,"duplicate_window":120000000000}
+        EOF
+        nats stream add --config /tmp/stream.json --server=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
   # Kaptanto (NATS sink) — built from source, streams CDC events to NATS
   # Config file mounted from bench/config/kaptanto-nats.yaml
-  # Observability on port 7658; depends on postgres + nats
+  # Observability on port 7658; depends on postgres + nats-init
   # ---------------------------------------------------------------------------
   kaptanto-nats:
     build:
@@ -212,8 +233,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      nats:
-        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:7658/healthz || exit 1"]
       interval: 5s
