@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -32,8 +33,13 @@ import (
 //   - int, int8..int64    → decimal string
 //   - uint, uint8..uint64 → decimal string
 //   - float32, float64    → strconv.FormatFloat (shortest representation)
-//   - bool                → "true" / "false"
+//   - bool                → "t" / "f" (Postgres boolout format, as pgoutput emits)
 //   - []byte              → \x<hex> (Postgres bytea hex format)
+//   - [16]byte            → hyphenated UUID string (pgx returns [16]byte for uuid)
+//   - time.Time           → Postgres ISO text ("2006-01-02 15:04:05.999999-07");
+//     byte parity with the WAL path holds when the decoded offset matches the
+//     server session TimeZone (pgx yields UTC for timestamptz, matching
+//     servers running TimeZone=UTC — the common production setup)
 //   - pgtype.Numeric      → decimal string via Value() (Postgres text form)
 //   - fmt.Stringer        → .String()
 //   - everything else     → fmt.Sprintf("%v", v)
@@ -86,12 +92,24 @@ func canonicalValue(v any) any {
 	case float64:
 		return strconv.FormatFloat(t, 'g', -1, 64)
 	case bool:
+		// Postgres boolout emits "t"/"f" (what pgoutput sends on the WAL path);
+		// note this differs from the SQL cast true::text, which yields "true".
 		if t {
-			return "true"
+			return "t"
 		}
-		return "false"
+		return "f"
 	case []byte:
 		return fmt.Sprintf("\\x%x", t)
+	case [16]byte:
+		// pgx v5 rows.Values() decodes uuid columns to [16]byte
+		// (pgtype.UUIDCodec.DecodeValue returns UUID.Bytes). The WAL path
+		// receives the standard hyphenated lowercase text form.
+		return fmt.Sprintf("%x-%x-%x-%x-%x", t[0:4], t[4:6], t[6:8], t[8:10], t[10:16])
+	case time.Time:
+		// Postgres ISO DateStyle text: fractional seconds without trailing
+		// zeros, offset as ±HH (Go layout "-07"). Must precede the
+		// fmt.Stringer case, which would produce Go's own time format.
+		return t.Format("2006-01-02 15:04:05.999999-07")
 	case pgtype.Numeric:
 		if val, err := t.Value(); err == nil {
 			if s, ok := val.(string); ok {
