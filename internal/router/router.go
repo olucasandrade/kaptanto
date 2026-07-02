@@ -501,9 +501,12 @@ func (r *Router) dispatchUpdateCursor(
 	}
 
 	if err := errs[i]; err != nil {
+		// Identify the event by ULID + idempotency key, not the raw PK
+		// (groupKey) — natural-key PKs must not leak into log pipelines.
 		slog.Warn("router: delivery failed, blocking message group",
 			"consumer", cs.consumer.ID(),
-			"key", groupKey,
+			"event_id", entry.Event.ID.String(),
+			"idempotency_key", entry.Event.IdempotencyKey,
 			"seq", entry.Seq,
 			"err", err,
 		)

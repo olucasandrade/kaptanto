@@ -327,11 +327,14 @@ func (rs *RetryScheduler) Run(ctx context.Context) {
 // the group key is removed from blockedGroups.
 func deadLetterHead(s *consumerRetryState, groupKey string, queue []*RetryRecord) {
 	rec := queue[0]
+	// Log the ULID and idempotency key, never the raw PK: Event.Key holds row
+	// PK values, and natural keys (emails, account numbers) must not leak
+	// into log pipelines.
 	slog.Error("router: dead-letter",
 		"consumer_id", rec.ConsumerID,
 		"event_id", rec.Entry.Event.ID.String(),
 		"table", rec.Entry.Event.Table,
-		"key", string(rec.Entry.Event.Key),
+		"idempotency_key", rec.Entry.Event.IdempotencyKey,
 		"attempts", rec.Attempts,
 	)
 	if len(queue) == 1 {
