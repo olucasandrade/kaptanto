@@ -205,7 +205,8 @@ services:
         cat > /tmp/stream.json << 'EOF'
         {"name":"bench_cdc","subjects":["cdc.>"],"storage":"memory","retention":"limits","max_msgs":-1,"max_bytes":-1,"max_age":0,"num_replicas":1,"duplicate_window":120000000000}
         EOF
-        nats stream add --config /tmp/stream.json --server=nats://nats:4222
+        nats stream add --config /tmp/stream.json --server=nats://nats:4222 2>/dev/null \
+          || nats stream info bench_cdc --server=nats://nats:4222 > /dev/null
     depends_on:
       nats:
         condition: service_healthy
