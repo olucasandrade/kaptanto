@@ -1,8 +1,11 @@
 package router_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -236,5 +239,38 @@ func TestTickDoesNotHoldLockAcrossDeliver(t *testing.T) {
 	case <-tickDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Tick did not finish after Deliver was released")
+	}
+}
+
+// TestDeadLetterLogOmitsRawPK verifies that dead-letter log lines identify the
+// event by ULID and idempotency key and never include the raw primary-key
+// payload, which can contain natural keys (emails, account numbers).
+func TestDeadLetterLogOmitsRawPK(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	defer slog.SetDefault(prev)
+
+	rs := router.NewRetryScheduler()
+	consumer := &fakeConsumer{id: "dl-consumer", badKey: `"pii@example.com"`}
+
+	rec := &router.RetryRecord{
+		Entry:       makeEntry(1, `"pii@example.com"`),
+		Attempts:    14, // maxRetries is 15 — the next failure dead-letters
+		NextRetryAt: time.Now().Add(-time.Second),
+		ConsumerID:  "dl-consumer",
+	}
+	rs.AddBlocked(consumer, `"pii@example.com"`, rec)
+	rs.Tick(context.Background())
+
+	if rs.BlockedCount(consumer) != 0 {
+		t.Fatal("expected head to be dead-lettered")
+	}
+	out := logBuf.String()
+	if !strings.Contains(out, "router: dead-letter") {
+		t.Fatalf("expected a dead-letter log line, got: %s", out)
+	}
+	if strings.Contains(out, "pii@example.com") {
+		t.Errorf("dead-letter log must not contain the raw PK payload: %s", out)
 	}
 }
