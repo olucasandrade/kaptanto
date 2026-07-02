@@ -25,7 +25,7 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 <li><strong>Consistent backfills</strong> — Watermark-coordinated snapshots that merge seamlessly with the live WAL stream. Crash-resumable keyset cursors.</li>
 <li><strong>Per-key ordering</strong> — Events for the same primary key always arrive in commit order, hashed across 64 partitions for parallel throughput.</li>
 <li><strong>Idempotency keys</strong> — Every event has a deterministic, stable key for exactly-once processing.</li>
-<li><strong>Poison pill isolation</strong> — Failed events block only their message group, not the pipeline. Exponential backoff with dead-letter queue.</li>
+<li><strong>Poison pill isolation</strong> — Failed events block only their message group, not the pipeline. Exponential backoff (1s → 5s → 30s → 2min → 10min plateau); after 15 retries the event is logged at Error level and dropped — no persistent dead-letter store.</li>
 <li><strong>High availability</strong> — Leader election via Postgres advisory locks. Automatic primary detection and failover.</li>
 <li><strong>Cluster mode</strong> — Active-active delivery across nodes with embedded NATS JetStream and shared partition ownership.</li>
 <li><strong>Queue sinks</strong> — Push CDC events to NATS JetStream, AWS SQS, Apache Kafka, Google Cloud Pub/Sub, or RabbitMQ with per-table routing and TLS/mTLS support.</li>
@@ -272,6 +272,12 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 <tr><td><code>--cluster-dsn</code></td><td>-</td><td>Postgres DSN for shared cursor and backfill state in cluster mode</td></tr>
 <tr><td><code>--cluster-peers</code></td><td>-</td><td>Comma-separated NATS cluster peer addresses, e.g. node2:6222,node3:6222</td></tr>
 <tr><td><code>--nats-cluster-port</code></td><td>6222</td><td>NATS cluster route port for inter-node communication</td></tr>
+<tr><td><code>--auth-token</code></td><td>-</td><td>Static bearer token required by SSE/gRPC clients (prefer <code>KAPTANTO_AUTH_TOKEN</code> env var)</td></tr>
+<tr><td><code>--insecure</code></td><td>false</td><td>Allow plaintext SSE/gRPC without TLS or auth token — logs a security warning; not for production</td></tr>
+<tr><td><code>--tls-cert</code></td><td>-</td><td>Path to TLS certificate PEM for the SSE/gRPC server</td></tr>
+<tr><td><code>--tls-key</code></td><td>-</td><td>Path to TLS private key PEM for the SSE/gRPC server</td></tr>
+<tr><td><code>--tls-client-ca</code></td><td>-</td><td>Path to CA PEM for client certificate verification (mTLS); requires <code>--tls-cert</code> and <code>--tls-key</code></td></tr>
+<tr><td><code>--all-tables</code></td><td>false</td><td>Capture all tables in the database — explicit opt-in required when <code>--tables</code> is omitted</td></tr>
 </tbody></table>
 
 <h2 class="dh2">YAML config (full example)</h2>
@@ -400,7 +406,7 @@ GET http://localhost:7654/healthz
 
 'docs-troubleshooting': {title:'Troubleshooting',sub:'Common issues and how to resolve them.',body:`
 <h2 class="dh2">WAL bloat</h2>
-<p class="dp">If kaptanto falls behind, Postgres retains WAL indefinitely. Monitor <code>kaptanto_source_lag_bytes</code> and set <code>wal_lag_alert_threshold</code> in your config.</p>
+<p class="dp">If kaptanto falls behind, Postgres retains WAL indefinitely. Monitor <code>kaptanto_source_lag_bytes</code> and set an alert in your observability stack when it rises. There is no <code>wal_lag_alert_threshold</code> config field — alerting lives outside kaptanto.</p>
 
 <h2 class="dh2">Slot does not exist</h2>
 <p class="dp">After a failover, the replication slot may not exist on the new primary. Kaptanto detects this automatically, creates a new slot, and triggers a re-snapshot.</p>
@@ -409,7 +415,7 @@ GET http://localhost:7654/healthz
 <p class="dp">Set <code>REPLICA IDENTITY FULL</code> on tables with large columns. Without it, unchanged TOAST columns appear as null in update events.</p>
 
 <h2 class="dh2">Consumer falling behind</h2>
-<p class="dp">Check <code>kaptanto_consumer_lag_events</code>. Configure <code>slow_consumer_policy</code> to <code>disconnect</code> if a consumer exceeds <code>max_lag_before_disconnect</code>.</p>`},
+<p class="dp">Check <code>kaptanto_consumer_lag_events</code>. There is no built-in slow-consumer disconnect policy — if a consumer consistently falls behind, disconnect it at the application level and reconnect with the same consumer ID to resume from where it left off.</p>`},
 
 
 'docs-queue-sinks': {title:'Queue Sinks',sub:'Push CDC events to NATS, SQS, Kafka, Pub/Sub, or RabbitMQ.',body:`
@@ -705,8 +711,8 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <tr><td>Extra AWS services</td><td class="ck">None</td><td class="ck">None</td><td class="cx">MSK + Connect</td><td class="ca">Redis + RDS</td></tr>
 <tr><td>Monthly overhead</td><td class="ck">~$85</td><td class="ck">~$85</td><td class="cx">$300–500+</td><td class="ca">$50–80</td></tr>
 <tr><td>Consumer protocol</td><td>SSE / gRPC</td><td>SSE / gRPC</td><td>Kafka</td><td>HTTP push</td></tr>
-<tr><td>Throughput ceiling</td><td>~2k eps steady / 4k eps burst</td><td>~2k eps steady / 3k eps burst</td><td>Kafka-bound</td><td class="cx">~140 eps</td></tr>
-<tr><td>Post-crash drain (p50)</td><td class="ck">5.8s recovery</td><td class="ck">3.7s recovery</td><td class="cx">4.3s recovery</td><td class="cx">4.3s to re-sync</td></tr>
+<tr><td>Throughput ceiling</td><td>~2.8k eps steady / 3.5k eps peak</td><td>~2.8k eps steady / 3.7k eps peak</td><td>Kafka-bound</td><td class="cx">~140 eps</td></tr>
+<tr><td>Post-crash drain (p50)</td><td class="ck">3.7s recovery</td><td class="ck">4.7s recovery</td><td class="cx">3.8s recovery</td><td class="cx">3.5s to re-sync</td></tr>
 <tr><td>Consumer reconnects</td><td>Auto, by ID</td><td>Auto, by ID</td><td>Kafka group</td><td>Retry queue</td></tr>
 <tr><td>Delivery guarantee</td><td>At-least-once</td><td>At-least-once</td><td class="ck">Exactly-once¹</td><td>At-least-once</td></tr>
 <tr><td>Team expertise needed</td><td>Go/HTTP</td><td>Go/HTTP</td><td class="cx">Kafka ops</td><td>HTTP</td></tr>
