@@ -165,3 +165,76 @@ func TestRetrySchedulerDeadLettersAfterMaxRetries(t *testing.T) {
 		t.Fatalf("expected dead-lettered after %d attempts, got %d blocked", maxRetries, rs.BlockedCount(consumer))
 	}
 }
+
+// blockingConsumer blocks inside Deliver until released, simulating a sink
+// hung on a network timeout during a retry attempt.
+type blockingConsumer struct {
+	id      string
+	entered chan struct{} // closed when Deliver is first entered
+	release chan struct{} // Deliver returns when this is closed
+}
+
+func (b *blockingConsumer) ID() string { return b.id }
+
+func (b *blockingConsumer) Deliver(_ context.Context, _ eventlog.LogEntry) error {
+	select {
+	case <-b.entered:
+	default:
+		close(b.entered)
+	}
+	<-b.release
+	return errors.New("still failing")
+}
+
+// TestTickDoesNotHoldLockAcrossDeliver verifies that HasBlocked/IsBlocked stay
+// responsive while a retry delivery is in flight. Before the fix, Tick held
+// rs.mu across Consumer.Deliver, so a hung sink stalled Router.dispatch on
+// every partition (RTR-04 isolation violation).
+func TestTickDoesNotHoldLockAcrossDeliver(t *testing.T) {
+	rs := router.NewRetryScheduler()
+	consumer := &blockingConsumer{
+		id:      "hung-consumer",
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	rs.AddBlocked(consumer, `"K1"`, &router.RetryRecord{
+		Entry:       makeEntry(1, `"K1"`),
+		Attempts:    1,
+		NextRetryAt: time.Now().Add(-time.Second),
+		ConsumerID:  consumer.id,
+	})
+
+	tickDone := make(chan struct{})
+	go func() {
+		rs.Tick(context.Background())
+		close(tickDone)
+	}()
+
+	// Wait until the retry delivery is actually in flight.
+	select {
+	case <-consumer.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Tick never invoked Deliver")
+	}
+
+	// HasBlocked and IsBlocked must return promptly while Deliver hangs.
+	probeDone := make(chan struct{})
+	go func() {
+		_ = rs.HasBlocked()
+		_ = rs.IsBlocked(consumer.id, `"K1"`)
+		close(probeDone)
+	}()
+	select {
+	case <-probeDone:
+		// responsive — the lock is not held across Deliver
+	case <-time.After(2 * time.Second):
+		t.Fatal("HasBlocked/IsBlocked blocked while a retry delivery was in flight")
+	}
+
+	close(consumer.release)
+	select {
+	case <-tickDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Tick did not finish after Deliver was released")
+	}
+}

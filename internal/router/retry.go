@@ -197,54 +197,112 @@ func (rs *RetryScheduler) IsBlocked(consumerID, groupKey string) bool {
 	return len(s.blockedGroups[groupKey]) > 0
 }
 
-// Tick iterates all consumers' blocked groups and re-attempts delivery for the
-// head entry of each group whose NextRetryAt is in the past.
+// Tick re-attempts delivery for every blocked group whose head entry's
+// NextRetryAt is in the past.
 //
-// On success the head entry is removed. If the queue still has remaining
-// entries, the next entry's NextRetryAt is set to now so it will be attempted
-// on the very next Tick — the group key remains blocked until all queued
-// entries have been successfully delivered.
+// Delivery happens with rs.mu RELEASED: Consumer.Deliver can block for a full
+// network timeout, and Router.dispatch takes rs.mu on every event via
+// HasBlocked/IsBlocked — holding the lock across Deliver would stall all 64
+// partition goroutines behind one slow retry (RTR-04 isolation).
+//
+// Once a group's head succeeds, the remaining queue drains inline until the
+// first failure or ctx cancellation, so a group that accumulated follow-on
+// events during an outage recovers in one Tick instead of one entry per tick.
+// Per-key ordering is preserved: entries are always delivered head-first.
 //
 // On failure the attempt counter on the head is incremented and NextRetryAt is
 // pushed forward. After maxRetries failures the head entry is dead-lettered and
-// the next entry (if any) becomes the new head.
+// the next entry (if any) becomes the new head. Tick is not safe for
+// concurrent invocation with itself; Run is the only production caller.
 func (rs *RetryScheduler) Tick(ctx context.Context) {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
 	now := time.Now()
+
+	// Phase 1: snapshot due (consumer state, groupKey) pairs under the lock.
+	type dueGroup struct {
+		state    *consumerRetryState
+		groupKey string
+	}
+	rs.mu.Lock()
+	var due []dueGroup
 	for _, s := range rs.states {
 		for groupKey, queue := range s.blockedGroups {
 			if len(queue) == 0 {
 				delete(s.blockedGroups, groupKey)
 				continue
 			}
-			rec := queue[0] // only retry the head
-			if now.Before(rec.NextRetryAt) {
+			if now.Before(queue[0].NextRetryAt) {
 				continue
 			}
-			err := s.consumer.Deliver(ctx, rec.Entry)
-			if err == nil {
-				// Head delivered successfully — pop it.
-				if len(queue) == 1 {
-					delete(s.blockedGroups, groupKey)
-				} else {
-					// Promote next entry; make it immediately eligible.
-					queue[1].NextRetryAt = time.Now()
-					s.blockedGroups[groupKey] = queue[1:]
-				}
-				continue
+			due = append(due, dueGroup{state: s, groupKey: groupKey})
+		}
+	}
+	rs.mu.Unlock()
+
+	// Phase 2: deliver outside the lock, one group at a time.
+	for _, dg := range due {
+		if ctx.Err() != nil {
+			return
+		}
+		rs.drainGroup(ctx, dg.state, dg.groupKey)
+	}
+}
+
+// drainGroup delivers queued records for one blocked group head-first until
+// the first transient failure, an empty queue, or ctx cancellation. rs.mu is
+// held only to read the current head and to apply each delivery outcome —
+// never across Deliver.
+func (rs *RetryScheduler) drainGroup(ctx context.Context, s *consumerRetryState, groupKey string) {
+	for ctx.Err() == nil {
+		rs.mu.Lock()
+		queue := s.blockedGroups[groupKey]
+		if len(queue) == 0 {
+			delete(s.blockedGroups, groupKey)
+			rs.mu.Unlock()
+			return
+		}
+		rec := queue[0]
+		if time.Now().Before(rec.NextRetryAt) {
+			rs.mu.Unlock()
+			return
+		}
+		rs.mu.Unlock()
+
+		err := s.consumer.Deliver(ctx, rec.Entry)
+
+		rs.mu.Lock()
+		// Re-read: AddBlocked may have appended follow-ons while unlocked.
+		// Appends never touch the head, so rec is still queue[0].
+		queue = s.blockedGroups[groupKey]
+		if len(queue) == 0 || queue[0] != rec {
+			// Head changed underneath us (concurrent Tick — unsupported, but
+			// don't corrupt the queue if it happens).
+			rs.mu.Unlock()
+			return
+		}
+		switch {
+		case err == nil:
+			// Head delivered — pop it and keep draining.
+			if len(queue) == 1 {
+				delete(s.blockedGroups, groupKey)
+			} else {
+				queue[1].NextRetryAt = time.Now()
+				s.blockedGroups[groupKey] = queue[1:]
 			}
-			// Permanent error → dead-letter the head immediately.
-			if isPermanentError(err) {
-				deadLetterHead(s, groupKey, queue)
-				continue
-			}
+			rs.mu.Unlock()
+		case isPermanentError(err):
+			// Dead-letter the head; next entry becomes eligible immediately.
+			deadLetterHead(s, groupKey, queue)
+			rs.mu.Unlock()
+		default:
 			rec.Attempts++
 			if rec.Attempts >= maxRetries {
 				deadLetterHead(s, groupKey, queue)
+				rs.mu.Unlock()
 				continue
 			}
 			rec.NextRetryAt = time.Now().Add(NextDelay(rec.Attempts))
+			rs.mu.Unlock()
+			return
 		}
 	}
 }
