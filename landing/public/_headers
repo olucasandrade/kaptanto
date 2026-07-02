@@ -1,5 +1,15 @@
 # https://developers.cloudflare.com/pages/platform/headers/
 
+# Site-wide hardening. CSP is intentionally omitted for now: Qwik relies on
+# inline scripts for resumability, so a useful CSP needs nonce/hash wiring
+# that must be tested against a deployed preview first.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
 /*service-worker.js
   Cache-Control: no-store
   Content-Type: application/javascript
