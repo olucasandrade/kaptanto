@@ -3,6 +3,8 @@ package backfill
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // KeysetCursor tracks pagination state for a single table snapshot using
@@ -19,18 +21,31 @@ type KeysetCursor struct {
 	LastPK []any
 }
 
-// qualifiedTable returns schema.table when Schema is set, otherwise just table.
+// qualifiedTable returns the quoted table reference: "schema"."table" when
+// Schema is set, otherwise "table". Identifiers originate from config keys, so
+// they are quoted with pgx.Identifier.Sanitize (mirroring publication.go) to
+// keep config values from being interpreted as SQL and to support mixed-case
+// or reserved-word names.
 func (c *KeysetCursor) qualifiedTable() string {
 	if c.Schema != "" {
-		return c.Schema + "." + c.Table
+		return pgx.Identifier{c.Schema, c.Table}.Sanitize()
 	}
-	return c.Table
+	return pgx.Identifier{c.Table}.Sanitize()
+}
+
+// quotedPKCols returns PKCols with each column quoted via pgx.Identifier.
+func (c *KeysetCursor) quotedPKCols() []string {
+	quoted := make([]string, len(c.PKCols))
+	for i, col := range c.PKCols {
+		quoted[i] = pgx.Identifier{col}.Sanitize()
+	}
+	return quoted
 }
 
 // BuildFirstQuery returns the SQL and args for the first batch (no WHERE on PK).
 // Uses SELECT * so callers receive all columns without knowing the schema.
 func (c *KeysetCursor) BuildFirstQuery(batchSize int) (string, []any) {
-	orderCols := strings.Join(c.PKCols, " ASC, ") + " ASC"
+	orderCols := strings.Join(c.quotedPKCols(), " ASC, ") + " ASC"
 	sql := fmt.Sprintf("SELECT * FROM %s ORDER BY %s LIMIT %d",
 		c.qualifiedTable(), orderCols, batchSize)
 	return sql, nil
@@ -44,22 +59,24 @@ func (c *KeysetCursor) BuildNextQuery(batchSize int) (string, []any) {
 	args := make([]any, len(c.LastPK))
 	copy(args, c.LastPK)
 
+	quotedCols := c.quotedPKCols()
+
 	var whereClause string
-	if len(c.PKCols) == 1 {
-		whereClause = fmt.Sprintf("%s > $1", c.PKCols[0])
+	if len(quotedCols) == 1 {
+		whereClause = fmt.Sprintf("%s > $1", quotedCols[0])
 	} else {
 		// Composite PK: row-value comparison
-		cols := "(" + strings.Join(c.PKCols, ", ") + ")"
-		placeholders := make([]string, len(c.PKCols))
-		for i := range c.PKCols {
+		cols := "(" + strings.Join(quotedCols, ", ") + ")"
+		placeholders := make([]string, len(quotedCols))
+		for i := range quotedCols {
 			placeholders[i] = fmt.Sprintf("$%d", i+1)
 		}
 		phStr := "(" + strings.Join(placeholders, ", ") + ")"
 		whereClause = fmt.Sprintf("%s > %s", cols, phStr)
 	}
 
-	orderParts := make([]string, len(c.PKCols))
-	for i, col := range c.PKCols {
+	orderParts := make([]string, len(quotedCols))
+	for i, col := range quotedCols {
 		orderParts[i] = col + " ASC"
 	}
 	orderClause := strings.Join(orderParts, ", ")
