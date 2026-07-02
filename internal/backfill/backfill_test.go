@@ -28,7 +28,7 @@ func TestKeysetCursor_FirstQuery_SinglePK(t *testing.T) {
 		PKCols: []string{"id"},
 	}
 	sql, args := c.BuildFirstQuery(5000)
-	assert.Equal(t, `SELECT * FROM public.orders ORDER BY id ASC LIMIT 5000`, sql)
+	assert.Equal(t, `SELECT * FROM "public"."orders" ORDER BY "id" ASC LIMIT 5000`, sql)
 	assert.Empty(t, args)
 	assert.NotContains(t, sql, "OFFSET", "keyset cursor must never use OFFSET")
 }
@@ -41,7 +41,7 @@ func TestKeysetCursor_NextQuery_SinglePK(t *testing.T) {
 		LastPK: []any{99},
 	}
 	sql, args := c.BuildNextQuery(5000)
-	assert.Equal(t, `SELECT * FROM public.orders WHERE id > $1 ORDER BY id ASC LIMIT 5000`, sql)
+	assert.Equal(t, `SELECT * FROM "public"."orders" WHERE "id" > $1 ORDER BY "id" ASC LIMIT 5000`, sql)
 	assert.Equal(t, []any{99}, args)
 	assert.NotContains(t, sql, "OFFSET")
 }
@@ -54,7 +54,7 @@ func TestKeysetCursor_NextQuery_CompositePK(t *testing.T) {
 		LastPK: []any{"acme", 99},
 	}
 	sql, args := c.BuildNextQuery(500)
-	assert.Equal(t, `SELECT * FROM public.orders WHERE (tenant_id, id) > ($1, $2) ORDER BY tenant_id ASC, id ASC LIMIT 500`, sql)
+	assert.Equal(t, `SELECT * FROM "public"."orders" WHERE ("tenant_id", "id") > ($1, $2) ORDER BY "tenant_id" ASC, "id" ASC LIMIT 500`, sql)
 	assert.Equal(t, []any{"acme", 99}, args)
 	assert.NotContains(t, sql, "OFFSET")
 }
@@ -66,7 +66,7 @@ func TestKeysetCursor_NoSchemaQualification(t *testing.T) {
 		PKCols: []string{"id"},
 	}
 	sql, _ := c.BuildFirstQuery(100)
-	assert.Equal(t, `SELECT * FROM orders ORDER BY id ASC LIMIT 100`, sql)
+	assert.Equal(t, `SELECT * FROM "orders" ORDER BY "id" ASC LIMIT 100`, sql)
 }
 
 func TestKeysetCursor_NeverEmitsOFFSET(t *testing.T) {
@@ -80,6 +80,32 @@ func TestKeysetCursor_NeverEmitsOFFSET(t *testing.T) {
 	next, _ := c.BuildNextQuery(1000)
 	assert.NotContains(t, first, "OFFSET")
 	assert.NotContains(t, next, "OFFSET")
+}
+
+func TestKeysetCursor_QuotesHostileIdentifiers(t *testing.T) {
+	c := &backfill.KeysetCursor{
+		Table:  `orders"; DROP TABLE audit_log--`,
+		Schema: "public",
+		PKCols: []string{`id"; SELECT 1--`},
+	}
+	sql, _ := c.BuildFirstQuery(10)
+	// Doubled inner quotes keep the hostile names inside single quoted
+	// identifiers, so the payload can never terminate the identifier and
+	// start a new statement.
+	assert.Contains(t, sql, `"orders""; DROP TABLE audit_log--"`)
+	assert.Contains(t, sql, `"id""; SELECT 1--"`)
+	assert.NotContains(t, sql, `FROM public.orders"`, "table reference must be fully quoted")
+}
+
+func TestKeysetCursor_QuotesMixedCaseIdentifiers(t *testing.T) {
+	c := &backfill.KeysetCursor{
+		Table:  "Orders",
+		Schema: "Sales",
+		PKCols: []string{"OrderID"},
+		LastPK: []any{1},
+	}
+	sql, _ := c.BuildNextQuery(10)
+	assert.Equal(t, `SELECT * FROM "Sales"."Orders" WHERE "OrderID" > $1 ORDER BY "OrderID" ASC LIMIT 10`, sql)
 }
 
 // --- BKF-02: Watermark dedup ---
@@ -563,7 +589,7 @@ func TestOpenSQLiteBackfillStore_WALModeApplied(t *testing.T) {
 // countingBatchLog records calls to AppendBatchFn so tests can assert how many
 // batch flushes occurred and that every event was delivered exactly once.
 type countingBatchLog struct {
-	batchCalls []int            // len of each batch flush
+	batchCalls []int // len of each batch flush
 	received   []*event.ChangeEvent
 	errOnCall  int // if > 0, return error on the Nth batch call (1-based)
 	callCount  int
