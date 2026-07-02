@@ -356,7 +356,8 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               </li>
               <li>
                 Per-table topic/queue routing via Go template:{' '}
-                <code>{'cdc.{{.Schema}}.{{.Table}}'}</code> — supported on NATS, SQS, and Pub/Sub
+                <code>{'cdc.{{.Schema}}.{{.Table}}'}</code> — supported on all five sinks
+                (subject, queue-URL, topic, and routing-key templates)
               </li>
               <li>
                 SQS: CA pinning and mTLS (CertFile + KeyFile) wired into AWS SDK HTTP transport; startup
