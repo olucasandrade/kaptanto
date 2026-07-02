@@ -234,42 +234,25 @@ func TestRetrySchedulerFollowOnQueue(t *testing.T) {
 	// Force the head record to be immediately eligible for retry.
 	rs.ForceRetryNow(consumer, `"K1"`)
 
-	// First successful Tick should deliver the head (seq=1) and promote the
-	// follow-on (seq=3) as new head.
+	// A single successful Tick drains the whole queue inline (head seq=1,
+	// then follow-on seq=3) and clears the group — a group that accumulated
+	// follow-ons during an outage must not recover at one entry per tick.
 	rs.Tick(context.Background())
 
-	// Group should still be blocked (follow-on still pending).
-	if !rs.IsBlocked("q-consumer", `"K1"`) {
-		t.Fatal("expected group to remain blocked after head delivered (follow-on still pending)")
+	if rs.IsBlocked("q-consumer", `"K1"`) {
+		t.Fatal("expected group to be unblocked after the recovery tick drained all entries")
 	}
 
-	// Verify seq=1 was delivered and seq=3 not yet.
 	got := consumer.delivered()
 	seqMap := map[uint64]int{}
 	for _, e := range got {
 		seqMap[e.Seq]++
 	}
 	if seqMap[1] != 1 {
-		t.Errorf("expected seq=1 delivered once after first successful tick, got %d", seqMap[1])
-	}
-	if seqMap[3] != 0 {
-		t.Errorf("seq=3 (follow-on) must not be delivered yet, got %d", seqMap[3])
-	}
-
-	// Second successful tick should deliver seq=3 and clear the group.
-	rs.Tick(context.Background())
-
-	if rs.IsBlocked("q-consumer", `"K1"`) {
-		t.Fatal("expected group to be unblocked after all entries delivered")
-	}
-
-	got = consumer.delivered()
-	seqMap = map[uint64]int{}
-	for _, e := range got {
-		seqMap[e.Seq]++
+		t.Errorf("expected seq=1 delivered once after recovery tick, got %d", seqMap[1])
 	}
 	if seqMap[3] != 1 {
-		t.Errorf("expected seq=3 delivered once after second successful tick, got %d", seqMap[3])
+		t.Errorf("expected seq=3 delivered once after recovery tick, got %d", seqMap[3])
 	}
 
 	// Ordering: seq=1 must appear before seq=3.
