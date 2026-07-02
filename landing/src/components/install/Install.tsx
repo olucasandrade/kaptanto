@@ -45,7 +45,7 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
                     <CopyButton />
                     <span class="tg">$</span> docker run olucasandrade/kaptanto \
                     <br />&nbsp;&nbsp;<span class="tbl">--source</span>{' '}
-                    <span class="ty">postgres://localhost:5432/mydb</span> \
+                    <span class="ty">postgres://host.docker.internal:5432/mydb</span> \
                     <br />&nbsp;&nbsp;<span class="tbl">--tables</span>{' '}
                     <span class="ty">orders</span> <span class="tbl">--output</span>{' '}
                     <span class="ty">stdout</span>
