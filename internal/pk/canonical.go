@@ -64,69 +64,92 @@ func canonicalValue(v any) any {
 	if v == nil {
 		return nil
 	}
+	if s, ok := canonicalNumberString(v); ok {
+		return s
+	}
 	switch t := v.(type) {
 	case string:
 		return t
-	case int:
-		return strconv.FormatInt(int64(t), 10)
-	case int8:
-		return strconv.FormatInt(int64(t), 10)
-	case int16:
-		return strconv.FormatInt(int64(t), 10)
-	case int32:
-		return strconv.FormatInt(int64(t), 10)
-	case int64:
-		return strconv.FormatInt(t, 10)
-	case uint:
-		return strconv.FormatUint(uint64(t), 10)
-	case uint8:
-		return strconv.FormatUint(uint64(t), 10)
-	case uint16:
-		return strconv.FormatUint(uint64(t), 10)
-	case uint32:
-		return strconv.FormatUint(uint64(t), 10)
-	case uint64:
-		return strconv.FormatUint(t, 10)
-	case float32:
-		return strconv.FormatFloat(float64(t), 'g', -1, 32)
-	case float64:
-		return strconv.FormatFloat(t, 'g', -1, 64)
 	case bool:
 		// Postgres boolout emits "t"/"f" (what pgoutput sends on the WAL path);
 		// note this differs from the SQL cast true::text, which yields "true".
-		if t {
-			return "t"
-		}
-		return "f"
+		return canonicalBool(t)
 	case []byte:
 		return fmt.Sprintf("\\x%x", t)
 	case [16]byte:
 		// pgx v5 rows.Values() decodes uuid columns to [16]byte
 		// (pgtype.UUIDCodec.DecodeValue returns UUID.Bytes). The WAL path
 		// receives the standard hyphenated lowercase text form.
-		return fmt.Sprintf("%x-%x-%x-%x-%x", t[0:4], t[4:6], t[6:8], t[8:10], t[10:16])
+		return canonicalUUID(t)
 	case time.Time:
 		// Postgres ISO DateStyle text: fractional seconds without trailing
 		// zeros, offset as ±HH (Go layout "-07"). Must precede the
 		// fmt.Stringer case, which would produce Go's own time format.
 		return t.Format("2006-01-02 15:04:05.999999-07")
 	case pgtype.Numeric:
-		if val, err := t.Value(); err == nil {
-			if s, ok := val.(string); ok {
-				return s
-			}
-		}
-		return fmt.Sprintf("%v", v)
+		return canonicalPgNumeric(t, v)
 	case *pgtype.Numeric:
-		if val, err := t.Value(); err == nil {
-			if s, ok := val.(string); ok {
-				return s
-			}
-		}
-		return fmt.Sprintf("%v", v)
+		return canonicalPgNumeric(*t, v)
 	case fmt.Stringer:
 		return t.String()
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// canonicalNumberString handles every integer and float PK column type,
+// returning ok=false for anything else so canonicalValue can fall through
+// to its type switch.
+func canonicalNumberString(v any) (string, bool) {
+	switch t := v.(type) {
+	case int:
+		return strconv.FormatInt(int64(t), 10), true
+	case int8:
+		return strconv.FormatInt(int64(t), 10), true
+	case int16:
+		return strconv.FormatInt(int64(t), 10), true
+	case int32:
+		return strconv.FormatInt(int64(t), 10), true
+	case int64:
+		return strconv.FormatInt(t, 10), true
+	case uint:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint8:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint16:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint64:
+		return strconv.FormatUint(t, 10), true
+	case float32:
+		return strconv.FormatFloat(float64(t), 'g', -1, 32), true
+	case float64:
+		return strconv.FormatFloat(t, 'g', -1, 64), true
+	default:
+		return "", false
+	}
+}
+
+func canonicalBool(t bool) string {
+	if t {
+		return "t"
+	}
+	return "f"
+}
+
+func canonicalUUID(t [16]byte) string {
+	return fmt.Sprintf("%x-%x-%x-%x-%x", t[0:4], t[4:6], t[6:8], t[8:10], t[10:16])
+}
+
+// canonicalPgNumeric renders a pgtype.Numeric via its Postgres text form.
+// orig is the original interface value (numeric or *numeric) used for the
+// fallback format string so pointer/value formatting matches prior behavior.
+func canonicalPgNumeric(t pgtype.Numeric, orig any) any {
+	if val, err := t.Value(); err == nil {
+		if s, ok := val.(string); ok {
+			return s
+		}
+	}
+	return fmt.Sprintf("%v", orig)
 }
