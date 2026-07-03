@@ -53,7 +53,7 @@ jobs:
 
       - name: go test
         working-directory: bench
-        run: CGO_ENABLED=0 go test ./... -count=1
+        run: CGO_ENABLED=0 go test ./... -count=1 -timeout 120s
 
   race:
     name: Race detector
