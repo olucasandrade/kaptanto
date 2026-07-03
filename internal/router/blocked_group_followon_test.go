@@ -80,16 +80,18 @@ func (c *controllableConsumer) delivered() []eventlog.LogEntry {
 	return out
 }
 
-// TestFollowOnEntryQueuedWhenGroupBlocked verifies that events for a blocked
-// key that arrive after the initial failure are preserved (not dropped) and
-// delivered in order once the consumer recovers.
+// TestPerKeyOrdering verifies RTR-04 (events for the same key are always
+// delivered in order) under the hardest case: a follow-on event for an
+// already-blocked key must be queued (not dropped) and delivered in order
+// once the consumer recovers. This is the test CLAUDE.md's "Run a single
+// test" example refers to.
 //
 // Partition 0 contains: K1@5 (fails), K2@6, K2@7, K1@8
 //
 // Expected outcome after K1 unblocks and retries drain:
 //   - K1@5 and K1@8 are both delivered, K1@5 before K1@8.
 //   - K2@6 and K2@7 are each delivered exactly once.
-func TestFollowOnEntryQueuedWhenGroupBlocked(t *testing.T) {
+func TestPerKeyOrdering(t *testing.T) {
 	entries := []eventlog.LogEntry{
 		makeEntry(5, `"K1"`),
 		makeEntry(6, `"K2"`),
