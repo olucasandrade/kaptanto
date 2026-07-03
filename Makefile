@@ -3,10 +3,6 @@
 .PHONY: build test test-race verify-no-cgo clean build-rust \
         lint cover test-integration test-e2e mutation
 
-# Coverage gate threshold (percent). Mirrors COVERAGE_THRESHOLD in
-# .github/workflows/coverage.yml. Ratchet upward over time.
-COVERAGE_THRESHOLD ?= 50.0
-
 # Version injection — reads from git tag if available, falls back to "dev".
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -71,12 +67,15 @@ $(RUST_LIB):
 lint:
 	CGO_ENABLED=0 golangci-lint run ./internal/... ./cmd/...
 
-# cover runs tests with coverage and fails if total is below COVERAGE_THRESHOLD.
+# cover runs tests with coverage and enforces the coverage gate defined in
+# scripts/coverage-gate.sh — the single source of truth shared with
+# .github/workflows/coverage.yml (aggregate threshold, exclusions, and the
+# per-package floor). Edit thresholds there, not here, so local and CI never
+# drift apart again.
 cover:
 	CGO_ENABLED=0 go test ./internal/... ./cmd/... -count=1 -coverprofile=coverage.out -covermode=count
 	@go tool cover -func=coverage.out | tail -1
-	@total=$$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$$3); print $$3}'); \
-	awk -v t="$$total" -v min="$(COVERAGE_THRESHOLD)" 'BEGIN { if (t+0 < min+0) { printf "FAIL: coverage %.1f%% < threshold %.1f%%\n", t, min; exit 1 } else { printf "PASS: coverage %.1f%% >= threshold %.1f%%\n", t, min } }'
+	@./scripts/coverage-gate.sh coverage.out
 
 # test-integration runs the env-gated Postgres + MongoDB integration tests.
 # Requires POSTGRES_TEST_DSN (logical replication) and MONGO_TEST_URI (replica set).
