@@ -2,16 +2,26 @@
 // that publishes CDC events to an Apache Kafka cluster using franz-go.
 //
 // Key design decisions:
-//   - CHK-01 (Durability): Deliver calls ProduceSync, which blocks until all
-//     in-sync replicas have acknowledged the write. The router's cursor is NOT
-//     advanced until ProduceSync returns nil, preserving at-least-once delivery.
+//   - CHK-01 (Durability): Deliver only buffers a record in memory and returns
+//     immediately; the actual produce happens in FlushBatch, called by the
+//     Router once per ReadPartition batch. The Router does not persist this
+//     consumer's cursor at Deliver time — it records a provisional advance and
+//     promotes it to the durable cursor only after FlushBatch returns nil. A
+//     FlushBatch/Produce failure discards the provisional advance, so the
+//     Router re-reads and re-delivers the same batch (after a backoff) instead
+//     of losing it — see router.BatchFlusher and internal/router/router.go.
 //   - DLV-02 (Per-key ordering): Record.Key is set to entry.Event.Key (the CDC
 //     primary key bytes). Kafka routes records with the same key to the same
 //     partition, giving per-key ordering within a topic.
 //   - DLV-04 (Idempotency header): Every record carries a "Kaptanto-Idempotency-Key"
 //     header set to entry.Event.IdempotencyKey, enabling downstream deduplication.
-//   - DLV-03 (No internal retry): On ProduceSync failure Deliver returns a non-nil
-//     error immediately. Retry is the RetryScheduler's responsibility.
+//     This also covers batches re-delivered after a FlushBatch failure: any
+//     records the broker already committed before the failure are deduplicated
+//     downstream by this key rather than silently lost or double-applied.
+//   - DLV-03 (No internal retry): On a template/encoding error Deliver returns
+//     a non-nil error immediately; on a produce error FlushBatch returns a
+//     non-nil error. Neither retries internally — retry (with NextDelay
+//     backoff for FlushBatch failures) is the Router's responsibility.
 //   - CGO-free: franz-go is a pure Go Kafka client; CGO_ENABLED=0 is safe.
 package kafkasink
 

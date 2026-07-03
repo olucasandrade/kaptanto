@@ -3,13 +3,25 @@
 // the amqp091-go library.
 //
 // Key design decisions:
-//   - CHK-01 (Durability): Deliver blocks until the broker acknowledges the
-//     publish via WaitContext on a DeferredConfirmation. The router cursor is NOT
-//     advanced until WaitContext returns, preserving at-least-once delivery.
-//   - DLV-03 (No internal retry): On any error Deliver returns immediately.
-//     Retry is the RetryScheduler's responsibility.
+//   - CHK-01 (Durability): Deliver calls PublishWithDeferredConfirmWithContext
+//     but does NOT wait for the broker's confirm — it only buffers the
+//     returned DeferredConfirmation in memory. Waiting via WaitContext on all
+//     buffered confirms happens in FlushBatch, called by the Router once per
+//     ReadPartition batch. The Router does not persist this consumer's cursor
+//     at Deliver time — it records a provisional advance and promotes it to
+//     the durable cursor only after FlushBatch returns nil. A FlushBatch
+//     failure discards the provisional advance, so the Router re-reads and
+//     re-delivers the same batch (after a backoff) instead of losing it — see
+//     router.BatchFlusher and internal/router/router.go.
+//   - DLV-03 (No internal retry): On a publish error Deliver returns
+//     immediately; on a confirm/nack error FlushBatch returns a non-nil
+//     error. Neither retries internally — retry (with NextDelay backoff for
+//     FlushBatch failures) is the Router's responsibility.
 //   - DLV-04 (Idempotency header): Every publish carries a
 //     "Kaptanto-Idempotency-Key" AMQP header set to entry.Event.IdempotencyKey.
+//     This also covers batches re-delivered after a FlushBatch failure, so
+//     messages the broker already confirmed before the failure are
+//     deduplicated downstream rather than silently lost or double-applied.
 //   - RTR-04 (Per-key ordering): The channel pool maps entry.PartitionID % 64
 //     to a dedicated channel. AMQP channels are NOT goroutine-safe, so each
 //     partition slot gets its own channel, matching the 64-partition EventLog.

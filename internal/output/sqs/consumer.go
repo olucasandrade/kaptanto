@@ -3,16 +3,29 @@
 //
 // Key design decisions:
 //   - SQS is a stateless HTTP API — there is no persistent connection to close or
-//     reconnect. Each SendMessage call is an independent HTTP request; the AWS SDK
-//     handles retries and credential refresh internally.
-//   - Deliver is synchronous (CHK-01): it blocks until SendMessage returns, so the
-//     router's cursor does not advance until the broker has confirmed the write.
+//     reconnect. Each SendMessageBatch call is an independent HTTP request; the AWS
+//     SDK handles retries and credential refresh internally.
+//   - CHK-01 (Durability): Deliver only buffers a message in memory and returns
+//     immediately; the actual SendMessageBatch call happens in FlushBatch,
+//     called by the Router once per ReadPartition batch. The Router does not
+//     persist this consumer's cursor at Deliver time — it records a
+//     provisional advance and promotes it to the durable cursor only after
+//     FlushBatch returns nil. A FlushBatch failure discards the provisional
+//     advance, so the Router re-reads and re-delivers the same batch (after a
+//     backoff) instead of losing it — see router.BatchFlusher and
+//     internal/router/router.go.
 //   - MessageGroupId is derived from FNV-1a 64-bit hash of the primary key, giving
 //     per-key FIFO ordering within the SQS FIFO queue (DLV-02 adaptation).
 //   - MessageDeduplicationId is SHA-256[:64] of IdempotencyKey, satisfying SQS's
-//     128-char limit while providing content-based deduplication (DLV-04).
-//   - On SendMessage failure Deliver returns a non-nil error; retry is the
-//     RetryScheduler's responsibility — SQSSinkConsumer never retries internally (DLV-03).
+//     128-char limit while providing content-based deduplication (DLV-04); this
+//     also covers batches re-delivered after a FlushBatch failure, so messages
+//     the broker already committed before the failure are deduplicated
+//     downstream rather than silently lost or double-applied.
+//   - DLV-03 (No internal retry): On an encoding error Deliver returns a
+//     non-nil error immediately; on a SendMessageBatch/per-entry failure
+//     FlushBatch returns a non-nil error. Neither retries internally — retry
+//     (with NextDelay backoff for FlushBatch failures) is the Router's
+//     responsibility.
 package sqssink
 
 import (
