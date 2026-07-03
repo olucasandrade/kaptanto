@@ -111,4 +111,4 @@ mutation:
 	echo "=== gremlins ./internal/pk (efficacy >= 40) ==="; \
 	gremlins unleash --threshold-efficacy 40 ./internal/pk; \
 	echo "=== gremlins ./internal/parser/pgoutput (report-only) ==="; \
-	gremlins unleash --threshold-efficacy 0 --threshold-mutant-coverage 0 ./internal/parser/pgoutput
+	gremlins unleash --threshold-efficacy 0 --threshold-mcover 0 ./internal/parser/pgoutput
