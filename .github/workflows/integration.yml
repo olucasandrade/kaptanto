@@ -12,13 +12,19 @@ permissions:
 
 jobs:
   integration:
-    name: Integration tests (Postgres + MongoDB)
+    name: Integration tests (Postgres + MongoDB + RabbitMQ)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     env:
       POSTGRES_TEST_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
       MONGO_TEST_URI: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
+      # Second database in the same Postgres container. Kept separate from
+      # POSTGRES_TEST_DSN so the cluster-membership and backfill Postgres-store
+      # suites don't share state with the HA/publication tests running against
+      # POSTGRES_TEST_DSN.
+      TEST_CLUSTER_DSN: postgres://postgres:postgres@localhost:5432/cluster_test?sslmode=disable
+      RABBITMQ_TEST_URL: amqp://guest:guest@localhost:5672/
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -51,6 +57,48 @@ jobs:
             fi
             echo "  waiting ($i)..."; sleep 2
           done
+          # Second database for TEST_CLUSTER_DSN (cluster-membership +
+          # backfill Postgres-store suites) — isolated from the "postgres"
+          # database used by POSTGRES_TEST_DSN.
+          docker exec postgres psql -U postgres -c 'CREATE DATABASE cluster_test;'
+
+      - name: Start RabbitMQ
+        run: |
+          # RabbitMQ's entrypoint fails almost every run on this runner pool
+          # with "Error when reading /var/lib/rabbitmq/.erlang.cookie:
+          # eacces", crashing before it loads any RabbitMQ code. Ruled out
+          # empirically, each still reproducing the identical error: plain
+          # unix permissions (uid 999 can write /var/lib/rabbitmq directly;
+          # the entrypoint's own `find ! -user rabbitmq -exec chown` already
+          # self-heals ownership before dropping privileges), running as
+          # root, a world-writable host bind mount, a tmpfs mount (rules out
+          # overlay2/on-disk locking entirely), --network host instead of
+          # -p, the Alpine image variant, and recreating the container with
+          # a fresh name across up to 5 attempts per job plus full job
+          # reruns on fresh runners. All reproduce the identical error, so
+          # this is upstream flakiness in the image itself on this runner
+          # pool right now (docker-library/rabbitmq#318 — maintainers'
+          # own conclusion is there's no fix, only "restart until it
+          # works"). --restart=on-failure lets dockerd supervise that retry
+          # directly on the same container instead of our shell recreating
+          # it, which cycles faster and is the one mechanism not yet tried.
+          docker run -d --name rabbitmq --network host \
+            --restart=on-failure:20 \
+            rabbitmq:3
+          echo "Waiting for RabbitMQ (dockerd supervising restarts)..."
+          ready=false
+          for i in $(seq 1 60); do
+            if docker exec rabbitmq rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
+              echo "RabbitMQ ready"; ready=true; break
+            fi
+            echo "  waiting ($i)..."; sleep 2
+          done
+          docker update --restart=no rabbitmq >/dev/null 2>&1 || true
+          if [ "$ready" != "true" ]; then
+            docker logs rabbitmq 2>&1 | tail -30 || true
+            echo "ERROR: RabbitMQ never became ready; aborting." >&2
+            exit 1
+          fi
 
       - name: Start MongoDB (single-node replica set)
         run: |
@@ -86,3 +134,4 @@ jobs:
         run: |
           echo "=== postgres ==="; docker logs postgres 2>&1 | tail -50 || true
           echo "=== mongo ==="; docker logs mongo 2>&1 | tail -50 || true
+          echo "=== rabbitmq ==="; docker logs rabbitmq 2>&1 | tail -50 || true
