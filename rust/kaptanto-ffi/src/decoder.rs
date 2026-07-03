@@ -195,25 +195,33 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_serialize_toast_column_currently_decodes_as_null() {
-        // KNOWN GAP (tracked as residual risk by the rust-ffi-testing fix
-        // plan, not fixed here — out of scope for a testing-infrastructure
-        // change): unlike the Go path (decodeColumns merges an unchanged
-        // TOAST ('u') column from TOASTCache via the prevRow parameter — see
-        // internal/parser/pgoutput/types.go and parser.go's handleUpdate),
-        // decode_serialize has no cache handle or previous-row parameter at
-        // all. A TOAST column always decodes as null here, even when a
-        // fresher cached value exists. ffi_rust.go's decodeAndSerializeRow
-        // never calls toast_set/toast_get either (see toast.rs's test module
-        // note). This test pins the CURRENT behavior so any accidental
-        // further regression is caught — it is not a statement that TOAST
-        // merging works on the Rust path. It does not.
+    fn test_decode_serialize_toast_column_always_decodes_as_null() {
+        // decode_serialize (this file's FFI entry point) has no cache handle
+        // or previous-row parameter, so it always decodes an unchanged-TOAST
+        // ('u') column as JSON null in isolation — by design, not a bug.
+        //
+        // TOAST merging (matching Go's decodeColumns semantics — see
+        // internal/parser/pgoutput/types.go) happens one layer up, in Go:
+        // ffi_rust.go's decodeAndSerializeRow calls this function, then
+        // Go-side post-processes the result via mergeToastColumns — replacing
+        // this null with the previous row's cached value, or deleting the
+        // key entirely if no cached value exists — for every column whose
+        // wire DataType is 'u'. toast.rs's set/get functions remain unused
+        // by that path: a cross-FFI-boundary cache was considered and
+        // rejected in favor of doing the merge entirely in Go, avoiding
+        // passing prevRow across the CGO boundary.
+        //
+        // This test pins decode_serialize's own, correct, cache-free
+        // behavior — it must keep returning null here so a future change
+        // doesn't silently start guessing at a TOAST value with no
+        // previous-row context available to it.
         let v = decode(&[(TYPE_TEXT, b"10"), (TYPE_TOAST, b"")], &["id", "content"])
             .expect("decode must succeed");
         assert_eq!(v["id"], "10");
         assert!(
             v["content"].is_null(),
-            "TOAST column decodes as null on the Rust path today — no merge occurs"
+            "decode_serialize in isolation has no previous-row context, so a TOAST \
+             column must decode as null here — the merge happens in Go, not here"
         );
     }
 
