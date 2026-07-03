@@ -1,6 +1,6 @@
 # Makefile for kaptanto — builds a single static binary with no CGO dependency.
 
-.PHONY: build test test-race verify-no-cgo clean build-rust \
+.PHONY: build test test-race verify-no-cgo clean build-rust test-rust \
         lint cover test-integration test-e2e mutation
 
 # Coverage gate threshold (percent). Mirrors COVERAGE_THRESHOLD in
@@ -63,6 +63,15 @@ $(RUST_LIB):
 	@echo "[kaptanto] Building Rust static library..."
 	cd $(RUST_DIR) && cargo build --release
 	@echo "[kaptanto] Rust static library built -> $(RUST_LIB)"
+
+# test-rust runs the Rust crate's own unit tests, then the rust-tagged Go
+# structural-equality suite (parser_ffi_test.go) against the real staticlib.
+# Requires: Rust 1.77+, cargo. Host-only, like build-rust — no cross-compile.
+test-rust: $(RUST_LIB)
+	@echo "[kaptanto] Running cargo test..."
+	cd $(RUST_DIR) && cargo test
+	@echo "[kaptanto] Running rust-tagged Go structural-equality tests..."
+	CGO_ENABLED=1 go test --tags rust ./internal/parser/pgoutput/... -v -count=1
 
 # ---- Quality gates (mirror the CI workflows; run locally before pushing) ----
 
