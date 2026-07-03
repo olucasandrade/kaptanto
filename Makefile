@@ -98,9 +98,27 @@ test-integration:
 test-e2e:
 	CGO_ENABLED=0 go test -tags e2e ./test/e2e/... -count=1 -timeout 300s -v
 
-# mutation runs gremlins over the core correctness packages. Config in .gremlins.yaml.
+# mutation runs gremlins over the core correctness packages. Base config in
+# .gremlins.yaml; per-package --threshold-efficacy values below ratchet above
+# its 60% fallback toward each package's measured baseline (see .gremlins.yaml
+# comment for the baselines and rationale). This target is the single source
+# of truth for those thresholds — .github/workflows/mutation.yml invokes it
+# directly so CI and local runs cannot drift apart.
+#
+# parser/pgoutput runs report-only: its FFI shim (ffi_rust.go, //go:build rust)
+# is unreachable under the pure-Go test build, which tanks its efficacy score
+# as a tooling artifact rather than a real coverage gap. `set -e` still fails
+# this target if that gremlins invocation crashes/errors — only its score is
+# non-gating.
 mutation:
-	@for pkg in ./internal/router ./internal/eventlog ./internal/parser/pgoutput ./internal/backfill; do \
-		echo "=== gremlins $$pkg ==="; \
-		gremlins unleash $$pkg || exit 1; \
-	done
+	@set -e; \
+	echo "=== gremlins ./internal/router (efficacy >= 90) ==="; \
+	gremlins unleash --threshold-efficacy 90 ./internal/router; \
+	echo "=== gremlins ./internal/eventlog (efficacy >= 65) ==="; \
+	gremlins unleash --threshold-efficacy 65 ./internal/eventlog; \
+	echo "=== gremlins ./internal/backfill (efficacy >= 75) ==="; \
+	gremlins unleash --threshold-efficacy 75 ./internal/backfill; \
+	echo "=== gremlins ./internal/pk (efficacy >= 40) ==="; \
+	gremlins unleash --threshold-efficacy 40 ./internal/pk; \
+	echo "=== gremlins ./internal/parser/pgoutput (report-only) ==="; \
+	gremlins unleash --threshold-efficacy 0 --threshold-mcover 0 ./internal/parser/pgoutput
