@@ -80,7 +80,17 @@ cover:
 
 # test-integration runs the env-gated Postgres + MongoDB integration tests.
 # Requires POSTGRES_TEST_DSN (logical replication) and MONGO_TEST_URI (replica set).
+# Without at least one of these, every gated test silently t.Skip()s and this
+# target degrades into a duplicate `make test` run that reports success while
+# proving nothing — refuse to run rather than produce a false-green result.
 test-integration:
+	@if [ -z "$$POSTGRES_TEST_DSN" ] && [ -z "$$MONGO_TEST_URI" ]; then \
+		echo "ERROR: test-integration requires POSTGRES_TEST_DSN and/or MONGO_TEST_URI to be set." >&2; \
+		echo "        Without them, all gated integration tests skip and this target" >&2; \
+		echo "        silently duplicates 'make test'. Example:" >&2; \
+		echo "        POSTGRES_TEST_DSN=postgres://user:pass@localhost:5432/db MONGO_TEST_URI=mongodb://localhost:27017/?replicaSet=rs0 make test-integration" >&2; \
+		exit 1; \
+	fi
 	CGO_ENABLED=0 go test ./... -count=1 -timeout 300s
 
 # test-e2e runs the black-box binary tests against a live Postgres.
