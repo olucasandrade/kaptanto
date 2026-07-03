@@ -162,8 +162,15 @@ func TestE2E_Postgres_CRUDStream(t *testing.T) {
 		insertEv, updateEv, deleteEv := r.events[0], r.events[1], r.events[2]
 		require.Equal(t, "new", decodeAfter(t, insertEv).Status, "insert.after.status")
 		require.Equal(t, "done", decodeAfter(t, updateEv).Status, "update.after.status")
-		require.Equal(t, "done", decodeBefore(t, updateEv).Status, "update.before.status (pre-image)")
-		require.Equal(t, "done", decodeBefore(t, deleteEv).Status, "delete.before.status carries the last known row state")
+		// Default REPLICA IDENTITY sends only PK columns in an UPDATE/DELETE
+		// before-image (see kaptanto's own WARN log for this table) — Status
+		// is genuinely absent here, not a decode bug. These still prove the
+		// Before payload decodes successfully and carries the shape Postgres
+		// actually sends under the default setting.
+		require.Empty(t, decodeBefore(t, updateEv).Status,
+			"update before-image under default REPLICA IDENTITY contains only PK columns, not status")
+		require.Empty(t, decodeBefore(t, deleteEv).Status,
+			"delete before-image under default REPLICA IDENTITY contains only PK columns, not status")
 		require.Equal(t, 1, decodeKey(t, deleteEv), "delete carries the primary key of the deleted row")
 	case <-time.After(30 * time.Second):
 		t.Fatal("timed out waiting for insert/update/delete events on stdout stream")

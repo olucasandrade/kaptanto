@@ -76,16 +76,25 @@ func TestE2E_Postgres_BackfillDuringStream(t *testing.T) {
 		event.OpUpdate: true,
 	})
 
-	// Race a batch of concurrent updates against the snapshot as soon as the
-	// process is up: backfill's SnapshotLSN is pg_current_wal_flush_lsn() at
-	// process start (see BackfillEngineImpl.Run), so every update issued from
-	// here on has a commit LSN newer than the snapshot's watermark — the only
-	// open question the watermark check resolves is whether each update's WAL
-	// event reaches the EventLog before the snapshot's row-by-row scan (which
-	// walks ascending PK order) reaches that same row. Targeting the highest
-	// ids first — the last rows the ascending scan will visit — maximizes
-	// that chance.
+	// Race a batch of concurrent updates against the snapshot: backfill's
+	// SnapshotLSN is pg_current_wal_flush_lsn() at process start (see
+	// BackfillEngineImpl.Run), so every update issued from here on has a
+	// commit LSN newer than the snapshot's watermark — the only open
+	// question the watermark check resolves is whether each update's WAL
+	// event reaches the EventLog before the snapshot's row-by-row scan
+	// (which walks ascending PK order) reaches that same row. Targeting the
+	// highest ids first — the last rows the ascending scan will visit —
+	// maximizes that chance.
+	//
+	// A brief delay before the first update gives kaptanto time to create
+	// its replication slot/publication first: an update racer starts
+	// firing before the slot exists, the resulting WAL record predates the
+	// slot's start LSN and Postgres never streams it at all — a hard
+	// requirement below is "the update must always arrive" (unlike the
+	// read, which the watermark check is allowed to discard), so this
+	// isn't optional.
 	go func() {
+		time.Sleep(3 * time.Second)
 		for id := totalRows; id > totalRows-racedRows; id-- {
 			_, _ = racerConn.Exec(context.Background(), fmt.Sprintf(
 				"UPDATE public.%s SET status='updated-during-snapshot' WHERE id=$1", fx.Table), id)

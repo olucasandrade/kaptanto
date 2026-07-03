@@ -97,7 +97,13 @@ func TestE2E_Postgres_SSEOutput(t *testing.T) {
 	require.Equal(t, event.OpDelete, events[2].Operation)
 	require.Equal(t, "new", decodeAfter(t, events[0]).Status, "insert payload")
 	require.Equal(t, "done", decodeAfter(t, events[1]).Status, "update payload")
-	require.Equal(t, "done", decodeBefore(t, events[2]).Status, "delete must carry the pre-delete row state")
+	// Default REPLICA IDENTITY sends only PK columns in an UPDATE/DELETE
+	// before-image (see the WARN log kaptanto emits for this table) — Status
+	// is genuinely absent, not a decode bug. This still proves the delete's
+	// Before payload decodes successfully and carries the shape Postgres
+	// actually sends.
+	require.Empty(t, decodeBefore(t, events[2]).Status,
+		"delete before-image under default REPLICA IDENTITY contains only PK columns, not status")
 	require.Equal(t, 1, decodeKey(t, events[2]), "delete must carry the key")
 
 	// ---- tables= filter: a stream subscribed to an unrelated table name

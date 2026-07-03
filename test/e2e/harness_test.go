@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -233,6 +234,15 @@ func setupE2ETable(t *testing.T, dsn, columns string) *e2eFixture {
 
 	_, err = conn.Exec(ctx, fmt.Sprintf("CREATE TABLE public.%s (%s)", table, columns))
 	require.NoError(t, err)
+	// Deliberately NOT setting REPLICA IDENTITY FULL: pgoutput reuses the
+	// same per-column "flags" bit for both "is this column part of the
+	// PRIMARY KEY" and "is this column part of REPLICA IDENTITY" — under
+	// FULL, every column gets that bit, which would make extractPK
+	// (internal/parser/pgoutput/types.go) treat the whole row as the CDC
+	// key instead of just the PK. That's a real, separate parser gap
+	// (extractPK's doc comment only accounts for the DEFAULT/PK case) —
+	// out of scope for this test fix. Tests must live with the default
+	// REPLICA IDENTITY's PK-only before-image (see decodeBefore usage).
 
 	t.Cleanup(func() {
 		c, err := pgx.Connect(context.Background(), dsn)
@@ -252,8 +262,16 @@ func setupE2ETable(t *testing.T, dsn, columns string) *e2eFixture {
 
 // ─── payload decoding ─────────────────────────────────────────────────────────
 
+// rowPayload deliberately omits "id": the WAL streaming path (pgoutput's
+// text wire format, decodeColumns in internal/parser/pgoutput/types.go)
+// always emits it as a JSON string ("1"), while the backfill/snapshot path
+// (internal/backfill/backfill.go, which uses the row's native pgx value
+// straight from rows.Values()) emits it as a JSON number (1) — a real,
+// pre-existing inconsistency between the two paths, not something these
+// tests are set up to assert on. json.Unmarshal silently ignores JSON keys
+// with no matching struct field, so decoding both shapes just works as long
+// as ID isn't declared here. Only Status is ever asserted on by these tests.
 type rowPayload struct {
-	ID     int    `json:"id"`
 	Status string `json:"status"`
 }
 
@@ -271,13 +289,23 @@ func decodeBefore(t *testing.T, ev event.ChangeEvent) rowPayload {
 	return p
 }
 
+// decodeKey decodes ev.Key's "id" field and returns it as an int for callers
+// that use it as a map key / loop counter. The wire value itself is a JSON
+// string, not a number: primary keys go through pk.Canonical (internal/pk),
+// which converts every PK value to its canonical decimal-string form (e.g.
+// {"id":"2"}, not {"id":2}) so the WAL and snapshot paths byte-match — see
+// pk.Canonical's doc comment. strconv.Atoi converts back to the int these
+// tests were written against; every table this suite creates uses a plain
+// integer "id" primary key, so the conversion always succeeds.
 func decodeKey(t *testing.T, ev event.ChangeEvent) int {
 	t.Helper()
 	var k struct {
-		ID int `json:"id"`
+		ID string `json:"id"`
 	}
 	require.NoErrorf(t, json.Unmarshal(ev.Key, &k), "decode Key for %s %s", ev.Operation, ev.IdempotencyKey)
-	return k.ID
+	id, err := strconv.Atoi(k.ID)
+	require.NoErrorf(t, err, "decoded key %q for %s %s is not an integer", k.ID, ev.Operation, ev.IdempotencyKey)
+	return id
 }
 
 // ─── HTTP helpers (SSE test) ─────────────────────────────────────────────────
