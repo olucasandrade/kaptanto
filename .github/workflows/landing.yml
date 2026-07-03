@@ -1,0 +1,73 @@
+name: Landing
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "landing/**"
+      - ".github/workflows/landing.yml"
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "landing/**"
+      - ".github/workflows/landing.yml"
+
+# Least-privilege default token.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: lint, typecheck, build (landing/)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: landing
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # npm/package-lock.json is the package manager actually exercised by the
+      # production deploy path: landing/README.md documents `npm run build` as
+      # the Cloudflare Pages build command, and package-lock.json (unlike the
+      # also-present bun.lock, a leftover from the initial `npm create qwik`
+      # scaffold that nothing regenerates or references) has a dedicated fix
+      # commit ("regenerate package-lock.json to include wrangler
+      # dependencies"). CI installs with npm to validate the same dependency
+      # graph Cloudflare Pages builds from.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: landing/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: lint
+        run: npm run lint
+
+      # Pre-existing formatting drift on main means this currently fails on
+      # files unrelated to any given change. Kept non-blocking until a
+      # dedicated `prettier --write` normalization PR lands; see the PR
+      # description that introduced this workflow for the follow-up.
+      - name: fmt.check
+        run: npm run fmt.check
+        continue-on-error: true
+
+      - name: build.types
+        run: npm run build.types
+
+      - name: unit tests (vitest — docs registry + install-URL smoke)
+        run: npm run test
+
+      - name: build (Cloudflare Pages worker — the real deploy artifact)
+        run: npm run build
+
+      # Builds a second, non-Cloudflare SSR bundle (vite preview entry) and
+      # serves it locally to assert `/` and the docs pages actually render.
+      # Runs after the deploy-path build above so this rebuild can't mask a
+      # failure in the artifact Cloudflare Pages actually ships.
+      - name: rendered smoke check (/ and /docs render without error)
+        run: node test/render-smoke.mjs
