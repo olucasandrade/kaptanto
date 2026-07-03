@@ -13,11 +13,11 @@ import (
 // previously hid an unconditional skip in this package for an unknown
 // period of time). This canary turns a silent skip into a hard CI failure.
 //
-// It must never fire outside CI: the check is keyed strictly on
-// GITHUB_ACTIONS=true, so local `go test ./...` runs without
+// It must never fire outside CI: the check is keyed strictly on the integration job
+// (GITHUB_JOB=="integration"), so local `go test ./...` runs without
 // POSTGRES_TEST_DSN continue to skip the gated test quietly, as before.
 func TestIntegrationCanary_POSTGRES_TEST_DSN(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "true" && os.Getenv("POSTGRES_TEST_DSN") == "" {
+	if os.Getenv("GITHUB_JOB") == "integration" && os.Getenv("POSTGRES_TEST_DSN") == "" {
 		t.Fatal("POSTGRES_TEST_DSN must be set in CI: internal/source/postgres's gated publication tests would silently skip, defeating the purpose of running them in CI")
 	}
 }

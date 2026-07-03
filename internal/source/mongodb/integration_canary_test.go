@@ -12,11 +12,11 @@ import (
 // whether the suite ran or silently t.Skip()'d. This canary turns that
 // silent skip into a hard CI failure.
 //
-// It must never fire outside CI: the check is keyed strictly on
-// GITHUB_ACTIONS=true, so local `go test ./...` runs without
+// It must never fire outside CI: the check is keyed strictly on the integration job
+// (GITHUB_JOB=="integration"), so local `go test ./...` runs without
 // MONGO_TEST_URI continue to skip the gated suite quietly, as before.
 func TestIntegrationCanary_MONGO_TEST_URI(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "true" && os.Getenv("MONGO_TEST_URI") == "" {
+	if os.Getenv("GITHUB_JOB") == "integration" && os.Getenv("MONGO_TEST_URI") == "" {
 		t.Fatal("MONGO_TEST_URI must be set in CI: internal/source/mongodb's gated Change Stream tests would silently skip, defeating the purpose of running them in CI")
 	}
 }

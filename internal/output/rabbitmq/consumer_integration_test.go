@@ -39,11 +39,11 @@ func rabbitMQTestURL(t *testing.T) string {
 // the test ran or silently t.Skip()'d. This canary turns that silent skip
 // into a hard CI failure.
 //
-// It must never fire outside CI: the check is keyed strictly on
-// GITHUB_ACTIONS=true, so local `go test ./...` runs without
+// It must never fire outside CI: the check is keyed strictly on the integration job
+// (GITHUB_JOB=="integration"), so local `go test ./...` runs without
 // RABBITMQ_TEST_URL continue to skip the gated test quietly, as before.
 func TestIntegrationCanary_RABBITMQ_TEST_URL(t *testing.T) {
-	if os.Getenv("GITHUB_ACTIONS") == "true" && os.Getenv("RABBITMQ_TEST_URL") == "" {
+	if os.Getenv("GITHUB_JOB") == "integration" && os.Getenv("RABBITMQ_TEST_URL") == "" {
 		t.Fatal("RABBITMQ_TEST_URL must be set in CI: internal/output/rabbitmq's gated round-trip test would silently skip, defeating the purpose of running it in CI")
 	}
 }
