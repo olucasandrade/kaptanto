@@ -64,16 +64,23 @@ jobs:
 
       - name: Start RabbitMQ
         run: |
-          # --user root: the rabbitmq:3 image bakes default config files into
-          # /var/lib/rabbitmq owned by root, but its entrypoint runs as the
-          # unprivileged "rabbitmq" user by default. On some runner storage
-          # drivers that mismatch makes the entrypoint's own cookie file
-          # unwritable ("Error when reading /var/lib/rabbitmq/.erlang.cookie:
-          # eacces") and the broker never starts. This container is
-          # ephemeral, localhost-only, and torn down at job end, so running
-          # it as root has no meaningful security cost here.
+          # The rabbitmq:3 image declares /var/lib/rabbitmq as a VOLUME, so
+          # Docker seeds a fresh anonymous volume from the image's baked-in
+          # files on first run. On this runner that seeding leaves the
+          # directory unwritable by the entrypoint's own "rabbitmq" user
+          # (--user root doesn't help: the entrypoint re-drops privileges to
+          # "rabbitmq" internally regardless of the container's launch UID),
+          # so it can never create/read .erlang.cookie ("Error when reading
+          # /var/lib/rabbitmq/.erlang.cookie: eacces") and the broker never
+          # starts. Bind-mounting a world-writable host directory over that
+          # path sidesteps the anonymous-volume ownership entirely — any UID
+          # inside the container can read/write it. The directory is
+          # throwaway (runner-local, torn down with the VM), so 777 has no
+          # meaningful security cost here.
+          mkdir -p /tmp/rabbitmq-data
+          chmod 777 /tmp/rabbitmq-data
           docker run -d --name rabbitmq \
-            --user root \
+            -v /tmp/rabbitmq-data:/var/lib/rabbitmq \
             -p 5672:5672 \
             rabbitmq:3
           echo "Waiting for RabbitMQ..."
