@@ -64,17 +64,18 @@ jobs:
 
       - name: Diagnose RabbitMQ filesystem access
         run: |
-          echo "--- id inside container (default user) ---"
-          docker run --rm --entrypoint sh rabbitmq:3 -c 'id; whoami; echo HOME=$HOME'
-          echo "--- /var/lib/rabbitmq ownership/perms as baked into the image ---"
-          docker run --rm --entrypoint sh rabbitmq:3 -c 'ls -lad /var/lib/rabbitmq; ls -la /var/lib/rabbitmq | head -20; stat /var/lib/rabbitmq'
-          echo "--- can the default user write there? ---"
-          docker run --rm --entrypoint sh rabbitmq:3 -c 'touch /var/lib/rabbitmq/.probe && echo WRITE_OK || echo WRITE_FAIL'
-          echo "--- with a fresh anonymous volume mounted ---"
-          docker run --rm -v /var/lib/rabbitmq --entrypoint sh rabbitmq:3 -c 'ls -lad /var/lib/rabbitmq; touch /var/lib/rabbitmq/.probe && echo VOLUME_WRITE_OK || echo VOLUME_WRITE_FAIL'
-          echo "--- mount/filesystem info on the runner ---"
-          docker info --format '{{.Driver}}' || true
-          mount | grep -E '/var/lib/docker|overlay' | head -5 || true
+          echo "--- as uid 999 (the rabbitmq user) explicitly ---"
+          docker run --rm --user 999:999 --entrypoint sh rabbitmq:3 -c 'id; touch /var/lib/rabbitmq/.probe && echo UID999_WRITE_OK || echo UID999_WRITE_FAIL'
+          echo "--- default image CMD/entrypoint, unmodified, racing its own crash ---"
+          docker run -d --name rmqprobe rabbitmq:3
+          for i in 1 2 3 4 5 6; do
+            sleep 1
+            echo "[t=${i}s] docker top:"; docker top rmqprobe 2>&1 || echo "(container already exited)"
+            echo "[t=${i}s] ls -la /var/lib/rabbitmq via exec:"; docker exec rmqprobe ls -la /var/lib/rabbitmq 2>&1 || echo "(exec failed, container likely exited)"
+          done
+          echo "--- final inspect ---"
+          docker inspect rmqprobe --format 'State={{json .State}}' || true
+          docker rm -f rmqprobe >/dev/null 2>&1 || true
 
       - name: Start RabbitMQ
         run: |
