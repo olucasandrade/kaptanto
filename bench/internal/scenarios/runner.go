@@ -20,7 +20,7 @@ type ScenarioDef struct {
 	PostWaitS   int      // seconds to wait after loadgen finishes, before writing the END marker
 }
 
-// Scenarios is the canonical ordered list of all five benchmark scenarios.
+// Scenarios is the canonical ordered list of all six benchmark scenarios.
 var Scenarios = []ScenarioDef{
 	{
 		Name:        "steady",

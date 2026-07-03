@@ -2,8 +2,12 @@ package postgres
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,14 +56,44 @@ func TestEnsurePublication_Contract_EmptyTablesAllowAllTablesFalse(t *testing.T)
 	t.Log("This is verified end-to-end in internal/cmd TestAllTables_FailClosedWithNoTables")
 }
 
-// TestEnsurePublication_AllowAllTablesTrue_SQLContainsForAllTables is an
-// integration test that requires a live Postgres instance. It is skipped in
-// unit test runs via the standard "short" flag.
+// TestEnsurePublication_Integration_AllowAllTablesTrue is an integration test
+// that requires a live Postgres instance. It creates a publication with
+// allowAllTables=true and asserts pg_publication.puballtables is true — the
+// one code path (CREATE PUBLICATION ... FOR ALL TABLES) that cannot be
+// exercised without a real connection. Set POSTGRES_TEST_DSN to enable it,
+// matching the gate used throughout this repo (see internal/ha/leader_test.go,
+// internal/checkpoint/postgres_test.go).
 func TestEnsurePublication_Integration_AllowAllTablesTrue(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+	dsn := os.Getenv("POSTGRES_TEST_DSN")
+	if dsn == "" {
+		t.Skip("set POSTGRES_TEST_DSN to run publication integration tests")
 	}
-	t.Skip("integration test requires a live Postgres instance; run via bench/ harness or CI")
+
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	require.NoError(t, err, "connect to Postgres")
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	pubName := fmt.Sprintf("kaptanto_test_pub_alltables_%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = conn.Exec(context.Background(),
+			fmt.Sprintf("DROP PUBLICATION IF EXISTS %s", pgx.Identifier{pubName}.Sanitize()))
+	})
+
+	require.NoError(t, ensurePublication(ctx, conn, pubName, nil, true),
+		"ensurePublication with allowAllTables=true")
+
+	var allTables bool
+	err = conn.QueryRow(ctx,
+		"SELECT puballtables FROM pg_publication WHERE pubname = $1", pubName,
+	).Scan(&allTables)
+	require.NoError(t, err, "query pg_publication")
+	assert.True(t, allTables, "expected pg_publication.puballtables=true for a publication created with allowAllTables=true")
+
+	// Re-running ensurePublication against the now-existing publication must
+	// be a no-op (the existence check short-circuits before CREATE).
+	require.NoError(t, ensurePublication(ctx, conn, pubName, nil, true),
+		"ensurePublication should be idempotent when the publication already exists")
 }
 
 // TestEnsurePublication_Unit_ErrorMessage verifies the exact error text returned
