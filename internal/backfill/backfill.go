@@ -167,12 +167,12 @@ type OpenConnFn func(ctx context.Context) (*pgx.Conn, error)
 // dependencies at construction time and implements the full keyset-cursor
 // snapshot loop.
 type BackfillEngineImpl struct {
-	configs        []BackfillConfig
-	store          BackfillStore
-	idGen          *event.IDGenerator
-	appendFn       AppendFn
-	appendBatchFn  AppendBatchFn
-	openConnFn     OpenConnFn
+	configs       []BackfillConfig
+	store         BackfillStore
+	idGen         *event.IDGenerator
+	appendFn      AppendFn
+	appendBatchFn AppendBatchFn
+	openConnFn    OpenConnFn
 	// watermark is optional; nil disables watermark deduplication.
 	watermark *WatermarkChecker
 }
@@ -367,6 +367,21 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 		// Non-fatal: if query or parse fails, SnapshotLSN remains 0 (conservative
 		// path — no rows suppressed incorrectly). pg_current_wal_flush_lsn() returns
 		// NULL on standby; the nil scan error is caught here and handled safely.
+	}
+
+	// Build the O(1) watermark index for this table before scanning any rows
+	// (perf fix: replaces the old per-row full-partition scan). StartTable
+	// registers the index before doing its one-time scan, so it cannot miss
+	// WAL events that land during the build (see StartTable's doc comment).
+	// If it fails, ShouldEmit transparently falls back to the scan-based
+	// path — same correctness, just the pre-fix throughput.
+	if b.watermark != nil {
+		if err := b.watermark.StartTable(ctx, cfg.Table, state.SnapshotLSN); err != nil {
+			slog.Warn("backfill: watermark index build failed, falling back to per-row scan",
+				"error", err, "table", cfg.Table)
+		} else {
+			defer b.watermark.FinishTable(cfg.Table)
+		}
 	}
 
 	// eventBuf accumulates snapshot row events for batched appends (Fix: BKF batch).
