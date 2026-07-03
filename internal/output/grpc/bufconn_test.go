@@ -69,10 +69,10 @@ func (c *cdcStreamClient) Subscribe(ctx context.Context, in *proto.SubscribeRequ
 		return nil, err
 	}
 	x := &cdcStreamSubscribeClientImpl{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
+	if err := x.SendMsg(in); err != nil {
 		return nil, err
 	}
-	if err := x.ClientStream.CloseSend(); err != nil {
+	if err := x.CloseSend(); err != nil {
 		return nil, err
 	}
 	return x, nil
@@ -92,7 +92,7 @@ type cdcStreamSubscribeClientImpl struct {
 
 func (x *cdcStreamSubscribeClientImpl) Recv() (*proto.ChangeEvent, error) {
 	m := new(proto.ChangeEvent)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
+	if err := x.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
