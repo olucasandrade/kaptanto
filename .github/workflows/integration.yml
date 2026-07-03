@@ -129,6 +129,16 @@ jobs:
       - name: Run integration tests
         run: CGO_ENABLED=0 go test ./... -count=1 -timeout 300s
 
+      # -race requires CGO; the pure-Go (CGO_ENABLED=0) static-binary guarantee
+      # is enforced separately by `make verify-no-cgo` and ci.yml's race job.
+      # ci.yml's race job has no POSTGRES_TEST_DSN/MONGO_TEST_URI, so it never
+      # observes the live WAL receive loop, heartbeats, backfill running
+      # concurrently with streaming, or SRC-06 single-run-goroutine logic.
+      # Scoped (not ./...) to the packages actually gated by those env vars,
+      # to keep the added wall time bounded.
+      - name: Run integration tests with -race
+        run: CGO_ENABLED=1 go test ./internal/cmd/... ./internal/checkpoint/... ./internal/ha/... ./internal/source/mongodb/... -race -count=1 -timeout 300s
+
       - name: Container logs on failure
         if: failure()
         run: |
