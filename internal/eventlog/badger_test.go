@@ -266,6 +266,12 @@ func TestBadgerEventLog_ReopenPreservesDedupAndEntries(t *testing.T) {
 
 	el, err := eventlog.Open(dir, 64, time.Hour)
 	require.NoError(t, err)
+	elClosed := false
+	defer func() {
+		if !elClosed {
+			_ = el.Close()
+		}
+	}()
 
 	evs := []*event.ChangeEvent{
 		makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`),
@@ -282,6 +288,7 @@ func TestBadgerEventLog_ReopenPreservesDedupAndEntries(t *testing.T) {
 	}
 
 	require.NoError(t, el.Close())
+	elClosed = true
 
 	// Simulate a crash-restart: reopen the same directory.
 	el2, err := eventlog.Open(dir, 64, time.Hour)
