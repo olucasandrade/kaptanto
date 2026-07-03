@@ -62,6 +62,20 @@ jobs:
           # database used by POSTGRES_TEST_DSN.
           docker exec postgres psql -U postgres -c 'CREATE DATABASE cluster_test;'
 
+      - name: Diagnose RabbitMQ filesystem access
+        run: |
+          echo "--- id inside container (default user) ---"
+          docker run --rm --entrypoint sh rabbitmq:3 -c 'id; whoami; echo HOME=$HOME'
+          echo "--- /var/lib/rabbitmq ownership/perms as baked into the image ---"
+          docker run --rm --entrypoint sh rabbitmq:3 -c 'ls -lad /var/lib/rabbitmq; ls -la /var/lib/rabbitmq | head -20; stat /var/lib/rabbitmq'
+          echo "--- can the default user write there? ---"
+          docker run --rm --entrypoint sh rabbitmq:3 -c 'touch /var/lib/rabbitmq/.probe && echo WRITE_OK || echo WRITE_FAIL'
+          echo "--- with a fresh anonymous volume mounted ---"
+          docker run --rm -v /var/lib/rabbitmq --entrypoint sh rabbitmq:3 -c 'ls -lad /var/lib/rabbitmq; touch /var/lib/rabbitmq/.probe && echo VOLUME_WRITE_OK || echo VOLUME_WRITE_FAIL'
+          echo "--- mount/filesystem info on the runner ---"
+          docker info --format '{{.Driver}}' || true
+          mount | grep -E '/var/lib/docker|overlay' | head -5 || true
+
       - name: Start RabbitMQ
         run: |
           # The rabbitmq:3 entrypoint intermittently fails to read/create
