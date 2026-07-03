@@ -62,52 +62,42 @@ jobs:
           # database used by POSTGRES_TEST_DSN.
           docker exec postgres psql -U postgres -c 'CREATE DATABASE cluster_test;'
 
-      - name: Diagnose RabbitMQ filesystem access
-        run: |
-          echo "--- as uid 999 (the rabbitmq user) explicitly ---"
-          docker run --rm --user 999:999 --entrypoint sh rabbitmq:3 -c 'id; touch /var/lib/rabbitmq/.probe && echo UID999_WRITE_OK || echo UID999_WRITE_FAIL'
-          echo "--- default image CMD/entrypoint, unmodified, racing its own crash ---"
-          docker run -d --name rmqprobe rabbitmq:3
-          for i in 1 2 3 4 5 6; do
-            sleep 1
-            echo "[t=${i}s] docker top:"; docker top rmqprobe 2>&1 || echo "(container already exited)"
-            echo "[t=${i}s] ls -la /var/lib/rabbitmq via exec:"; docker exec rmqprobe ls -la /var/lib/rabbitmq 2>&1 || echo "(exec failed, container likely exited)"
-          done
-          echo "--- final inspect ---"
-          docker inspect rmqprobe --format 'State={{json .State}}' || true
-          docker rm -f rmqprobe >/dev/null 2>&1 || true
-
       - name: Start RabbitMQ
         run: |
           # The rabbitmq:3 entrypoint intermittently fails to read/create
           # /var/lib/rabbitmq/.erlang.cookie on first boot ("Error when
           # reading /var/lib/rabbitmq/.erlang.cookie: eacces"), crashing the
-          # node before it loads any RabbitMQ code. Neither --user root nor a
-          # world-writable bind mount over /var/lib/rabbitmq avoids it, and
-          # upstream confirms it's an intermittent volume-initialization race
-          # with no real fix — see docker-library/rabbitmq#318, where the
-          # maintainers' own reported workaround is "simply restarting the
-          # container does fix the issue". Retry a few full recreations
-          # rather than chase permission bits further.
-          for attempt in 1 2 3; do
-            docker rm -f rabbitmq >/dev/null 2>&1 || true
-            docker run -d --name rabbitmq \
-              -p 5672:5672 \
-              rabbitmq:3
-            echo "Waiting for RabbitMQ (attempt $attempt)..."
-            ready=false
+          # node before it loads any RabbitMQ code. This is a confirmed
+          # upstream volume-initialization race with no permission-based fix
+          # (docker-library/rabbitmq#318) — verified here too: running as uid
+          # 999 explicitly can write /var/lib/rabbitmq fine, and a fresh
+          # container with the image's own unmodified entrypoint boots
+          # cleanly most of the time, so the failure isn't deterministic
+          # permissions, it's per-attempt luck. Retry with a new container
+          # name each time (reusing "rabbitmq" via rm+run back-to-back
+          # correlated with repeated failures in testing) and rename the
+          # first one that comes up healthy.
+          ready=false
+          for attempt in 1 2 3 4 5; do
+            name="rabbitmq_attempt_${attempt}"
+            docker run -d --name "$name" -p 5672:5672 rabbitmq:3
+            echo "Waiting for RabbitMQ (attempt $attempt, container $name)..."
             for i in $(seq 1 15); do
-              if docker exec rabbitmq rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
+              if docker exec "$name" rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
                 echo "RabbitMQ ready"; ready=true; break
               fi
               echo "  waiting ($i)..."; sleep 2
             done
-            if [ "$ready" = "true" ]; then break; fi
-            echo "RabbitMQ did not become ready on attempt $attempt; recreating the container." >&2
-            docker logs rabbitmq 2>&1 | tail -20 || true
+            if [ "$ready" = "true" ]; then
+              docker rename "$name" rabbitmq
+              break
+            fi
+            echo "RabbitMQ did not become ready on attempt $attempt; trying a fresh container." >&2
+            docker logs "$name" 2>&1 | tail -20 || true
+            docker rm -f "$name" >/dev/null 2>&1 || true
           done
           if [ "$ready" != "true" ]; then
-            echo "ERROR: RabbitMQ never became ready after 3 attempts; aborting." >&2
+            echo "ERROR: RabbitMQ never became ready after 5 attempts; aborting." >&2
             exit 1
           fi
 
