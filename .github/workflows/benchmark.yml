@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       scenarios:
-        description: 'Comma-separated scenarios (empty = all 5: steady,burst,large-batch,crash-recovery,idle)'
+        description: 'Comma-separated scenarios (empty = all 6: steady,burst,large-batch,crash-recovery,idle,cluster)'
         required: false
         default: ''
 

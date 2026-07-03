@@ -147,10 +147,11 @@ func (s *SQLiteCursorStore) flush(ctx context.Context) {
 	s.dirty = make(map[cursorKey]uint64)
 	s.mu.Unlock()
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		slog.Warn("checkpoint: flush begin tx", "err", err)
-		// Restore snapshot back to dirty map so it isn't lost.
+	// restoreSnapshot re-merges snapshot back into s.dirty so a failed flush
+	// retries on the next tick instead of silently losing the writes —
+	// SaveCursor callers already returned nil, believing the durable path
+	// would eventually persist their value.
+	restoreSnapshot := func() {
 		s.mu.Lock()
 		for k, v := range snapshot {
 			if _, exists := s.dirty[k]; !exists {
@@ -158,18 +159,38 @@ func (s *SQLiteCursorStore) flush(ctx context.Context) {
 			}
 		}
 		s.mu.Unlock()
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		slog.Warn("checkpoint: flush begin tx", "err", err)
+		restoreSnapshot()
 		return
 	}
 
+	// A single ExecContext failure can leave the *sql.Tx itself unusable
+	// (e.g. the driver aborts the transaction on a statement error under
+	// contention) — continuing to use it for the remaining keys, or calling
+	// Commit on it, only produces further errors (observed in practice as
+	// Commit returning "sql: transaction has already been committed or
+	// rolled back"). Roll back immediately and restore the whole snapshot
+	// rather than silently dropping just the failed key.
 	for k, seq := range snapshot {
 		if _, err := tx.ExecContext(ctx, upsertCursorSQL, k.consumerID, k.partitionID, seq); err != nil {
 			slog.Warn("checkpoint: flush upsert", "consumer", k.consumerID, "partition", k.partitionID, "err", err)
+			_ = tx.Rollback()
+			restoreSnapshot()
+			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
+		// Do not call tx.Rollback() here: once Commit has been attempted,
+		// database/sql considers the *Tx done regardless of whether the
+		// commit itself succeeded, and calling Rollback on it only yields
+		// sql.ErrTxDone. Just restore the snapshot for a retry.
 		slog.Warn("checkpoint: flush commit", "err", err)
-		_ = tx.Rollback()
+		restoreSnapshot()
 		return
 	}
 	if s.metrics != nil {
