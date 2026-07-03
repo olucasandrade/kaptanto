@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
-	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -252,6 +252,87 @@ func TestBadgerEventLog_Close(t *testing.T) {
 
 	err = el.Close()
 	assert.NoError(t, err, "Close should complete without error")
+}
+
+// TestBadgerEventLog_ReopenPreservesDedupAndEntries verifies the unit half of
+// the CHK-01 crash-recovery story: after Close() and a fresh Open() on the
+// same directory, (a) previously appended entries are still readable via
+// ReadPartition, (b) re-appending the same IdempotencyKeys returns the dup
+// sentinel (seq=0) rather than creating duplicates, and (c) a brand-new
+// IdempotencyKey continues the sequence rather than colliding with pre-reopen
+// seqs.
+func TestBadgerEventLog_ReopenPreservesDedupAndEntries(t *testing.T) {
+	dir := t.TempDir()
+
+	el, err := eventlog.Open(dir, 64, time.Hour)
+	require.NoError(t, err)
+
+	evs := []*event.ChangeEvent{
+		makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`),
+		makeEvent("src:public.t:2:insert:0/2", `{"id": 2}`),
+		makeEvent("src:public.t:3:insert:0/3", `{"id": 3}`),
+	}
+
+	var firstSeqs []uint64
+	for _, ev := range evs {
+		seq, err := el.Append(ev)
+		require.NoError(t, err)
+		assert.Greater(t, seq, uint64(0), "first append of %s should return seq > 0", ev.IdempotencyKey)
+		firstSeqs = append(firstSeqs, seq)
+	}
+
+	require.NoError(t, el.Close())
+
+	// Simulate a crash-restart: reopen the same directory.
+	el2, err := eventlog.Open(dir, 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el2.Close() }()
+
+	ctx := context.Background()
+
+	// (a) All 3 original entries must still be present after reopen.
+	found := map[string]bool{}
+	for p := uint32(0); p < 64; p++ {
+		entries, err := el2.ReadPartition(ctx, p, 0, 100)
+		require.NoError(t, err)
+		for _, e := range entries {
+			found[e.Event.IdempotencyKey] = true
+		}
+	}
+	for _, ev := range evs {
+		assert.True(t, found[ev.IdempotencyKey], "entry %s must survive reopen", ev.IdempotencyKey)
+	}
+	assert.Len(t, found, 3, "reopen must not introduce extra entries")
+
+	// (b) Re-appending the same events (as a re-sent WAL/change-stream source
+	// would after a crash, per CHK-01) must be deduped: seq=0 for every one.
+	for i, ev := range evs {
+		seq, err := el2.Append(ev)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(0), seq,
+			"re-append of %s after reopen must return dup sentinel seq=0 (original seq was %d)",
+			ev.IdempotencyKey, firstSeqs[i])
+	}
+
+	// (c) A genuinely new IdempotencyKey must still get a fresh, positive seq —
+	// the sequence counter itself must also have survived the reopen.
+	newEv := makeEvent("src:public.t:4:insert:0/4", `{"id": 4}`)
+	newSeq, err := el2.Append(newEv)
+	require.NoError(t, err)
+	assert.Greater(t, newSeq, uint64(0), "new event after reopen should get a fresh seq > 0")
+
+	newFound := false
+	for p := uint32(0); p < 64; p++ {
+		entries, err := el2.ReadPartition(ctx, p, 0, 100)
+		require.NoError(t, err)
+		for _, e := range entries {
+			if e.Event.IdempotencyKey == newEv.IdempotencyKey {
+				newFound = true
+				assert.Equal(t, newSeq, e.Seq)
+			}
+		}
+	}
+	assert.True(t, newFound, "new event after reopen must be retrievable via ReadPartition")
 }
 
 // TestReadPartition_RawPopulated verifies that ReadPartition populates LogEntry.Raw
