@@ -5,6 +5,9 @@ package eventlog_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -299,4 +302,217 @@ func TestReadPartition_RawPopulated(t *testing.T) {
 	rawKeyJSON, err := json.Marshal(rawKey)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(ev.Key), string(rawKeyJSON), "Raw JSON must contain the correct key")
+}
+
+// TestBadgerEventLog_ConcurrentAppendAndRead exercises the actual production
+// access pattern: a source writing events (Append) while the router reads all
+// partitions (ReadPartition) concurrently. Every writer uses distinct keys and
+// distinct IdempotencyKeys, so no dedup contention is expected — this test is
+// purely about the race detector observing contended Append/Append and
+// Append/ReadPartition access without corrupting state.
+func TestBadgerEventLog_ConcurrentAppendAndRead(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	const (
+		numWriters      = 8
+		eventsPerWriter = 200
+		numReaders      = 4
+	)
+
+	var writersWG sync.WaitGroup
+	for w := 0; w < numWriters; w++ {
+		writersWG.Add(1)
+		go func(writerID int) {
+			defer writersWG.Done()
+			for i := 0; i < eventsPerWriter; i++ {
+				keyJSON, err := json.Marshal(map[string]int{"writer": writerID, "i": i})
+				if err != nil {
+					t.Errorf("marshal key: %v", err)
+					return
+				}
+				idKey := fmt.Sprintf("src:public.t:concurrent:%d:%d", writerID, i)
+				ev := makeEvent(idKey, string(keyJSON))
+				seq, err := el.Append(ev)
+				if err != nil {
+					t.Errorf("Append: %v", err)
+					continue
+				}
+				if seq == 0 {
+					t.Errorf("Append for a unique key returned duplicate sentinel seq=0")
+				}
+			}
+		}(w)
+	}
+
+	// Readers poll all 64 partitions concurrently with the writers above,
+	// stopping once the writers finish.
+	stopReaders := make(chan struct{})
+	var readersWG sync.WaitGroup
+	for r := 0; r < numReaders; r++ {
+		readersWG.Add(1)
+		go func() {
+			defer readersWG.Done()
+			ctx := context.Background()
+			for {
+				select {
+				case <-stopReaders:
+					return
+				default:
+				}
+				for p := uint32(0); p < 64; p++ {
+					if _, err := el.ReadPartition(ctx, p, 0, eventsPerWriter*numWriters+10); err != nil {
+						t.Errorf("ReadPartition(%d): %v", p, err)
+					}
+				}
+			}
+		}()
+	}
+
+	writersWG.Wait()
+	close(stopReaders)
+	readersWG.Wait()
+
+	// Final verification: every appended event is readable, and per-partition
+	// sequence numbers are gapless (no duplicates written, no errors, so every
+	// leased sequence number in a partition must have been consumed exactly once).
+	ctx := context.Background()
+	perPartitionSeqs := make(map[uint32][]uint64)
+	total := 0
+	for p := uint32(0); p < 64; p++ {
+		entries, err := el.ReadPartition(ctx, p, 0, numWriters*eventsPerWriter+10)
+		require.NoError(t, err)
+		total += len(entries)
+		for _, e := range entries {
+			perPartitionSeqs[p] = append(perPartitionSeqs[p], e.Seq)
+		}
+	}
+	assert.Equal(t, numWriters*eventsPerWriter, total, "all appended events must be readable after concurrent Append/ReadPartition")
+
+	for p, seqs := range perPartitionSeqs {
+		sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
+		assert.Equal(t, uint64(1), seqs[0], "partition %d: first seq should be 1", p)
+		for i := 1; i < len(seqs); i++ {
+			assert.Equal(t, seqs[i-1]+1, seqs[i], "partition %d: seq gap between %d and %d", p, seqs[i-1], seqs[i])
+		}
+	}
+}
+
+// TestBadgerEventLog_ConcurrentAppendBatchDedupRace fires the SAME batch of
+// events (identical IdempotencyKeys) from multiple goroutines simultaneously.
+// Badger's optimistic concurrency control may return a conflict error for a
+// losing transaction, so callers retry — mirroring how a real caller would
+// treat AppendBatch under contention. The invariant under test: no matter how
+// many goroutines race to write a given IdempotencyKey, exactly one of them
+// observes a non-zero (real) sequence number for it; every other observer
+// sees the duplicate sentinel (0). This is the "dedup is race-safe" guarantee
+// (LOG-03) under true concurrent access.
+func TestBadgerEventLog_ConcurrentAppendBatchDedupRace(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	const (
+		numGoroutines = 8
+		numKeys       = 20
+		maxAttempts   = 50
+	)
+
+	events := make([]*event.ChangeEvent, numKeys)
+	for i := 0; i < numKeys; i++ {
+		keyJSON, err := json.Marshal(map[string]int{"id": i})
+		require.NoError(t, err)
+		events[i] = makeEvent(fmt.Sprintf("src:public.t:dedup-race:%d", i), string(keyJSON))
+	}
+
+	var mu sync.Mutex
+	successCounts := make(map[string]int, numKeys)
+
+	var wg sync.WaitGroup
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			var seqs []uint64
+			var err error
+			for attempt := 0; attempt < maxAttempts; attempt++ {
+				seqs, err = el.AppendBatch(events)
+				if err == nil {
+					break
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if err != nil {
+				t.Errorf("AppendBatch: did not succeed within %d attempts: %v", maxAttempts, err)
+				return
+			}
+
+			mu.Lock()
+			for i, s := range seqs {
+				if s != 0 {
+					successCounts[events[i].IdempotencyKey]++
+				}
+			}
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	for i := 0; i < numKeys; i++ {
+		key := events[i].IdempotencyKey
+		assert.Equal(t, 1, successCounts[key], "key %q must have exactly one non-zero seq across all concurrent AppendBatch calls", key)
+	}
+}
+
+// TestBadgerEventLog_ConcurrentAppendDuringTTLExpiry exercises Append racing
+// against Badger's TTL/compaction machinery (LOG-04) — the single-threaded
+// pattern TestBadgerEventLog_TTLExpiry already exercises, but now under
+// concurrent writers while entries begin expiring mid-run. The goal is
+// exposing any race between Append and Badger's background GC/compaction
+// goroutines; there is no assertion on exact surviving count since TTL races
+// by design, only that no panic, deadlock, or error occurs.
+func TestBadgerEventLog_ConcurrentAppendDuringTTLExpiry(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 8, 5*time.Millisecond)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	const (
+		numWriters      = 8
+		eventsPerWriter = 100
+	)
+
+	var wg sync.WaitGroup
+	for w := 0; w < numWriters; w++ {
+		wg.Add(1)
+		go func(writerID int) {
+			defer wg.Done()
+			for i := 0; i < eventsPerWriter; i++ {
+				keyJSON, err := json.Marshal(map[string]int{"writer": writerID, "i": i})
+				if err != nil {
+					t.Errorf("marshal key: %v", err)
+					return
+				}
+				idKey := fmt.Sprintf("src:public.t:ttlrace:%d:%d", writerID, i)
+				ev := makeEvent(idKey, string(keyJSON))
+				if _, err := el.Append(ev); err != nil {
+					t.Errorf("Append: %v", err)
+				}
+				if i%10 == 0 {
+					time.Sleep(time.Millisecond) // let some entries cross the 5ms TTL mid-run
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	// A final read across all partitions must complete cleanly even though
+	// entries were expiring concurrently with the writes above.
+	ctx := context.Background()
+	for p := uint32(0); p < 8; p++ {
+		if _, err := el.ReadPartition(ctx, p, 0, 10000); err != nil {
+			t.Errorf("ReadPartition(%d) after TTL race: %v", p, err)
+		}
+	}
 }
