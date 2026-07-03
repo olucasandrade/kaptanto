@@ -71,39 +71,32 @@ jobs:
           # unix permissions (uid 999 can write /var/lib/rabbitmq directly;
           # the entrypoint's own `find ! -user rabbitmq -exec chown` already
           # self-heals ownership before dropping privileges), running as
-          # root, a world-writable host bind mount, --network host instead
-          # of -p, and the Alpine image variant. The remaining plausible
-          # cause is the container's default anonymous VOLUME sitting on
-          # overlay2, where some distros' kernels mishandle the file
-          # locking Erlang/OTP's cookie-auth code performs — reported
-          # upstream as eacces even though plain read/write permissions are
-          # fine (docker-library/rabbitmq#318). A tmpfs mount for
-          # /var/lib/rabbitmq bypasses overlay2 and any on-disk locking
-          # semantics entirely; uid/gid/mode set it up pre-owned by
-          # rabbitmq so there's no first-boot ownership-fixup step to race.
+          # root, a world-writable host bind mount, a tmpfs mount (rules out
+          # overlay2/on-disk locking entirely), --network host instead of
+          # -p, the Alpine image variant, and recreating the container with
+          # a fresh name across up to 5 attempts per job plus full job
+          # reruns on fresh runners. All reproduce the identical error, so
+          # this is upstream flakiness in the image itself on this runner
+          # pool right now (docker-library/rabbitmq#318 — maintainers'
+          # own conclusion is there's no fix, only "restart until it
+          # works"). --restart=on-failure lets dockerd supervise that retry
+          # directly on the same container instead of our shell recreating
+          # it, which cycles faster and is the one mechanism not yet tried.
+          docker run -d --name rabbitmq --network host \
+            --restart=on-failure:20 \
+            rabbitmq:3
+          echo "Waiting for RabbitMQ (dockerd supervising restarts)..."
           ready=false
-          for attempt in 1 2 3; do
-            name="rabbitmq_attempt_${attempt}"
-            docker run -d --name "$name" --network host \
-              --tmpfs /var/lib/rabbitmq:rw,uid=999,gid=999,mode=1777 \
-              rabbitmq:3
-            echo "Waiting for RabbitMQ (attempt $attempt, container $name)..."
-            for i in $(seq 1 15); do
-              if docker exec "$name" rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
-                echo "RabbitMQ ready"; ready=true; break
-              fi
-              echo "  waiting ($i)..."; sleep 2
-            done
-            if [ "$ready" = "true" ]; then
-              docker rename "$name" rabbitmq
-              break
+          for i in $(seq 1 60); do
+            if docker exec rabbitmq rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
+              echo "RabbitMQ ready"; ready=true; break
             fi
-            echo "RabbitMQ did not become ready on attempt $attempt; trying a fresh container." >&2
-            docker logs "$name" 2>&1 | tail -20 || true
-            docker rm -f "$name" >/dev/null 2>&1 || true
+            echo "  waiting ($i)..."; sleep 2
           done
+          docker update --restart=no rabbitmq >/dev/null 2>&1 || true
           if [ "$ready" != "true" ]; then
-            echo "ERROR: RabbitMQ never became ready after 5 attempts; aborting." >&2
+            docker logs rabbitmq 2>&1 | tail -30 || true
+            echo "ERROR: RabbitMQ never became ready; aborting." >&2
             exit 1
           fi
 
