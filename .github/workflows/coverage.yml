@@ -22,8 +22,11 @@ jobs:
       #     Mongo source connectors, the RabbitMQ sink, the cluster partition mgr
       #   - the cmd/ assembly layer (the e2e job runs the real binary)
       #   - generated *.pb.go and the main() entrypoint
-      # Ratchet upward over time.
-      COVERAGE_THRESHOLD: "70.0"
+      # Ratchet upward over time. Raised 70.0 -> 75.0 after this PR's own
+      # coverage additions (badger reopen/seq assertions, publication fakes)
+      # pushed the unit-testable measured total to ~76.7%, leaving ~1.7pp
+      # headroom.
+      COVERAGE_THRESHOLD: "75.0"
       # ERE of profile lines excluded from the threshold computation.
       COVERAGE_EXCLUDE: 'internal/(ha|source/postgres|source/mongodb|output/rabbitmq|cluster|cmd)/|cmd/kaptanto/main\.go|\.pb\.go:'
     steps:
