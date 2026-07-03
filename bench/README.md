@@ -35,7 +35,7 @@ All entries should show `(healthy)` status.
 go run ./cmd/scenarios -- --scenario steady
 ```
 
-Available scenarios: `steady`, `burst`, `large-batch`, `crash-recovery`, `idle`.
+Available scenarios: `steady`, `burst`, `large-batch`, `crash-recovery`, `idle`, `cluster`.
 
 Results are written to `bench/results/`. After the run:
 

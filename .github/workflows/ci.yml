@@ -30,6 +30,31 @@ jobs:
       - name: go test
         run: CGO_ENABLED=0 go test ./... -v -count=1 -timeout 120s
 
+  bench-test:
+    name: Bench module tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: bench/go.mod
+          cache: true
+
+      # bench/ is a separate Go module (bench/go.mod), so the root `go test
+      # ./...` above never descends into it. This runs the harness's own
+      # regression tests (percentile math, metrics parser, collector
+      # adapters, scenario registry) — no Docker required, ~10s.
+      - name: go vet
+        working-directory: bench
+        run: CGO_ENABLED=0 go vet ./...
+
+      - name: go test
+        working-directory: bench
+        run: CGO_ENABLED=0 go test ./... -count=1
+
   race:
     name: Race detector
     runs-on: ubuntu-latest
