@@ -101,9 +101,10 @@ func TestE2E_Postgres_CRUDStream(t *testing.T) {
 
 	// Collect events for our table off the NDJSON stream.
 	type result struct {
-		ops  []event.Operation
-		keys []string
-		err  error
+		ops    []event.Operation
+		keys   []string
+		events []event.ChangeEvent
+		err    error
 	}
 	got := make(chan result, 1)
 	go func() {
@@ -120,6 +121,7 @@ func TestE2E_Postgres_CRUDStream(t *testing.T) {
 			case event.OpInsert, event.OpUpdate, event.OpDelete:
 				r.ops = append(r.ops, ev.Operation)
 				r.keys = append(r.keys, string(ev.Key))
+				r.events = append(r.events, ev)
 				if len(r.ops) == 3 {
 					got <- r
 					return
@@ -153,6 +155,16 @@ func TestE2E_Postgres_CRUDStream(t *testing.T) {
 			"events must arrive in insert→update→delete order (RTR-04 per-key ordering)")
 		require.Equal(t, r.keys[0], r.keys[1], "all events share the same primary key")
 		require.Equal(t, r.keys[1], r.keys[2], "all events share the same primary key")
+
+		// Payload assertions: the oracle above only checked "right ops in the
+		// right order" — these upgrade it to "right data". insertEv, updateEv,
+		// deleteEv are the insert/update/delete events in that order (asserted above).
+		insertEv, updateEv, deleteEv := r.events[0], r.events[1], r.events[2]
+		require.Equal(t, "new", decodeAfter(t, insertEv).Status, "insert.after.status")
+		require.Equal(t, "done", decodeAfter(t, updateEv).Status, "update.after.status")
+		require.Equal(t, "done", decodeBefore(t, updateEv).Status, "update.before.status (pre-image)")
+		require.Equal(t, "done", decodeBefore(t, deleteEv).Status, "delete.before.status carries the last known row state")
+		require.Equal(t, 1, decodeKey(t, deleteEv), "delete carries the primary key of the deleted row")
 	case <-time.After(30 * time.Second):
 		t.Fatal("timed out waiting for insert/update/delete events on stdout stream")
 	}
