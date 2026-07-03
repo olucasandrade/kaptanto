@@ -9,7 +9,7 @@ import (
 )
 
 var canonicalTools = []string{"kaptanto", "kaptanto-rust", "kaptanto-kafka", "kaptanto-nats", "debezium", "debezium-connector", "sequin", "peerdb"}
-var canonicalScenarios = []string{"steady", "burst", "large-batch", "crash-recovery", "idle"}
+var canonicalScenarios = []string{"steady", "burst", "large-batch", "crash-recovery", "idle", "cluster"}
 
 // ScenarioStats holds the aggregated statistics for a single (tool, scenario) pair.
 type ScenarioStats struct {
