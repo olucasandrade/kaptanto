@@ -25,8 +25,11 @@ fi
 
 # ---- Config -----------------------------------------------------------
 
-# Aggregate floor over the filtered (unit-testable) profile.
-COVERAGE_THRESHOLD="${COVERAGE_THRESHOLD:-70.0}"
+# Aggregate floor over the filtered (unit-testable) profile. Raised
+# 70.0 -> 75.0 in #27 after that PR's own coverage additions (badger
+# reopen/seq assertions, publication fakes) pushed the measured total to
+# ~76.7%, leaving ~1.7pp headroom.
+COVERAGE_THRESHOLD="${COVERAGE_THRESHOLD:-75.0}"
 
 # ERE of profile lines excluded from BOTH the aggregate and the per-package
 # floor below. These packages need live services or a running binary:

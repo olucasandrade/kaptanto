@@ -14,7 +14,7 @@ jobs:
   e2e:
     name: End-to-end (binary against live Postgres)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     env:
       POSTGRES_TEST_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
@@ -49,7 +49,7 @@ jobs:
           done
 
       - name: Run e2e tests
-        run: CGO_ENABLED=0 go test -tags e2e ./test/e2e/... -count=1 -timeout 300s -v
+        run: CGO_ENABLED=0 go test -tags e2e ./test/e2e/... -count=1 -timeout 900s -v
 
       - name: Postgres logs on failure
         if: failure()

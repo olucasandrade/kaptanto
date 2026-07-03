@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -203,5 +204,122 @@ func TestCursorStoreRunFlushesDirtyOnShutdown(t *testing.T) {
 	}
 	if dbSeq != seq {
 		t.Errorf("SQLite seq after shutdown = %d, want %d", dbSeq, seq)
+	}
+}
+
+// TestCursorStoreConcurrentSaveAndLoad exercises the production access
+// pattern: many goroutines calling SaveCursor (per-consumer, per-partition
+// delivery position updates) while other goroutines call LoadCursor, all
+// while the background Run flush loop is active and periodically draining
+// the dirty map to SQLite. The dirty map is protected by s.mu; this test
+// gives the race detector real contended access to it, plus exercises SQLite
+// serialization under concurrent flush + query.
+func TestCursorStoreConcurrentSaveAndLoad(t *testing.T) {
+	db := openTestDB(t)
+	store, err := NewSQLiteCursorStore(db, 2*time.Millisecond)
+	if err != nil {
+		t.Fatalf("NewSQLiteCursorStore: %v", err)
+	}
+
+	// runCtx governs only the Run() flush-loop's lifecycle. The SaveCursor/
+	// LoadCursor calls below use a separate, never-canceled context — exactly
+	// as a real caller would, since a consumer's save/load request is not
+	// scoped to the store's own background flush-loop lifecycle. This avoids
+	// conflating "the flush loop is shutting down" with "this particular
+	// save/load call was canceled", which would otherwise make assertions
+	// below depend on an unrelated shutdown race.
+	runCtx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	go func() {
+		store.Run(runCtx)
+		close(runDone)
+	}()
+
+	opCtx := context.Background()
+
+	const (
+		numSavers     = 8
+		numConsumers  = 4
+		numPartitions = 8
+		opsPerSaver   = 200
+	)
+
+	var written sync.Mutex
+	writtenValues := make(map[cursorKey][]uint64)
+
+	var saversWG sync.WaitGroup
+	for s := 0; s < numSavers; s++ {
+		saversWG.Add(1)
+		go func(saverID int) {
+			defer saversWG.Done()
+			for i := 0; i < opsPerSaver; i++ {
+				consumerID := fmt.Sprintf("consumer-%d", saverID%numConsumers)
+				partitionID := uint32(i % numPartitions)
+				seq := uint64(saverID*opsPerSaver + i + 1) // always > 0
+
+				if err := store.SaveCursor(opCtx, consumerID, partitionID, seq); err != nil {
+					t.Errorf("SaveCursor: %v", err)
+					continue
+				}
+
+				written.Lock()
+				k := cursorKey{consumerID, partitionID}
+				writtenValues[k] = append(writtenValues[k], seq)
+				written.Unlock()
+			}
+		}(s)
+	}
+
+	// Loaders race against the savers above and against the background flush.
+	stopLoaders := make(chan struct{})
+	var loadersWG sync.WaitGroup
+	for l := 0; l < 4; l++ {
+		loadersWG.Add(1)
+		go func(loaderID int) {
+			defer loadersWG.Done()
+			for {
+				select {
+				case <-stopLoaders:
+					return
+				default:
+				}
+				consumerID := fmt.Sprintf("consumer-%d", loaderID%numConsumers)
+				partitionID := uint32(loaderID % numPartitions)
+				if _, err := store.LoadCursor(opCtx, consumerID, partitionID); err != nil {
+					t.Errorf("LoadCursor: %v", err)
+				}
+			}
+		}(l)
+	}
+
+	saversWG.Wait()
+	close(stopLoaders)
+	loadersWG.Wait()
+
+	cancel()
+	<-runDone // wait for the final shutdown flush
+
+	// Every (consumer, partition) pair written above must load back to one of
+	// the values actually written for it — never 0 (the dedup sentinel is not
+	// meaningful here) and never a value nobody wrote (which would indicate
+	// dirty-map corruption from an unsynchronized concurrent access).
+	written.Lock()
+	defer written.Unlock()
+	for k, values := range writtenValues {
+		got, err := store.LoadCursor(context.Background(), k.consumerID, k.partitionID)
+		if err != nil {
+			t.Errorf("final LoadCursor(%s, %d): %v", k.consumerID, k.partitionID, err)
+			continue
+		}
+		found := false
+		for _, v := range values {
+			if v == got {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("final LoadCursor(%s, %d) = %d, want one of the values ever written: %v", k.consumerID, k.partitionID, got, values)
+		}
 	}
 }

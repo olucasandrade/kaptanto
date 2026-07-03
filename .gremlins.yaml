@@ -1,22 +1,43 @@
 # gremlins mutation-testing configuration.
 #
 # Mutation testing runs per-package over the highest-value correctness packages
-# (see .github/workflows/mutation.yml). Measured baselines: router 100%,
-# backfill ~92%, eventlog ~73% test efficacy — so the gate is 60%, comfortably
-# below the weakest gated package to absorb run-to-run noise (e.g. timed-out
-# mutants). Ratchet upward as efficacy improves.
+# (see Makefile's `mutation` target — the single source of truth for which
+# packages run and at what threshold; .github/workflows/mutation.yml invokes
+# `make mutation` directly so CI and local runs cannot drift apart).
 #
-# parser/pgoutput is run report-only (overridden in the workflow): gremlins
-# mutates the //go:build rust FFI file (ffi_rust.go) that the pure-Go test build
-# cannot cover, which drives its reported efficacy to ~0% — a tooling artifact,
-# not a real coverage gap.
+# Measured baselines: router 100%, backfill ~92% (of the minority of mutants
+# that are covered — threshold-mutant-coverage stays 0 below, see note),
+# eventlog ~73% test efficacy. pk measured 60% (3 killed / 2 lived / 2 not
+# covered — only 5 viable mutants total, so one mutant is 20 points of swing).
+# Rather than one shared floor, the Makefile ratchets each package's
+# --threshold-efficacy a few points under its own baseline:
+#   router 90, eventlog 65, backfill 75 (wider headroom than "a few points
+#   under 92" because most of the package is untested — threshold-mutant-
+#   coverage 0 means backfill's efficacy score is computed over a small
+#   covered-mutant sample, which is noisier run to run), pk 40 (a full
+#   mutant's worth of headroom under its measured 60%, since pk's tiny viable
+#   population makes each mutant worth 20 points).
+# The 60 below is only the fallback default for any invocation that doesn't
+# pass an explicit --threshold-efficacy flag. Ratchet the Makefile's
+# per-package values upward as efficacy improves and gets re-measured.
+#
+# parser/pgoutput is run report-only (overridden in the Makefile and CI
+# workflow): gremlins mutates the //go:build rust FFI file (ffi_rust.go) that
+# the pure-Go test build cannot cover, which drives its reported efficacy to
+# ~0% — a tooling artifact, not a real coverage gap. Report-only means the
+# *score* doesn't gate; a crashed/erroring gremlins run on this package still
+# fails the target (no continue-on-error, no `|| true`).
 unleash:
   dry-run: false
   # No special build tags: the targeted packages compile and test under the
   # default pure-Go build.
   tags: ""
   # Gating thresholds. threshold-mutant-coverage stays 0 (uncovered build-tagged
-  # code would otherwise trip it); the gate is on test efficacy.
+  # code, and backfill's largely-untested snapshot engine, would otherwise trip
+  # it — raising this is tracked separately, sequenced behind raising
+  # backfill's unit-test coverage). threshold-efficacy here is only the
+  # fallback for invocations without a per-package flag; see the Makefile's
+  # `mutation` target for the actual per-package values.
   threshold-efficacy: 60
   threshold-mutant-coverage: 0
 

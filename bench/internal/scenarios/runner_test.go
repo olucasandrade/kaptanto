@@ -160,15 +160,23 @@ func TestBuildLoadgenCmd(t *testing.T) {
 	}
 }
 
-// Test 6: Scenarios slice has exactly 5 entries with names: steady, burst, large-batch, crash-recovery, idle
-func TestScenariosCount(t *testing.T) {
-	if len(Scenarios) != 5 {
-		t.Fatalf("expected 5 scenarios, got %d", len(Scenarios))
-	}
-}
+// Test 6: Scenarios slice matches the documented registry exactly, in order.
+//
+// This asserts the full named set rather than a bare length, so adding or
+// removing a scenario fails with a readable name diff instead of an opaque
+// count mismatch. Updating expectedNames here must be paired with updating
+// the docs that enumerate the scenario set: .github/workflows/benchmark.yml
+// (workflow_dispatch "scenarios" input description) and bench/README.md.
+func TestScenarioRegistry(t *testing.T) {
+	expectedNames := []string{"steady", "burst", "large-batch", "crash-recovery", "idle", "cluster"}
 
-func TestScenarioDefs(t *testing.T) {
-	expectedNames := []string{"steady", "burst", "large-batch", "crash-recovery", "idle"}
+	if len(Scenarios) != len(expectedNames) {
+		gotNames := make([]string, len(Scenarios))
+		for i, s := range Scenarios {
+			gotNames[i] = s.Name
+		}
+		t.Fatalf("Scenarios registry drifted from documented set: expected %v, got %v", expectedNames, gotNames)
+	}
 	for i, name := range expectedNames {
 		if Scenarios[i].Name != name {
 			t.Errorf("Scenarios[%d].Name: expected %q, got %q", i, name, Scenarios[i].Name)
