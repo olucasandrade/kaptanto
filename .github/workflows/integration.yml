@@ -64,23 +64,24 @@ jobs:
 
       - name: Start RabbitMQ
         run: |
-          # The rabbitmq:3 entrypoint intermittently fails to read/create
-          # /var/lib/rabbitmq/.erlang.cookie on first boot ("Error when
-          # reading /var/lib/rabbitmq/.erlang.cookie: eacces"), crashing the
-          # node before it loads any RabbitMQ code. This is a confirmed
-          # upstream volume-initialization race with no permission-based fix
-          # (docker-library/rabbitmq#318) — verified here too: running as uid
-          # 999 explicitly can write /var/lib/rabbitmq fine, and a fresh
-          # container with the image's own unmodified entrypoint boots
-          # cleanly most of the time, so the failure isn't deterministic
-          # permissions, it's per-attempt luck. Retry with a new container
-          # name each time (reusing "rabbitmq" via rm+run back-to-back
-          # correlated with repeated failures in testing) and rename the
-          # first one that comes up healthy.
+          # The rabbitmq:3 (Debian-based) entrypoint fails almost every run on
+          # this runner pool with "Error when reading
+          # /var/lib/rabbitmq/.erlang.cookie: eacces", crashing the node
+          # before it loads any RabbitMQ code. Ruled out empirically:
+          # permissions (uid 999 can write /var/lib/rabbitmq directly; the
+          # entrypoint's own `find ! -user rabbitmq -exec chown` already
+          # self-heals ownership before dropping privileges) and running as
+          # root. Two remaining changes, both untested individually given how
+          # expensive each round trip is here: switch to the Alpine variant
+          # (different libc/userland than the one failing consistently), and
+          # use --network host instead of -p 5672:5672 to rule out a
+          # port-publish/userland-proxy race — the one clean run seen during
+          # investigation happened not to publish a port. Retry with fresh
+          # container names as a fallback in case this is a partial fix.
           ready=false
-          for attempt in 1 2 3 4 5; do
+          for attempt in 1 2 3; do
             name="rabbitmq_attempt_${attempt}"
-            docker run -d --name "$name" -p 5672:5672 rabbitmq:3
+            docker run -d --name "$name" --network host rabbitmq:3-alpine
             echo "Waiting for RabbitMQ (attempt $attempt, container $name)..."
             for i in $(seq 1 15); do
               if docker exec "$name" rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
