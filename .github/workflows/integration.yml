@@ -64,24 +64,29 @@ jobs:
 
       - name: Start RabbitMQ
         run: |
-          # The rabbitmq:3 (Debian-based) entrypoint fails almost every run on
-          # this runner pool with "Error when reading
-          # /var/lib/rabbitmq/.erlang.cookie: eacces", crashing the node
-          # before it loads any RabbitMQ code. Ruled out empirically:
-          # permissions (uid 999 can write /var/lib/rabbitmq directly; the
-          # entrypoint's own `find ! -user rabbitmq -exec chown` already
-          # self-heals ownership before dropping privileges) and running as
-          # root. Two remaining changes, both untested individually given how
-          # expensive each round trip is here: switch to the Alpine variant
-          # (different libc/userland than the one failing consistently), and
-          # use --network host instead of -p 5672:5672 to rule out a
-          # port-publish/userland-proxy race — the one clean run seen during
-          # investigation happened not to publish a port. Retry with fresh
-          # container names as a fallback in case this is a partial fix.
+          # RabbitMQ's entrypoint fails almost every run on this runner pool
+          # with "Error when reading /var/lib/rabbitmq/.erlang.cookie:
+          # eacces", crashing before it loads any RabbitMQ code. Ruled out
+          # empirically, each still reproducing the identical error: plain
+          # unix permissions (uid 999 can write /var/lib/rabbitmq directly;
+          # the entrypoint's own `find ! -user rabbitmq -exec chown` already
+          # self-heals ownership before dropping privileges), running as
+          # root, a world-writable host bind mount, --network host instead
+          # of -p, and the Alpine image variant. The remaining plausible
+          # cause is the container's default anonymous VOLUME sitting on
+          # overlay2, where some distros' kernels mishandle the file
+          # locking Erlang/OTP's cookie-auth code performs — reported
+          # upstream as eacces even though plain read/write permissions are
+          # fine (docker-library/rabbitmq#318). A tmpfs mount for
+          # /var/lib/rabbitmq bypasses overlay2 and any on-disk locking
+          # semantics entirely; uid/gid/mode set it up pre-owned by
+          # rabbitmq so there's no first-boot ownership-fixup step to race.
           ready=false
           for attempt in 1 2 3; do
             name="rabbitmq_attempt_${attempt}"
-            docker run -d --name "$name" --network host rabbitmq:3-alpine
+            docker run -d --name "$name" --network host \
+              --tmpfs /var/lib/rabbitmq:rw,uid=999,gid=999,mode=1777 \
+              rabbitmq:3
             echo "Waiting for RabbitMQ (attempt $attempt, container $name)..."
             for i in $(seq 1 15); do
               if docker exec "$name" rabbitmq-diagnostics -q ping >/dev/null 2>&1; then
