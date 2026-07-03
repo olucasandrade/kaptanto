@@ -64,6 +64,8 @@ func TestEnsurePublication_AlreadyExists(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, conn.execCalled, "CREATE PUBLICATION must not run when the publication already exists")
+	assert.Contains(t, conn.queryRowSQL, "pg_publication", "existence check must query pg_publication")
+	assert.Equal(t, []any{"kaptanto_pub"}, conn.queryRowArgs, "existence check must filter by the given publication name")
 }
 
 // TestEnsurePublication_EmptyTablesAllowAllTablesFalse verifies the fail-closed

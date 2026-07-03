@@ -290,17 +290,22 @@ func TestBadgerEventLog_ReopenPreservesDedupAndEntries(t *testing.T) {
 
 	ctx := context.Background()
 
-	// (a) All 3 original entries must still be present after reopen.
+	// (a) All 3 original entries must still be present after reopen, with
+	// their original seq preserved (not just the key).
 	found := map[string]bool{}
+	foundSeqs := map[string]uint64{}
 	for p := uint32(0); p < 64; p++ {
 		entries, err := el2.ReadPartition(ctx, p, 0, 100)
 		require.NoError(t, err)
 		for _, e := range entries {
 			found[e.Event.IdempotencyKey] = true
+			foundSeqs[e.Event.IdempotencyKey] = e.Seq
 		}
 	}
-	for _, ev := range evs {
+	for i, ev := range evs {
 		assert.True(t, found[ev.IdempotencyKey], "entry %s must survive reopen", ev.IdempotencyKey)
+		assert.Equal(t, firstSeqs[i], foundSeqs[ev.IdempotencyKey],
+			"seq for %s must be preserved across reopen", ev.IdempotencyKey)
 	}
 	assert.Len(t, found, 3, "reopen must not introduce extra entries")
 
