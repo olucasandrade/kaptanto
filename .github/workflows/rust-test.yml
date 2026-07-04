@@ -1,0 +1,96 @@
+name: Rust FFI Test
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "rust/**"
+      - "internal/parser/pgoutput/**"
+      - "internal/event/**"
+      - ".github/workflows/rust-test.yml"
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "rust/**"
+      - "internal/parser/pgoutput/**"
+      - "internal/event/**"
+      - ".github/workflows/rust-test.yml"
+  schedule:
+    # Weekly so toolchain drift (e.g. a serde_json/indexmap upgrade flipping
+    # default Map ordering) surfaces even without a code change in-repo.
+    - cron: "41 5 * * 1"
+
+# Blocking: this is the only place cargo test and the rust-tagged Go
+# structural-equality suite (parser_ffi_test.go) run. Neither ci.yml nor
+# rust-audit.yml (CVE scanning only) exercises them. Consistent with the
+# repo's reversed-advisory security posture (see rust-audit.yml).
+jobs:
+  cargo-test:
+    name: cargo test (Rust FFI crate)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (2026-06-30)
+        with:
+          toolchain: stable
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/kaptanto-ffi/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/kaptanto-ffi/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: cargo test
+        working-directory: rust/kaptanto-ffi
+        run: cargo test
+
+  rust-tagged-go-test:
+    name: Go structural-equality tests (rust build tag)
+    runs-on: ubuntu-latest
+    needs: cargo-test
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (2026-06-30)
+        with:
+          toolchain: stable
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/kaptanto-ffi/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/kaptanto-ffi/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Builds the Rust staticlib + cbindgen header, then the rust-tagged Go
+      # binary (proves the FFI link works), then runs the rust-tagged Go test
+      # suite — the twin of parser_ffi_test.go that CI has never executed.
+      # CGO_ENABLED=1 is required for the rust build tag; this does not affect
+      # the CGO_ENABLED=0 static-distribution guarantee enforced separately by
+      # verify-no-cgo in ci.yml (same rationale as the race job there).
+      - name: make build-rust
+        run: make build-rust
+
+      - name: go test --tags rust (parser/pgoutput)
+        run: CGO_ENABLED=1 go test --tags rust ./internal/parser/pgoutput/... -v -count=1
