@@ -55,26 +55,6 @@ jobs:
         working-directory: bench
         run: docker compose down -v --remove-orphans 2>/dev/null || true
 
-      - name: Start stack
-        working-directory: bench
-        run: docker compose up --build -d
-
-      - name: Wait for all services healthy
-        working-directory: bench
-        timeout-minutes: 5
-        run: |
-          echo "Waiting for services to become healthy..."
-          for i in $(seq 1 30); do
-            starting=$(docker compose ps --format '{{.Health}}' | grep -c 'starting' || true)
-            if [ "$starting" = "0" ]; then
-              echo "All services settled after ${i}x10s"
-              break
-            fi
-            echo "  attempt $i: $starting service(s) still starting..."
-            sleep 10
-          done
-          docker compose ps
-
       - name: Run benchmark scenarios
         working-directory: bench
         env:
