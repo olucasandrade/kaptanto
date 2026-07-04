@@ -27,33 +27,19 @@ jobs:
           cache: true
 
       - name: Install gremlins
-        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.0
+        run: |
+          go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      # Gated: must meet threshold-efficacy from .gremlins.yaml (60%).
-      # Baselines: router 100%, backfill ~92%, eventlog ~73%.
-      - name: Run mutation testing (gated)
+      # Runs the exact same per-package thresholds as `make mutation` — the
+      # Makefile is the single source of truth, so CI and local runs cannot
+      # drift apart. router/eventlog/backfill/pk are gated at their own
+      # ratcheted --threshold-efficacy; parser/pgoutput is report-only (its FFI
+      # shim is unreachable under the pure-Go test build, tanking its score as
+      # a tooling artifact). No continue-on-error: a crashed/erroring gremlins
+      # run fails this job even for the report-only package — only the score
+      # itself is non-gating there.
+      - name: Run mutation testing
         env:
           CGO_ENABLED: "0"
-        run: |
-          set -e
-          gremlins="$(go env GOPATH)/bin/gremlins"
-          for pkg in ./internal/router ./internal/eventlog ./internal/backfill; do
-            echo "::group::gremlins (gated) $pkg"
-            "$gremlins" unleash "$pkg"
-            echo "::endgroup::"
-          done
-
-      # Report-only: gremlins mutates the //go:build rust FFI file that the
-      # pure-Go test build can't cover, so its efficacy is an artifact (~0%).
-      # The score is non-gating (--threshold-* 0); continue-on-error keeps a
-      # broken mutation run from blocking the job while still surfacing it as a
-      # warning annotation (rather than swallowing it with `|| true`).
-      - name: Run mutation testing (parser/pgoutput, report-only)
-        continue-on-error: true
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          set -e
-          "$(go env GOPATH)/bin/gremlins" unleash \
-            --threshold-efficacy 0 --threshold-mutant-coverage 0 \
-            ./internal/parser/pgoutput
+        run: make mutation
