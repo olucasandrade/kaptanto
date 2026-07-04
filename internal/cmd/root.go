@@ -426,12 +426,15 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	// lazily-opened snapshot connection below.
 	var bkPKCols map[string][]string
 	if len(cfg.Tables) > 0 {
-		pkConn, err := pgx.Connect(ctx, cfg.Source)
+		pkCtx, pkCancel := context.WithTimeout(ctx, 10*time.Second)
+		pkConn, err := pgx.Connect(pkCtx, cfg.Source)
 		if err != nil {
+			pkCancel()
 			return fmt.Errorf("backfill: connect for primary-key discovery: %w", err)
 		}
-		bkPKCols, err = discoverPrimaryKeys(ctx, pkConn, cfg.Tables)
+		bkPKCols, err = discoverPrimaryKeys(pkCtx, pkConn, cfg.Tables)
 		closeErr := pkConn.Close(context.Background())
+		pkCancel()
 		if err != nil {
 			return fmt.Errorf("backfill: %w", err)
 		}
