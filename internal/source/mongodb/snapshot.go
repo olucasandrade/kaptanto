@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -25,6 +26,22 @@ import (
 // *backfill.WatermarkChecker satisfies this interface.
 type WatermarkChecker interface {
 	ShouldEmit(ctx context.Context, table string, pk json.RawMessage, snapshotLSN uint64) (bool, error)
+}
+
+// IndexedWatermarkChecker is an optional extension of WatermarkChecker that
+// supports building a per-table in-memory index for O(1) ShouldEmit lookups
+// (perf fix: replaces a full-partition scan per row). *backfill.WatermarkChecker
+// satisfies this interface. MongoSnapshot type-asserts wc against it so a
+// WatermarkChecker that only implements ShouldEmit (e.g. a minimal test
+// fake) keeps working via the plain scan/fallback behaviour.
+type IndexedWatermarkChecker interface {
+	WatermarkChecker
+	// StartTable builds the in-memory index for table/collection so
+	// subsequent ShouldEmit calls for it are O(1). See
+	// backfill.WatermarkChecker.StartTable for the correctness ordering.
+	StartTable(ctx context.Context, table string, snapshotLSN uint64) error
+	// FinishTable releases the in-memory index for table/collection.
+	FinishTable(table string)
 }
 
 // SnapshotConfig holds all parameters for a MongoDB snapshot.
@@ -123,6 +140,18 @@ func (s *MongoSnapshot) Run(ctx context.Context) error {
 
 // snapshotCollection snapshots a single collection.
 func (s *MongoSnapshot) snapshotCollection(ctx context.Context, collName string) error {
+	// Build the O(1) watermark index for this collection before scanning any
+	// documents, if the checker supports it. Non-fatal on error: ShouldEmit
+	// transparently falls back to the per-row scan path.
+	if idx, ok := s.wc.(IndexedWatermarkChecker); ok {
+		if startErr := idx.StartTable(ctx, collName, s.snapshotLSN); startErr != nil {
+			slog.Warn("mongodb snapshot: watermark index build failed, falling back to per-row scan",
+				"error", startErr, "collection", collName)
+		} else {
+			defer idx.FinishTable(collName)
+		}
+	}
+
 	docs, err := s.fetchDocs(ctx, collName)
 	if err != nil {
 		return fmt.Errorf("mongodb snapshot: fetch %s: %w", collName, err)
