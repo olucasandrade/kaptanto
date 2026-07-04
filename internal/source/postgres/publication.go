@@ -13,6 +13,15 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// pubQuerier is the minimal surface ensurePublication needs from a Postgres
+// connection: an existence check (QueryRow) and a CREATE PUBLICATION (Exec).
+// *pgx.Conn satisfies this interface, so production callers pass it unchanged;
+// tests can substitute a fake to exercise the guard without a live database.
+type pubQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
 // ensurePublication checks whether a publication named pubName exists in
 // pg_publication. If it does not, it creates one.
 //
@@ -28,7 +37,7 @@ import (
 // When tables is empty and allowAllTables is false, an error is returned.
 // The startup guard in cmd/root.go should have already rejected this case;
 // the check here is a defence-in-depth backstop.
-func ensurePublication(ctx context.Context, conn *pgx.Conn, pubName string, tables []string, allowAllTables bool) error {
+func ensurePublication(ctx context.Context, conn pubQuerier, pubName string, tables []string, allowAllTables bool) error {
 	var count int
 	err := conn.QueryRow(ctx,
 		"SELECT count(*) FROM pg_publication WHERE pubname = $1", pubName,
