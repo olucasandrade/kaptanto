@@ -186,6 +186,12 @@ func NewRouter(el eventlog.EventLog, numPartitions uint32, cs ConsumerCursorStor
 		cursorStore:   cs,
 		rs:            NewRetryScheduler(),
 	}
+	// RTR-06: when a blocked group's head is popped (delivered or
+	// dead-lettered), the RetryScheduler's floor for that partition may rise
+	// or clear. Re-persist the released cursor immediately so a partition
+	// that goes quiet afterwards doesn't leave the cursor store pinned at a
+	// stale floor until the next unrelated event happens to be dispatched.
+	r.rs.OnFloorReleased = r.handleFloorRelease
 	if pn, ok := el.(eventlog.PartitionNotifier); ok {
 		r.notifyChs = make([]<-chan struct{}, numPartitions)
 		for i := uint32(0); i < numPartitions; i++ {
@@ -638,6 +644,14 @@ func (r *Router) dispatchUpdateCursor(
 	errs []error,
 	i int,
 ) {
+	// Normalize entry.PartitionID to the authoritative partitionID this
+	// dispatch call was invoked with. RetryScheduler's RTR-06 floor tracking
+	// keys off Entry.PartitionID (see AddBlocked/recomputeFloorLocked); relying
+	// on the EventLog implementation to always stamp it correctly on every
+	// LogEntry it returns is fragile — the production Badger EventLog does,
+	// but this keeps the invariant true unconditionally at the point it
+	// matters, regardless of the EventLog implementation.
+	entry.PartitionID = partitionID
 	if snap.blocked {
 		if r.metrics != nil {
 			r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
@@ -651,19 +665,22 @@ func (r *Router) dispatchUpdateCursor(
 			NextRetryAt: time.Now().Add(NextDelay(0)),
 			ConsumerID:  cs.consumer.ID(),
 		}
+		// AddBlocked queues this follow-on in RetryScheduler and, if it's the
+		// first record for this group, lowers the RTR-06 floor for this
+		// partition to entry.Seq. persistCursor (below) reads that floor to
+		// cap what actually reaches the cursor store.
 		r.rs.AddBlocked(cs.consumer, groupKey, rec)
+		// The in-memory cursor still advances past the blocked group so
+		// ReadPartition's window (minCursorForPartition) and future dispatch
+		// calls treat this entry as "seen" for this consumer — required for
+		// the follow-on flow (skip re-delivery attempts to the blocked
+		// group's own head while it's queued for retry). Only the persisted
+		// value is capped.
 		nextForFollowOn := entry.Seq + 1
 		if nextForFollowOn > cs.cursorByPartition[partitionID] {
 			cs.cursorByPartition[partitionID] = nextForFollowOn
 		}
-		if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForFollowOn); err != nil {
-			slog.Warn("router: failed to save cursor for blocked follow-on",
-				"consumer", cs.consumer.ID(),
-				"partition", partitionID,
-				"seq", entry.Seq,
-				"err", err,
-			)
-		}
+		r.persistCursor(ctx, cs, partitionID, nextForFollowOn)
 		return
 	}
 
@@ -693,6 +710,12 @@ func (r *Router) dispatchUpdateCursor(
 		return
 	}
 
+	// RTR-06: this delivery succeeded, but a DIFFERENT key on this same
+	// partition may still have a blocked group with a lower seq sitting only
+	// in RetryScheduler's memory-only queue. persistCursor caps nextForPartition
+	// at that group's floor so a crash right after this SaveCursor can't skip
+	// past it — the in-memory cursor still advances, so this consumer isn't
+	// redelivered this entry while the process stays up.
 	nextForPartition := entry.Seq + 1
 
 	// queue-sink-flushbatch-loss fix: a BatchFlusher consumer's Deliver only
@@ -716,15 +739,79 @@ func (r *Router) dispatchUpdateCursor(
 	if nextForPartition > cs.cursorByPartition[partitionID] {
 		cs.cursorByPartition[partitionID] = nextForPartition
 	}
-	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, nextForPartition); err != nil {
+	r.persistCursor(ctx, cs, partitionID, nextForPartition)
+	if r.metrics != nil {
+		r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Set(0)
+	}
+}
+
+// persistCursor saves seq for (cs.consumer.ID(), partitionID), capped at the
+// RetryScheduler's RTR-06 floor for that consumer+partition when one is set.
+// The floor is the lowest seq of any record still queued (undelivered) in a
+// blocked message group; persisting past it would let a crash lose those
+// queued follow-ons forever, since RetryScheduler's queue does not survive a
+// restart.
+//
+// Residual behavior on restart: LoadCursor returns the floor (not the
+// consumer's true in-memory progress), so ReadPartition re-reads from there —
+// including entries for OTHER, non-blocked keys on the same partition that
+// this consumer had already delivered. Those re-deliveries are duplicates,
+// which is acceptable under at-least-once delivery and bounded by EventLog
+// retention, exactly like the existing dead-letter-after-15-retries policy.
+//
+// Must be called under r.mu write lock (same as dispatchUpdateCursor). Calls
+// r.rs.Floor, which acquires RetryScheduler's own mutex — this follows the
+// same Router.mu-then-RetryScheduler.mu order already used by AddBlocked and
+// IsBlocked elsewhere in this file; RetryScheduler never calls back into
+// Router while holding its own mutex, so no lock-order inversion is possible.
+func (r *Router) persistCursor(ctx context.Context, cs *consumerState, partitionID uint32, seq uint64) {
+	persistSeq := seq
+	if floor, ok := r.rs.Floor(cs.consumer.ID(), partitionID); ok && floor < persistSeq {
+		persistSeq = floor
+	}
+	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, persistSeq); err != nil {
 		slog.Warn("router: failed to save cursor",
 			"consumer", cs.consumer.ID(),
 			"partition", partitionID,
-			"seq", entry.Seq,
+			"seq", persistSeq,
 			"err", err,
 		)
 	}
-	if r.metrics != nil {
-		r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Set(0)
+}
+
+// handleFloorRelease is registered as r.rs.OnFloorReleased. It re-persists
+// the cursor for (consumerID, partitionID) once RetryScheduler's floor for it
+// rises (a blocked group's head was delivered or dead-lettered) or clears
+// entirely (ok == false, no blocked group remains on this partition).
+//
+// Without this, a partition that goes quiet right after a blocked group
+// drains would leave the persisted cursor pinned at the old, now-stale floor
+// until the next unrelated event happens to be dispatched on that partition —
+// which may be a long time, or never, on a low-traffic table.
+//
+// Called by RetryScheduler with its own mutex released (see
+// RetryScheduler.afterPopLocked), so acquiring r.mu here is safe and follows
+// the same Router.mu-then-RetryScheduler.mu order used everywhere else.
+func (r *Router) handleFloorRelease(consumerID string, partitionID uint32, floor uint64, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.consumers {
+		cs := &r.consumers[i]
+		if cs.consumer.ID() != consumerID {
+			continue
+		}
+		seq := cs.cursorByPartition[partitionID]
+		if ok && floor < seq {
+			seq = floor
+		}
+		if err := r.cursorStore.SaveCursor(context.Background(), consumerID, partitionID, seq); err != nil {
+			slog.Warn("router: failed to save cursor after floor release",
+				"consumer", consumerID,
+				"partition", partitionID,
+				"seq", seq,
+				"err", err,
+			)
+		}
+		return
 	}
 }

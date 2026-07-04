@@ -4,6 +4,16 @@
 // backoff schedule (1s, 5s, 30s, 2min, 10min plateau). After maxRetries failed
 // attempts the entry is dead-lettered: logged at slog.Error and removed from
 // blockedGroups so it no longer blocks subsequent events for that key.
+//
+// RTR-06 — cursor floor: RetryScheduler's blockedGroups queue is memory-only.
+// Router must never persist a consumer's cursor past the lowest seq of a
+// queued-but-undelivered record for that consumer+partition, or a crash while
+// a group is blocked would permanently skip every queued follow-on (the
+// persisted cursor would already be past them, and no retry state survives
+// the restart). RetryScheduler tracks this floor per (consumer, partition)
+// and exposes it via Floor(); Router.dispatchUpdateCursor caps every
+// SaveCursor call at min(nextSeq, floor). See Floor, AddBlocked, and
+// OnFloorReleased.
 package router
 
 import (
@@ -90,6 +100,19 @@ type RetryRecord struct {
 type consumerRetryState struct {
 	consumer      Consumer
 	blockedGroups map[string][]*RetryRecord
+
+	// floors tracks, per partition, the lowest seq among the head records of
+	// this consumer's currently blocked groups on that partition (RTR-06).
+	// A groupKey's queue always lives entirely on one partition — keys hash
+	// to a partition deterministically (same FNV-1a scheme as EventLog and
+	// WatermarkChecker, BKF-02) — so only the head record of each group
+	// (the lowest-seq, still-undelivered record in that group) can set the
+	// partition minimum; follow-on appends never lower it because they
+	// arrive in increasing-seq order behind an existing head.
+	//
+	// Absence of a key means "no floor": no blocked group exists for that
+	// partition, so the persisted cursor may advance freely.
+	floors map[uint32]uint64
 }
 
 // RetryScheduler manages retry state for an arbitrary set of consumers.
@@ -99,9 +122,27 @@ type consumerRetryState struct {
 // All exported methods are safe for concurrent use. The internal mu guards
 // the states map, which is read by Router.dispatch (via IsBlocked/AddBlocked)
 // and written by Tick (via Run goroutine).
+//
+// Lock ordering (RTR-06): RetryScheduler never calls back into Router while
+// holding rs.mu — Deliver is always invoked with rs.mu released (see Tick),
+// and OnFloorReleased is invoked after rs.mu is released too. This makes it
+// safe for Router to call RetryScheduler methods (AddBlocked, IsBlocked,
+// Floor) while holding Router.mu, which is the existing, established order
+// (see Router.dispatch): Router.mu is always acquired first, RetryScheduler.mu
+// second, never the reverse.
 type RetryScheduler struct {
 	mu     sync.Mutex
 	states map[string]*consumerRetryState // key = consumer.ID()
+
+	// OnFloorReleased, if set, is called after a blocked group's head record
+	// is popped (delivered or dead-lettered) and the floor for
+	// (consumerID, partitionID) has been recomputed. ok reports whether a
+	// floor still applies (another blocked group remains on that partition);
+	// when ok is false, floor is meaningless and the caller may persist any
+	// cursor value. Router wires this to re-persist the released cursor
+	// position so a partition that goes quiet after a group drains doesn't
+	// leave the cursor pinned at a stale floor. Called with rs.mu released.
+	OnFloorReleased func(consumerID string, partitionID uint32, floor uint64, ok bool)
 }
 
 // NewRetryScheduler creates a new, empty RetryScheduler.
@@ -132,11 +173,98 @@ func (rs *RetryScheduler) ensureStateLocked(c Consumer) *consumerRetryState {
 //
 // The head of the queue is the record being actively retried by Tick; only
 // after the head succeeds does Tick promote the next entry to head.
+//
+// AddBlocked also maintains the per-partition floor (RTR-06): a brand-new
+// blocked group's record is a new head, so it can only lower the floor for
+// rec.Entry.PartitionID. A follow-on append never changes the floor — it
+// arrives with a higher seq than the existing head and sits behind it in the
+// queue.
 func (rs *RetryScheduler) AddBlocked(c Consumer, groupKey string, rec *RetryRecord) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 	s := rs.ensureStateLocked(c)
+	_, existed := s.blockedGroups[groupKey]
 	s.blockedGroups[groupKey] = append(s.blockedGroups[groupKey], rec)
+	if !existed {
+		rs.lowerFloorLocked(s, rec.Entry.PartitionID, rec.Entry.Seq)
+	}
+}
+
+// lowerFloorLocked sets floors[partitionID] = seq if seq is lower than the
+// current floor, or no floor is set yet. Caller must hold rs.mu.
+func (rs *RetryScheduler) lowerFloorLocked(s *consumerRetryState, partitionID uint32, seq uint64) {
+	if s.floors == nil {
+		s.floors = make(map[uint32]uint64)
+	}
+	cur, ok := s.floors[partitionID]
+	if !ok || seq < cur {
+		s.floors[partitionID] = seq
+	}
+}
+
+// recomputeFloorLocked recalculates floors[partitionID] for consumer state s
+// by scanning the current head of every blocked group that lives on that
+// partition. Called after a head record is popped (delivered or
+// dead-lettered): popping can only raise the floor, never lower it, but the
+// new value can't be derived incrementally because a different group's head
+// may now be the partition minimum. Caller must hold rs.mu.
+func (rs *RetryScheduler) recomputeFloorLocked(s *consumerRetryState, partitionID uint32) {
+	min := uint64(0)
+	found := false
+	for _, queue := range s.blockedGroups {
+		if len(queue) == 0 {
+			continue
+		}
+		head := queue[0]
+		if head.Entry.PartitionID != partitionID {
+			continue
+		}
+		if !found || head.Entry.Seq < min {
+			min = head.Entry.Seq
+			found = true
+		}
+	}
+	if !found {
+		delete(s.floors, partitionID)
+		return
+	}
+	if s.floors == nil {
+		s.floors = make(map[uint32]uint64)
+	}
+	s.floors[partitionID] = min
+}
+
+// afterPopLocked recomputes the floor for (s, partitionID) after a head
+// record was popped, and returns a notify closure that invokes
+// OnFloorReleased with the resulting floor. The closure must be called only
+// after rs.mu is released — never while holding it — matching the same
+// off-lock discipline as Deliver in drainGroup. Caller must hold rs.mu when
+// calling afterPopLocked itself.
+func (rs *RetryScheduler) afterPopLocked(s *consumerRetryState, partitionID uint32) func() {
+	rs.recomputeFloorLocked(s, partitionID)
+	floor, ok := s.floors[partitionID]
+	cb := rs.OnFloorReleased
+	if cb == nil {
+		return func() {}
+	}
+	consumerID := s.consumer.ID()
+	return func() { cb(consumerID, partitionID, floor, ok) }
+}
+
+// Floor returns the current cursor floor for (consumerID, partitionID): the
+// lowest seq of any record still queued (undelivered) in a blocked message
+// group for that consumer on that partition. ok is false when there is no
+// blocked group on that partition, meaning the caller may persist any seq
+// without risking the loss of a queued-but-undelivered follow-on (RTR-06).
+func (rs *RetryScheduler) Floor(consumerID string, partitionID uint32) (uint64, bool) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	s, ok := rs.states[consumerID]
+	if !ok {
+		return 0, false
+	}
+	seq, ok := s.floors[partitionID]
+	return seq, ok
 }
 
 // BlockedCount returns the number of blocked groups for consumer c.
@@ -288,16 +416,26 @@ func (rs *RetryScheduler) drainGroup(ctx context.Context, s *consumerRetryState,
 				queue[1].NextRetryAt = time.Now()
 				s.blockedGroups[groupKey] = queue[1:]
 			}
+			// RTR-06: a head just left the queue, which can only raise the
+			// floor (or clear it). Recompute and notify Router so it can
+			// re-persist the released cursor even if this partition then
+			// goes quiet with no new events to trigger a dispatch.
+			notify := rs.afterPopLocked(s, rec.Entry.PartitionID)
 			rs.mu.Unlock()
+			notify()
 		case isPermanentError(err):
 			// Dead-letter the head; next entry becomes eligible immediately.
 			deadLetterHead(s, groupKey, queue)
+			notify := rs.afterPopLocked(s, rec.Entry.PartitionID)
 			rs.mu.Unlock()
+			notify()
 		default:
 			rec.Attempts++
 			if rec.Attempts >= maxRetries {
 				deadLetterHead(s, groupKey, queue)
+				notify := rs.afterPopLocked(s, rec.Entry.PartitionID)
 				rs.mu.Unlock()
+				notify()
 				continue
 			}
 			rec.NextRetryAt = time.Now().Add(NextDelay(rec.Attempts))
