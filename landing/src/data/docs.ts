@@ -27,7 +27,7 @@ export const SEO_DOCS: SeoDoc[] = [
   { slug: 'docs-api', title: 'HTTP Endpoints', description: 'The HTTP endpoints kaptanto serves: /events, /metrics, and /healthz.' },
   { slug: 'docs-troubleshooting', title: 'Troubleshooting', description: 'Fix common CDC issues quickly in production.' },
   { slug: 'docs-aws-setup', title: 'AWS Deployment Guide', description: 'How to run kaptanto, Debezium, and Sequin alongside an API on AWS — infrastructure, cost, and consumer code compared.' },
-  { slug: 'docs-benchmarks', title: 'Benchmarks', description: 'Independent throughput and latency comparison of kaptanto vs. Debezium and Sequin across steady, burst, large-batch, and crash-recovery scenarios.' },
+  { slug: 'docs-benchmarks', title: 'Benchmarks', description: 'Independent throughput and latency comparison of kaptanto vs. Debezium and Sequin across steady, burst, large-batch, crash-recovery, and cluster scenarios.' },
 ];
 
 export const SEO_DOCS_MAP = new Map(SEO_DOCS.map((d) => [d.slug, d]));
