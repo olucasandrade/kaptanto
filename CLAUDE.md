@@ -4,18 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kaptanto is an open-source, single Go binary for universal database Change Data Capture (CDC). It streams changes from Postgres (WAL logical replication) and MongoDB (Change Streams) via stdout, SSE, or gRPC. The name means "who captures" in Esperanto.
+Kaptanto is an open-source, single Go binary for universal database Change Data Capture (CDC). It streams changes from Postgres (WAL logical replication) and MongoDB (Change Streams) to stdout, SSE, gRPC, or one of five message-broker sinks (Kafka, NATS, SQS, Google Pub/Sub, RabbitMQ). The name means "who captures" in Esperanto.
 
 The implementation is complete. `kaptanto-technical-specification.md` remains the authoritative architecture reference.
 
-## Build & Test
+## Build, Lint & Test
 
 ```bash
-make build          # CGO_ENABLED=0 static binary (default, cross-platform)
-make test           # all tests, CGO_ENABLED=0
-make test-race      # race detector (requires CGO)
-make build-rust     # optional Rust-accelerated binary (requires Rust 1.77+, cargo, cbindgen)
-make verify-no-cgo  # cross-compile linux/amd64 + darwin/arm64 to confirm no CGO leakage
+make build             # CGO_ENABLED=0 static binary (default, cross-platform)
+make lint               # golangci-lint over ./internal/... ./cmd/... (config: .golangci.yml)
+make test               # all tests, CGO_ENABLED=0
+make test-race          # race detector (requires CGO)
+make cover               # coverage run; fails if below COVERAGE_THRESHOLD (default 50.0%)
+make verify-no-cgo      # cross-compile linux/amd64 + darwin/arm64 to confirm no CGO leakage
+make build-rust         # optional Rust-accelerated binary (requires Rust 1.77+, cargo, cbindgen)
 ```
 
 Run a single test:
@@ -24,7 +26,14 @@ go test ./internal/router -run TestPerKeyOrdering -v
 go test ./internal/cmd -run TestFlagSource -v
 ```
 
-Pure Go build (CGO_ENABLED=0) is enforced for static distribution. The Rust FFI path requires the `build_ffi` build tag and CGO.
+Env-gated / slower suites (not run by default):
+```bash
+POSTGRES_TEST_DSN=... MONGO_TEST_URI=... make test-integration   # live Postgres + MongoDB
+POSTGRES_TEST_DSN=... make test-e2e                              # black-box binary tests, -tags e2e
+make mutation                                                    # gremlins over router/eventlog/parser/backfill (.gremlins.yaml)
+```
+
+Pure Go build (`CGO_ENABLED=0`) is enforced for static distribution. The Rust FFI path requires the `build_ffi`/`rust` build tag and CGO; it's host-only, not cross-compilable.
 
 ## Architecture
 
@@ -36,8 +45,11 @@ Source (Postgres WAL / MongoDB Change Stream)
       → EventLog (badger.go, 64 partitions, TTL, dedup by IdempotencyKey)
           → Checkpoint saved (ONLY after Append succeeds — CHK-01)
               → Router (fan-out to consumers, per-key ordering — RTR-04)
-                  → Output (stdout NDJSON / SSE /events / gRPC CdcStream)
+                  → Output: stdout NDJSON / SSE `/events` / gRPC CdcStream /
+                    Kafka / NATS / SQS / Google Pub/Sub / RabbitMQ
 ```
+
+Every output in `internal/output/` implements `router.Consumer`. The five broker sinks (Kafka/NATS/SQS/PubSub/RabbitMQ) follow the same durability contract as the direct outputs: the router's cursor only advances after the broker acknowledges the write, per-key partition/routing-key selection preserves ordering, and no sink retries internally — retry is `internal/router/retry.go`'s job. Each sink has its own connection block under `Config.Sinks` (`internal/config/config.go`).
 
 Backfill runs concurrently with WAL streaming. The WatermarkChecker discards snapshot rows where a WAL event with a higher LSN already exists for the same key (same 64-partition hash as EventLog — BKF-02).
 
@@ -47,15 +59,16 @@ Backfill runs concurrently with WAL streaming. The WatermarkChecker discards sna
 |---|---|
 | `internal/cmd/root.go` | Cobra CLI, pipeline assembly, graceful shutdown |
 | `internal/event/event.go` | ChangeEvent struct (ULID ID, unified insert/update/delete/read/control) |
-| `internal/config/config.go` | YAML + CLI flag merging; CLI flags always win |
+| `internal/config/config.go` | YAML + CLI flag merging; CLI flags always win; sink/TLS/HA/cluster config structs |
 | `internal/eventlog/badger.go` | Durable append-only store: FNV-1a partitioned, TTL, seq=0 on dup |
 | `internal/source/postgres/connector.go` | Logical replication slot, heartbeats, reconnect backoff |
 | `internal/source/mongodb/connector.go` | Change Streams, resume token, snapshot on InvalidResumeToken |
 | `internal/parser/pgoutput/parser.go` | WAL → ChangeEvent; RelationCache + TOASTCache |
 | `internal/backfill/backfill.go` | Snapshot engine (keyset cursor, watermark check) |
-| `internal/router/router.go` | Fan-out, per-key ordering, cursor persistence |
+| `internal/router/router.go` | Fan-out, per-key ordering, cursor persistence; retry logic in `retry.go` |
 | `internal/output/sse/server.go` | SSE `/events` endpoint with consumer/table/operation filters |
 | `internal/output/grpc/server.go` | gRPC Subscribe + Acknowledge RPCs |
+| `internal/output/{kafka,nats,sqs,pubsub,rabbitmq}` | Broker sinks, each a `router.Consumer`; see `Config.Sinks` for connection settings |
 | `internal/ha/leader.go` | Postgres advisory lock leader election (~5s failover) |
 | `internal/observability/metrics.go` | Custom prometheus.Registry; `/metrics` + `/healthz` |
 | `internal/checkpoint/` | SQLite (local) or PostgreSQL (HA) for source LSN + consumer cursors |
@@ -72,7 +85,7 @@ Backfill runs concurrently with WAL streaming. The WatermarkChecker discards sna
 
 ## Critical Invariants
 
-These must never be violated:
+These must never be violated. This list mirrors the codebase's headline invariants; a repo-wide `grep -rhoE '[A-Z]{3}-[0-9]{2}' internal/` turns up further per-package codes (`BKF-`, `CFG-`, `EVT-`, `RCC-`, `SRC-`, `OUT-`, `LOG-`, etc.) that refine these same guarantees for specific components.
 
 1. **CHK-01 — Durability:** Source checkpoint NEVER advances until `EventLog.Append()` returns successfully. Crash → source re-sends → EventLog deduplicates by `IdempotencyKey`.
 
@@ -85,6 +98,8 @@ These must never be violated:
 5. **Keyset cursors, never OFFSET:** Snapshot pagination uses `internal/backfill/cursor.go`; OFFSET breaks under concurrent writes.
 
 6. **SRC-01 — Connection isolation:** Postgres connector keeps a separate `pgx.Conn` for snapshots; replication connections cannot be reused for regular queries.
+
+7. **DLV-02/03/04 — Broker sink delivery:** Sinks route by CDC key to preserve per-key ordering (DLV-02), never retry internally (DLV-03 — retry is the router's job), and stamp every message with an idempotency key/header for downstream dedup (DLV-04). See `internal/output/kafka/consumer.go` for the reference implementation.
 
 ## Test Patterns
 
@@ -116,16 +131,27 @@ YAML config (all fields also available as CLI flags; flags take precedence):
 
 ```yaml
 source: "postgres://user:pass@host/db"
-output: sse          # stdout | sse | grpc
+output: sse          # stdout | sse | grpc | kafka | nats | sqs | pubsub | rabbitmq
 port: 7654
 data_dir: /var/lib/kaptanto
 retention: 24h
+ha: false             # CFG-01: enable leader election (Postgres advisory lock)
+node_id: ""           # CFG-01: node identity when ha is enabled
+cluster: false        # shared cursor state (PostgresCursorStore) across nodes
+cluster_dsn: ""       # Postgres DSN for shared cursor store when cluster is enabled
 
 tables:
   - name: public.orders
     columns: [id, status, total]
     where: "status != 'archived'"
+
+sinks:                # only the active sink's block needs to be populated
+  kafka:
+    brokers: ["localhost:9092"]
+    topic-template: "cdc.{{.Schema}}.{{.Table}}"
 ```
+
+`ServerTLS` (`server-tls` in YAML) enables TLS/mTLS for the inbound SSE/gRPC servers, distinct from per-sink outbound TLS. `auth-token` (or `KAPTANTO_AUTH_TOKEN` env var) sets a static bearer token for the SSE/gRPC data plane; `insecure: true` disables this with a loud startup warning and is not for production.
 
 ## Landing Page
 

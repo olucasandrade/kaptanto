@@ -1,8 +1,8 @@
 # Kaptanto
 
-Every insert, update, and delete from your Postgres or MongoDB database, streamed the moment it happens.
+Every insert, update, and delete from your Postgres or MongoDB database, streamed the moment it happens, as one static Go binary.
 
-Kaptanto is a CDC tool in one static Go binary.
+*"Kaptanto" means "who captures" in Esperanto.*
 
 ```bash
 ./kaptanto \
@@ -14,50 +14,32 @@ Kaptanto is a CDC tool in one static Go binary.
 {"op":"update","table":"orders","before":{"status":"pending"},"after":{"status":"shipped"}}
 ```
 
-## What it does
+## How it works
 
-kaptanto connects to the Postgres WAL (logical replication) or MongoDB Change Streams and emits a unified stream of events. Every row change is captured, durably logged, and delivered to your consumers — even across crashes and restarts.
+Kaptanto tails your database's transaction log — Postgres WAL (logical replication) or MongoDB Change Streams — instead of polling tables. Each change is parsed into a unified `ChangeEvent`, durably appended to an embedded event log, and only then is the source checkpoint advanced, so a crash can never lose an event. An initial snapshot (backfill) runs concurrently with live streaming; a watermark check discards snapshot rows already superseded by a WAL event. Events are then fanned out, in per-key order, to any number of outputs.
 
-It handles the hard parts automatically: initial snapshots, watermark-coordinated backfills, per-key ordering, consumer cursor tracking, and high-availability failover.
-
-## Architecture
-
-### What is CDC?
-
-CDC (Change Data Capture) reads your database's transaction log instead of querying tables. Every write is recorded in the log (Postgres WAL, MongoDB Oplog) — Kaptanto tails that log, parses it into structured events, and streams them to any number of consumers without touching the source tables.
-
-![CDC Architecture](docs/cdc-architecture.png)
-
-### How Kaptanto works internally
-
-Events flow from the source through a durable embedded log before any checkpoint advances, so a crash can never lose an event. The backfill engine runs concurrently with live streaming; a watermark check discards snapshot rows that a later WAL event already covers.
-
-![Internal Architecture](docs/internal-architecture.png)
+![Internal Architecture](./internal-diagram.png)
 
 ## Features
 
-- **Zero runtime dependencies** — static binary, no sidecars, no agents, no brokers
-- **Durable event log** — every event is written to the embedded log before the source checkpoint advances; a crash never loses an event
-- **Multiple outputs** — stdout (NDJSON), HTTP Server-Sent Events, gRPC streaming
+- **Zero runtime dependencies** — static binary
+- **Durable event log** — every event is written before the source checkpoint advances; a crash never loses an event
+- **Eight outputs** — stdout (NDJSON), SSE, gRPC, Kafka, NATS, SQS, Google Pub/Sub, RabbitMQ
 - **Consistent backfills** — snapshot and live stream run concurrently; watermark coordination prevents duplicate or stale rows
-- **Per-key ordering** — events for the same primary key always arrive in commit order
+- **Per-key ordering** — events for the same primary key always arrive in commit order, even across broker sinks
 - **Per-consumer cursors** — each consumer tracks its own position; reconnect at any time and resume exactly where you left off
-- **Filtering** — table, column, operation, and SQL WHERE condition filters
-- **High availability** — leader election via Postgres advisory lock; standby takes over in ~5 seconds if the primary crashes
-- **Observability** — Prometheus metrics at `/metrics`, health check at `/healthz`
+- **Filtering** — table, column, operation, and SQL `WHERE` condition filters
+- **High availability** — leader election via Postgres advisory lock (`--ha`), ~5s failover; optional cluster mode (`--cluster`) shares consumer cursor state across nodes
+- **Security** — TLS/mTLS and bearer-token auth on the SSE/gRPC data plane (`--insecure` to explicitly opt out)
+- **Observability** — Prometheus metrics and health check on `--port + 1`
 
-## Quick Start
-
-### 1. Build
+## Quick start
 
 ```bash
-make build
-# Produces: ./kaptanto
+make build   # produces ./kaptanto
 ```
 
-### 2. Enable logical replication
-
-In `postgresql.conf`:
+Enable logical replication in `postgresql.conf`:
 
 ```
 wal_level = logical
@@ -68,16 +50,11 @@ Grant replication access:
 ```sql
 CREATE ROLE kaptanto WITH REPLICATION LOGIN PASSWORD 'secret';
 GRANT SELECT ON TABLE public.orders, public.payments TO kaptanto;
-```
-
-For full before/after values on updates and deletes:
-
-```sql
+-- for full before/after values on updates and deletes:
 ALTER TABLE public.orders REPLICA IDENTITY FULL;
-ALTER TABLE public.payments REPLICA IDENTITY FULL;
 ```
 
-### 3. Run
+Run:
 
 ```bash
 ./kaptanto \
@@ -86,88 +63,121 @@ ALTER TABLE public.payments REPLICA IDENTITY FULL;
   --output stdout
 ```
 
-Events arrive as NDJSON on stdout. Pipe to `jq`, a processor, or any program that reads stdin.
+### MongoDB
+
+No server-side setup is required beyond a replica set (Change Streams need one, even a single-node
+`rs0`). Point `--source` at a `mongodb://` or `mongodb+srv://` URI — Kaptanto detects the source
+type from the DSN scheme:
+
+```bash
+./kaptanto \
+  --source "mongodb://localhost:27017/mydb" \
+  --tables mydb.orders,mydb.payments \
+  --output stdout
+```
+
+If the resume token is invalidated (e.g. oplog rollover while disconnected), Kaptanto automatically
+falls back to a fresh snapshot.
 
 ## Outputs
 
-### stdout
-
-One JSON line per event. Ideal for Unix pipes and container log collectors.
-
-```bash
-./kaptanto --source "..." --tables public.orders --output stdout | jq .
-```
-
-### SSE (Server-Sent Events)
-
-Starts an HTTP server at `/events`. Each connected client is an independent consumer with its own cursor.
+| Output | Description |
+|---|---|
+| `stdout` | One JSON line per event — pipe to `jq`, a log collector, or any stdin reader |
+| `sse` | HTTP Server-Sent Events at `/events`; each client is an independent consumer with its own cursor (`?consumer=`, `?tables=`, `?operations=`) |
+| `grpc` | Typed streaming via Protocol Buffers (`Subscribe` + `Acknowledge` RPCs) |
+| `kafka` / `nats` / `sqs` / `pubsub` / `rabbitmq` | Message-broker sinks, each routed by CDC key to preserve ordering and stamped with an idempotency key for downstream dedup |
 
 ```bash
 ./kaptanto --source "..." --tables public.orders --output sse --port 7654
 curl -N http://localhost:7654/events?consumer=worker-1
 ```
 
-Clients that disconnect and reconnect resume from where they left off — no events missed.
+Every broker sink routes by CDC key (partition, subject, queue, or routing key), so per-key
+ordering is preserved end to end; none retries internally — retry is the router's job — and every
+message carries an idempotency key/header for downstream dedup.
 
-| Parameter     | Description                                     | Example                      |
-|---------------|-------------------------------------------------|------------------------------|
-| `consumer`    | Stable consumer ID for cursor resumption        | `?consumer=worker-1`         |
-| `tables`      | Comma-separated table allow-list (empty = all)  | `?tables=orders,users`       |
-| `operations`  | Comma-separated operation filter (empty = all)  | `?operations=insert,update`  |
-
-### gRPC
-
-High-throughput typed streaming via Protocol Buffers.
-
-```bash
-./kaptanto --source "..." --tables public.orders --output grpc --port 7654
-```
-
-```protobuf
-service CDCService {
-  rpc Subscribe (SubscribeRequest) returns (stream ChangeEvent);
-  rpc Acknowledge (AckRequest) returns (AckResponse);
-}
-```
-
-`Subscribe` opens a stream. `Acknowledge` advances your cursor after processing a batch.
+| Sink | Routing | Notes |
+|---|---|---|
+| `kafka` | `topic-template` (Go template, e.g. `cdc.{{.Schema}}.{{.Table}}`), keyed partition | SASL (`PLAIN`, `SCRAM-SHA-256/512`) and TLS/mTLS supported |
+| `nats` | `subject-template` | JetStream; optional `stream-name` validated at startup; supports its own cluster mode via `--cluster-peers`/`--nats-cluster-port` |
+| `sqs` | `queue-url` or `queue-url-template` | Must be a FIFO queue (`.fifo`); uses static credentials or the standard AWS credential chain |
+| `pubsub` | `topic-id` or `topic-template` | Uses Application Default Credentials unless `credentials-file` is set |
+| `rabbitmq` | `routing-key-template`, optional `exchange` | AMQP or AMQPS (TLS) URL |
 
 ## Configuration
 
-All flags can be set via CLI or a YAML config file. CLI flags take precedence.
-
-```bash
-./kaptanto --config kaptanto.yaml
-```
-
-| Flag           | Default    | Description                                             |
-|----------------|------------|---------------------------------------------------------|
-| `--source`     | (required) | Database connection string                              |
-| `--tables`     | (required) | Tables to replicate, e.g. `public.orders public.users`  |
-| `--output`     | `stdout`   | `stdout`, `sse`, or `grpc`                              |
-| `--port`       | `7654`     | TCP port for SSE or gRPC server                         |
-| `--data-dir`   | `./data`   | Directory for event log and checkpoints                 |
-| `--retention`  | `1h`       | Event log TTL (e.g. `24h`, `7d`)                        |
-| `--log-level`  | `info`     | `debug`, `info`, `warn`, `error`                        |
-| `--config`     |            | Path to YAML config file                                |
-
-### YAML example
+All flags are available via CLI or YAML; CLI flags always win.
 
 ```yaml
 source: "postgres://kaptanto:secret@localhost:5432/mydb"
 output: sse
 port: 7654
-data_dir: /var/lib/kaptanto
+cors-origin: ""          # SSE Access-Control-Allow-Origin; empty = no cross-origin browser access
+data-dir: /var/lib/kaptanto
 retention: 24h
+ha: false                # leader election (Postgres advisory lock)
+node-id: ""              # unique node identity, required when ha is enabled
+source-id: default       # slot name kaptanto_<id> / publication kaptanto_pub_<id>
+all-tables: false        # explicit opt-in to replicate every table when 'tables:' is empty
+cluster: false           # shared cursor state across nodes
+cluster-dsn: ""          # Postgres DSN for the shared cursor store, required when cluster is true
+cluster-peers: []        # NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
+nats-cluster-port: 6222
 
 tables:
-  - name: public.orders
+  public.orders:
     columns: [id, status, total]
     where: "status != 'archived'"
+  public.payments: {}     # empty = replicate all columns, no row filter
 
-  - name: public.users
-    columns: [id, email, created_at]
+sinks:                    # only the active sink's block needs to be populated
+  kafka:
+    bootstrap-servers: ["localhost:9092"]
+    topic-template: "cdc.{{.Schema}}.{{.Table}}"
+    sasl-mechanism: ""     # "", PLAIN, SCRAM-SHA-256, or SCRAM-SHA-512
+    tls: { ca-file: "", cert-file: "", key-file: "" }
+
+server-tls:               # inbound TLS for the SSE/gRPC server, distinct from sink TLS above
+  cert-file: ""
+  key-file: ""
+  client-ca-file: ""       # set to require + verify client certs (mTLS)
+
+auth-token: ""             # bearer token for SSE/gRPC (prefer KAPTANTO_AUTH_TOKEN env var)
+insecure: false            # explicit opt-out of TLS/auth — not for production
 ```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--source` | (required) | Database connection string |
+| `--tables` | (required unless `--all-tables`) | Tables to replicate, e.g. `public.orders,public.users` |
+| `--all-tables` | `false` | Explicit opt-in to capture every table when no `--tables`/`tables:` given |
+| `--config` | | Path to YAML config file (flags still take precedence) |
+| `--output` | `stdout` | `stdout`, `sse`, `grpc`, `kafka`, `nats`, `sqs`, `pubsub`, `rabbitmq` |
+| `--port` | `7654` | TCP port for the SSE/gRPC server (metrics/health at `port + 1`) |
+| `--cors-origin` | | SSE `Access-Control-Allow-Origin` value; empty sends no CORS header |
+| `--data-dir` | `./data` | Directory for the event log, checkpoint, cursor, and backfill stores |
+| `--retention` | `0` (→ `1h`) | Event log TTL, e.g. `24h`, `7d` |
+| `--log-level` | `info` | `debug`, `info`, `warn`, `error` |
+| `--ha` | `false` | Enable leader election via Postgres advisory lock |
+| `--node-id` | | Unique node identity, required when `--ha` is set |
+| `--source-id` | `default` | Logical source name; determines the replication slot/publication name |
+| `--cluster` | `false` | Enable shared cursor state across nodes |
+| `--cluster-dsn` | | Postgres DSN for the shared cursor store; required when `--cluster` is set |
+| `--cluster-peers` | | NATS JetStream cluster peer addresses; required for a clustered NATS sink |
+| `--nats-cluster-port` | `6222` | NATS JetStream cluster route port for this node |
+| `--tls-cert` / `--tls-key` | | Server certificate/key PEM for the SSE/gRPC server |
+| `--tls-client-ca` | | CA PEM to require and verify client certs (mTLS) |
+| `--auth-token` | | Bearer token for the SSE/gRPC data plane (or `KAPTANTO_AUTH_TOKEN` env var) |
+| `--insecure` | `false` | Explicitly disable data-plane TLS/auth — not for production |
+
+## Security
+
+By default, the SSE/gRPC data plane requires both a bearer token (`--auth-token` or
+`KAPTANTO_AUTH_TOKEN`) and, if `--tls-cert`/`--tls-key` are set, TLS — with optional mutual TLS via
+`--tls-client-ca`. `--insecure` disables all of this for local development and logs a loud warning
+on startup; it is not meant for production. Outbound sink connections (Kafka, NATS, SQS, Pub/Sub,
+RabbitMQ) have their own independent TLS/mTLS settings under each sink's `tls:` block.
 
 ## Event schema
 
@@ -180,56 +190,69 @@ tables:
   "key": { "id": 1234 },
   "before": { "status": "pending" },
   "after":  { "status": "shipped" },
-  "metadata": {
-    "lsn": "0/1A2B3C4",
-    "checkpoint": "...",
-    "snapshot": false
-  }
+  "metadata": { "lsn": "0/1A2B3C4", "checkpoint": "...", "snapshot": false }
 }
 ```
 
-- `read` — emitted during the initial snapshot
-- `control` — emitted for lifecycle events (slot created, backfill complete, etc.)
-- `before` is `null` for inserts; `after` is `null` for deletes
-- `idempotency_key` is deterministic and stable across restarts — use it for exactly-once processing on the consumer side
+`read` events are emitted during the initial snapshot; `control` events mark lifecycle transitions (slot created, backfill complete). `idempotency_key` is deterministic across restarts — use it for exactly-once processing downstream.
 
 ## Data directory
 
 ```
 ./data/
 ├── events/        # Badger event log
-├── checkpoint.db  # Source position checkpoint (SQLite)
-├── cursors.db     # Per-consumer cursor positions (SQLite)
-└── backfill.db    # Snapshot progress and watermark state (SQLite)
+├── checkpoint.db  # Source position checkpoint (SQLite, or PostgreSQL in HA mode)
+├── cursors.db     # Per-consumer cursor positions
+└── backfill.db    # Snapshot progress and watermark state
 ```
 
-kaptanto is safe to restart. It resumes from the last checkpoint, and each consumer resumes from its last cursor.
+Kaptanto is safe to restart — it resumes from the last checkpoint, and each consumer resumes from its last cursor.
 
 ## Observability
 
-When running `sse` or `grpc` mode, metrics and health are available at `--port + 1` (default `:7655`):
+Metrics and health are served on `--port + 1` (default `:7655`):
 
 ```bash
 curl http://localhost:7655/healthz   # 200 OK when healthy
 curl http://localhost:7655/metrics   # Prometheus text format
 ```
 
-| Metric                              | Type    | Labels                            |
-|-------------------------------------|---------|-----------------------------------|
-| `kaptanto_events_delivered_total`   | Counter | `consumer`, `table`, `operation`  |
-| `kaptanto_consumer_lag_events`      | Gauge   | `consumer`                        |
-| `kaptanto_errors_total`             | Counter | `consumer`, `kind`                |
-| `kaptanto_source_lag_bytes`         | Gauge   | `source`                          |
-| `kaptanto_checkpoint_flushes_total` | Counter |                                   |
+| Metric | Type | Labels |
+|---|---|---|
+| `kaptanto_events_delivered_total` | Counter | `consumer`, `table`, `operation` |
+| `kaptanto_consumer_lag_events` | Gauge | `consumer` |
+| `kaptanto_errors_total` | Counter | `consumer`, `kind` |
+| `kaptanto_source_lag_bytes` | Gauge | `source` |
+| `kaptanto_checkpoint_flushes_total` | Counter | |
 
 ## Development
 
 ```bash
-make build        # Compile binary
-make test         # Run all tests
-make test-race    # Run tests with race detector
-make clean        # Remove binary
+make build            # CGO_ENABLED=0 static binary (default, cross-platform)
+make lint             # golangci-lint over ./internal/... ./cmd/...
+make test             # all tests, CGO_ENABLED=0
+make test-race        # race detector (requires CGO)
+make cover            # coverage run; fails below the configured threshold
+make verify-no-cgo    # cross-compile linux/amd64 + darwin/arm64 to confirm no CGO leakage
+make build-rust       # optional Rust-accelerated binary (requires Rust 1.77+, cargo, cbindgen)
+make clean            # remove binary
 ```
+
+Run a single test:
+
+```bash
+go test ./internal/router -run TestPerKeyOrdering -v
+```
+
+Slower, env-gated suites (skipped by default):
+
+```bash
+POSTGRES_TEST_DSN=... MONGO_TEST_URI=... make test-integration   # live Postgres + MongoDB
+POSTGRES_TEST_DSN=... make test-e2e                              # black-box binary tests, -tags e2e
+make mutation                                                    # gremlins over router/eventlog/parser/backfill
+```
+
+See `CLAUDE.md` for the full architecture/package reference and the critical invariants (durability, per-key ordering, watermark consistency, etc.) that these tests enforce.
 
 ## License
 
