@@ -14,18 +14,9 @@ jobs:
   coverage:
     name: Test coverage threshold
     runs-on: ubuntu-latest
-    env:
-      # In-repo gate over UNIT-TESTABLE code. Excluded from the metric because
-      # they need live services or a running binary and are covered by the
-      # integration/e2e jobs instead:
-      #   - infra-bound pkgs: ha (advisory-lock leader election), the Postgres/
-      #     Mongo source connectors, the RabbitMQ sink, the cluster partition mgr
-      #   - the cmd/ assembly layer (the e2e job runs the real binary)
-      #   - generated *.pb.go and the main() entrypoint
-      # Ratchet upward over time.
-      COVERAGE_THRESHOLD: "70.0"
-      # ERE of profile lines excluded from the threshold computation.
-      COVERAGE_EXCLUDE: 'internal/(ha|source/postgres|source/mongodb|output/rabbitmq|cluster|cmd)/|cmd/kaptanto/main\.go|\.pb\.go:'
+    # Aggregate threshold, exclusion list, and the per-package floor all
+    # live in scripts/coverage-gate.sh — the same script `make cover` runs
+    # locally, so local and CI always agree. Edit values there, not here.
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -45,16 +36,8 @@ jobs:
       - name: Generate HTML report
         run: go tool cover -html=coverage.out -o coverage.html
 
-      - name: Enforce coverage threshold
-        run: |
-          # Drop infra-bound / generated / entrypoint lines, then recompute total.
-          # Keep the "mode:" header (line 1); filter only the body (line 2+).
-          head -1 coverage.out > coverage.filtered.out
-          tail -n +2 coverage.out | grep -vE "$COVERAGE_EXCLUDE" >> coverage.filtered.out
-          total=$(go tool cover -func=coverage.filtered.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
-          echo "Unit-testable coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
-          awk -v t="$total" -v min="$COVERAGE_THRESHOLD" \
-            'BEGIN { if (t+0 < min+0) { printf "FAIL: coverage %.1f%% is below threshold %.1f%%\n", t, min; exit 1 } else { printf "PASS: coverage %.1f%% meets threshold %.1f%%\n", t, min } }'
+      - name: Enforce coverage gate
+        run: ./scripts/coverage-gate.sh coverage.out
 
       - name: Upload coverage report
         if: always()
