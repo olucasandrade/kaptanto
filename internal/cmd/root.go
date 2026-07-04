@@ -441,7 +441,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 
 	bkConfigs := buildBackfillConfigs(cfg.Tables, connCfg.SourceID, bkPKCols)
-	openConnFn := func(ctx context.Context) (*pgx.Conn, error) {
+	openConnFn := func(ctx context.Context) (backfill.SnapshotConn, error) {
 		return pgx.Connect(ctx, cfg.Source)
 	}
 	bkEng := backfill.NewBackfillEngineWithBatch(bkConfigs, bkStore, idGen, connector.AppendAndQueue, connector.AppendAndQueueBatch, openConnFn)

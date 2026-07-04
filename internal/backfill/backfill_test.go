@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/olucasandrade/kaptanto/internal/backfill"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
@@ -434,7 +433,7 @@ func TestBackfillEngineImpl_StreamOnly_HasNoPending(t *testing.T) {
 
 	idGen := event.NewIDGenerator()
 	appendFn := func(_ context.Context, _ *event.ChangeEvent) error { return nil }
-	openConnFn := func(_ context.Context) (*pgx.Conn, error) { return nil, nil }
+	openConnFn := func(_ context.Context) (backfill.SnapshotConn, error) { return nil, nil }
 
 	eng := backfill.NewBackfillEngine([]backfill.BackfillConfig{cfg}, store, idGen, appendFn, openConnFn)
 	assert.False(t, eng.HasPendingBackfills(), "stream_only should not report pending backfills")
@@ -460,7 +459,7 @@ func TestBackfillEngineImpl_StreamOnly_Run_MarksCompleted(t *testing.T) {
 		appended = append(appended, ev)
 		return nil
 	}
-	openConnFn := func(_ context.Context) (*pgx.Conn, error) { return nil, nil }
+	openConnFn := func(_ context.Context) (backfill.SnapshotConn, error) { return nil, nil }
 
 	eng := backfill.NewBackfillEngine([]backfill.BackfillConfig{cfg}, store, idGen, appendFn, openConnFn)
 	err = eng.Run(context.Background())
@@ -489,7 +488,7 @@ func TestBackfillEngineImpl_SnapshotAndStream_HasPending(t *testing.T) {
 
 	idGen := event.NewIDGenerator()
 	appendFn := func(_ context.Context, _ *event.ChangeEvent) error { return nil }
-	openConnFn := func(_ context.Context) (*pgx.Conn, error) { return nil, nil }
+	openConnFn := func(_ context.Context) (backfill.SnapshotConn, error) { return nil, nil }
 
 	eng := backfill.NewBackfillEngine([]backfill.BackfillConfig{cfg}, store, idGen, appendFn, openConnFn)
 	assert.True(t, eng.HasPendingBackfills(), "snapshot_and_stream should report pending backfills on first run")
@@ -521,7 +520,7 @@ func TestSnapshotLSN_NotOverwrittenOnResume(t *testing.T) {
 	idGen := event.NewIDGenerator()
 	appendFn := func(_ context.Context, _ *event.ChangeEvent) error { return nil }
 	// openConnFn returns an error — snapshotTable will fail early.
-	openConnFn := func(_ context.Context) (*pgx.Conn, error) {
+	openConnFn := func(_ context.Context) (backfill.SnapshotConn, error) {
 		return nil, fmt.Errorf("no connection")
 	}
 
@@ -639,7 +638,7 @@ func TestNewBackfillEngineWithBatch_StreamOnly(t *testing.T) {
 		idGen,
 		bl.appendSingle,
 		bl.appendBatch,
-		func(_ context.Context) (*pgx.Conn, error) {
+		func(_ context.Context) (backfill.SnapshotConn, error) {
 			return nil, fmt.Errorf("unexpected openConnFn call in stream_only test")
 		},
 	)
@@ -682,7 +681,7 @@ func TestNewBackfillEngineWithBatch_HasPendingWhenNoState(t *testing.T) {
 		[]backfill.BackfillConfig{cfg},
 		store, idGen,
 		bl.appendSingle, bl.appendBatch,
-		func(_ context.Context) (*pgx.Conn, error) {
+		func(_ context.Context) (backfill.SnapshotConn, error) {
 			return nil, fmt.Errorf("unexpected openConnFn call in HasPendingBackfills test")
 		},
 	)
@@ -717,7 +716,7 @@ func TestNewBackfillEngineWithBatch_SnapshotFail_CursorNotAdvanced(t *testing.T)
 		[]backfill.BackfillConfig{cfg},
 		store, idGen,
 		bl.appendSingle, bl.appendBatch,
-		func(_ context.Context) (*pgx.Conn, error) {
+		func(_ context.Context) (backfill.SnapshotConn, error) {
 			return nil, fmt.Errorf("no connection available")
 		},
 	)

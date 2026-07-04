@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/olucasandrade/kaptanto/internal/backfill"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/event"
@@ -137,7 +136,7 @@ func TestBackfillEngineImpl_StreamOnly(t *testing.T) {
 		return nil
 	}
 
-	openConnFn := func(_ context.Context) (*pgx.Conn, error) {
+	openConnFn := func(_ context.Context) (backfill.SnapshotConn, error) {
 		return nil, fmt.Errorf("should not be called for stream_only")
 	}
 
@@ -173,7 +172,7 @@ func TestBackfillEngineImpl_SnapshotAndStream_OpenConnError(t *testing.T) {
 		return nil
 	}
 
-	openConnFn := func(_ context.Context) (*pgx.Conn, error) {
+	openConnFn := func(_ context.Context) (backfill.SnapshotConn, error) {
 		return nil, fmt.Errorf("no db")
 	}
 
