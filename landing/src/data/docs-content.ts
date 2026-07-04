@@ -765,16 +765,23 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dcall"><p><strong>Reproducing this run:</strong> the harness lives in <code>bench/</code> and is driven by <code>docker compose</code> plus <code>go run ./cmd/scenarios</code> — see the repo's <code>bench/README.md</code>. <code>bench/results/REPORT.md</code> in the repository tracks the most recent local run for development purposes and may show different numbers than the CI run summarized here; treat the table below as the current published result.</p></div>
 
 <h2 class="dh2">Executive Summary</h2>
+<div class="bench-winners">
+<div class="bench-win bench-win-top"><span>Overall fit</span><strong>kaptanto</strong><em>Fastest steady throughput, smallest operating shape</em></div>
+<div class="bench-win"><span>Steady throughput</span><strong>2,645 eps</strong><em>kaptanto</em></div>
+<div class="bench-win"><span>Peak throughput</span><strong>3,522 eps</strong><em>kaptanto-rust</em></div>
+<div class="bench-win"><span>Burst latency</span><strong>2.3 s p50</strong><em>kaptanto-rust</em></div>
+<div class="bench-win"><span>Recovery</span><strong>3.4 s</strong><em>Debezium HTTP sink</em></div>
+</div>
 <div class="dtable-wrap"><table class="dtable">
 <thead><tr><th>Tool</th><th>Steady (eps)</th><th>Peak (eps)</th><th>p50 Burst Latency</th><th>Recovery</th><th>Infrastructure</th></tr></thead>
 <tbody>
-<tr><td><strong>kaptanto</strong></td><td><strong>2,645</strong></td><td><strong>3,256</strong></td><td>3.5 s</td><td>4.5 s</td><td>1 binary (Go) · ~563 MB RSS</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td><strong>1,993</strong></td><td><strong>3,522</strong></td><td>2.3 s</td><td>3.5 s</td><td>1 binary (Go+Rust FFI) · ~661 MB RSS</td></tr>
+<tr><td><strong>kaptanto</strong></td><td class="bw"><strong>2,645</strong><span>Winner</span></td><td><strong>3,256</strong></td><td>3.5 s</td><td>4.5 s</td><td class="bw bw-soft">1 binary (Go) · ~563 MB RSS<span>Simplest</span></td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td><strong>1,993</strong></td><td class="bw"><strong>3,522</strong><span>Winner</span></td><td class="bw">2.3 s<span>Winner</span></td><td>3.5 s</td><td>1 binary (Go+Rust FFI) · ~661 MB RSS</td></tr>
 <tr><td><strong>kaptanto-kafka</strong></td><td><strong>2,560</strong></td><td><strong>3,048</strong></td><td>8.5 s</td><td>—</td><td>1 binary + Redpanda · ~563 MB RSS</td></tr>
 <tr><td><strong>kaptanto-nats</strong></td><td><strong>2,409</strong></td><td><strong>3,232</strong></td><td>3.9 s</td><td>—</td><td>1 binary + NATS JetStream · ~575 MB RSS</td></tr>
 <tr><td>PeerDB</td><td>2,543</td><td>3,104</td><td>8.2 s</td><td>4.7 s</td><td>4 Go services + Temporal + Kafka + PG</td></tr>
 <tr><td>Debezium (Kafka Connect)</td><td>951</td><td>2,584</td><td>12.2 s</td><td>—</td><td>JVM + Kafka Connect + Redpanda</td></tr>
-<tr><td>Debezium (HTTP sink)</td><td>100</td><td>1,120</td><td>32.8 s</td><td>3.4 s</td><td>JVM only</td></tr>
+<tr><td>Debezium (HTTP sink)</td><td>100</td><td>1,120</td><td>32.8 s</td><td class="bw bw-alt">3.4 s<span>Winner</span></td><td>JVM only</td></tr>
 <tr><td>Sequin</td><td>68</td><td>613</td><td>8.3 s</td><td>4.4 s</td><td>Elixir + Redis + PG</td></tr>
 </tbody>
 </table></div>
@@ -785,8 +792,8 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dtable-wrap"><table class="dtable">
 <thead><tr><th>Tool</th><th>Steady</th><th>Burst</th><th>Large Batch</th><th>Crash Recovery</th><th>Cluster</th></tr></thead>
 <tbody>
-<tr><td><strong>kaptanto</strong></td><td>2,645</td><td>2,315</td><td>3,256</td><td>2,390</td><td>3,019</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td>1,993</td><td>2,127</td><td>3,522</td><td>2,115</td><td>2,535</td></tr>
+<tr><td><strong>kaptanto</strong></td><td class="bw">2,645<span>Winner</span></td><td class="bw">2,315<span>Winner</span></td><td>3,256</td><td class="bw">2,390<span>Winner</span></td><td class="bw">3,019<span>Winner</span></td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td>1,993</td><td>2,127</td><td class="bw">3,522<span>Winner</span></td><td>2,115</td><td>2,535</td></tr>
 <tr><td><strong>kaptanto-kafka</strong></td><td>2,560</td><td>2,198</td><td>3,048</td><td>2,340</td><td>2,806</td></tr>
 <tr><td><strong>kaptanto-nats</strong></td><td>2,409</td><td>2,301</td><td>3,232</td><td>2,305</td><td>2,557</td></tr>
 <tr><td>PeerDB</td><td>2,543</td><td>2,244</td><td>3,104</td><td>2,343</td><td>2,800</td></tr>
@@ -802,15 +809,16 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <thead><tr><th>Tool</th><th>Steady</th><th>Burst</th><th>Crash Recovery</th><th>Cluster</th></tr></thead>
 <tbody>
 <tr><td><strong>kaptanto</strong></td><td>13,710 / 36,193 / 37,735</td><td>3,474 / 9,236 / 11,466</td><td>27,944 / 77,984 / 81,226</td><td>3,178 / 12,059 / 12,525</td></tr>
-<tr><td><strong>kaptanto-rust</strong></td><td>12,405 / 40,477 / 42,256</td><td>2,304 / 11,685 / 13,073</td><td>33,956 / 87,583 / 91,247</td><td>1,652 / 12,497 / 13,514</td></tr>
+<tr><td><strong>kaptanto-rust</strong></td><td class="bw">12,405 / 40,477 / 42,256<span>p50 winner</span></td><td class="bw">2,304 / 11,685 / 13,073<span>p50 winner</span></td><td>33,956 / 87,583 / 91,247</td><td class="bw">1,652 / 12,497 / 13,514<span>p50 winner</span></td></tr>
 <tr><td><strong>kaptanto-kafka</strong></td><td>14,933 / 34,696 / 38,398</td><td>8,460 / 12,750 / 13,692</td><td>29,960 / 76,322 / 82,837</td><td>3,077 / 12,476 / 13,069</td></tr>
 <tr><td><strong>kaptanto-nats</strong></td><td>17,536 / 36,266 / 39,639</td><td>3,859 / 11,999 / 12,205</td><td>33,797 / 77,537 / 81,361</td><td>3,744 / 12,394 / 13,626</td></tr>
 <tr><td>PeerDB</td><td>14,918 / 34,687 / 38,300</td><td>8,176 / 13,154 / 13,431</td><td>29,922 / 76,887 / 82,787</td><td>3,052 / 12,350 / 13,143</td></tr>
 <tr><td>Debezium (Kafka Connect)</td><td>34,581 / 52,118 / 52,402</td><td>12,242 / 24,155 / 24,926</td><td>68,607 / 99,967 / 100,804</td><td>19,619 / 27,841 / 28,578</td></tr>
 <tr><td>Debezium (HTTP sink)</td><td>43,620 / 58,941 / 62,934</td><td>32,754 / 34,602 / 34,757</td><td>91,452 / 116,688 / 120,275</td><td>21,867 / 34,245 / 35,031</td></tr>
-<tr><td>Sequin</td><td>38,224 / 62,564 / 64,005</td><td>8,300 / 31,019 / 32,003</td><td>36,510 / 120,328 / 123,847</td><td>22,545 / 34,065 / 34,835</td></tr>
+<tr><td>Sequin</td><td>38,224 / 62,564 / 64,005</td><td>8,300 / 31,019 / 32,003</td><td class="bw bw-alt">36,510 / 120,328 / 123,847<span>p50 winner</span></td><td>22,545 / 34,065 / 34,835</td></tr>
 </tbody>
 </table></div>
+<p class="dp" style="font-size:.8rem;margin-top:.5rem">Latency winners are based on p50 in each scenario. p95/p99 tails are shown in the same cell for context.</p>
 
 <h2 class="dh2">Crash Recovery Time</h2>
 <div class="dtable-wrap"><table class="dtable">
@@ -819,7 +827,7 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <tr><td><strong>kaptanto</strong></td><td>4.5 s</td></tr>
 <tr><td><strong>kaptanto-rust</strong></td><td>3.5 s</td></tr>
 <tr><td>PeerDB</td><td>4.7 s</td></tr>
-<tr><td>Debezium (HTTP sink)</td><td>3.4 s</td></tr>
+<tr><td>Debezium (HTTP sink)</td><td class="bw bw-alt">3.4 s<span>Winner</span></td></tr>
 <tr><td>Sequin</td><td>4.4 s</td></tr>
 </tbody>
 </table></div>
