@@ -3,7 +3,6 @@ package router_test
 import (
 	"context"
 	"errors"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -91,47 +90,9 @@ func (f *fakeCursorConsumer) getFlushAttempts() []time.Time {
 	return out
 }
 
-// recordingCursorStore is a router.ConsumerCursorStore that records every
-// SaveCursor call so tests can assert on exactly what was persisted, not just
-// the final value. LoadCursor returns 1 (the RTR-03 default) for unseen keys,
-// matching noopCursorStore.
-type recordingCursorStore struct {
-	mu    sync.Mutex
-	saved map[string]uint64
-}
-
-func newRecordingCursorStore() *recordingCursorStore {
-	return &recordingCursorStore{saved: make(map[string]uint64)}
-}
-
-func cursorKey(consumerID string, partitionID uint32) string {
-	return consumerID + ":" + strconv.FormatUint(uint64(partitionID), 10)
-}
-
-func (s *recordingCursorStore) SaveCursor(_ context.Context, consumerID string, partitionID uint32, seq uint64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.saved[cursorKey(consumerID, partitionID)] = seq
-	return nil
-}
-
-func (s *recordingCursorStore) LoadCursor(_ context.Context, consumerID string, partitionID uint32) (uint64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if v, ok := s.saved[cursorKey(consumerID, partitionID)]; ok {
-		return v, nil
-	}
-	return 1, nil
-}
-
-// lastSaved returns the last seq SaveCursor was called with for
-// (consumerID, partitionID), and whether SaveCursor was ever called at all.
-func (s *recordingCursorStore) lastSaved(consumerID string, partitionID uint32) (uint64, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	v, ok := s.saved[cursorKey(consumerID, partitionID)]
-	return v, ok
-}
+// recordingCursorStore (and its constructor, newRecordingCursorStore) is
+// defined once for the package in cursor_floor_test.go; this file's tests use
+// its lastSaved method.
 
 // TestBatchFlusherCursorDeferredUntilFlushSucceeds is the core regression test
 // for the queue-sink-flushbatch-loss fix. Before the fix, dispatch Phase 3
