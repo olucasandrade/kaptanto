@@ -72,6 +72,42 @@ type EventLog interface {
 	Close() error
 }
 
+// AppendObserver receives every successfully appended (non-duplicate) event,
+// synchronously, immediately after the durable write commits and BEFORE
+// Append/AppendBatch returns to its caller.
+//
+// This synchronous-before-return contract is load-bearing: WatermarkChecker
+// (internal/backfill) uses it to build an incrementally-updated index instead
+// of re-scanning the whole partition on every ShouldEmit call. For the index
+// to be correct, an observer registered before a table's initial index scan
+// begins must see every event committed after registration — a callback that
+// fires only "eventually" (e.g. via an async queue) would let a snapshot row
+// race ahead of the index and be wrongly emitted. See AppendObservable.
+//
+// Implementations must return quickly and must not block: this runs on the
+// hot append path shared with the router and, transitively, source WAL/CDC
+// ingestion (CHK-01). Do not perform I/O or acquire locks that could be held
+// by a slow consumer.
+type AppendObserver interface {
+	// ObserveAppend is called once per Append/AppendBatch call with every
+	// event that was actually written (duplicates are excluded). seqs[i]
+	// corresponds to evs[i]; seqs are never 0 here (0 is the "duplicate"
+	// sentinel used by Append/AppendBatch, and duplicates are filtered out
+	// before observers are notified).
+	ObserveAppend(evs []*event.ChangeEvent, seqs []uint64)
+}
+
+// AppendObservable is implemented by EventLog backends that support
+// synchronous append observers (currently BadgerEventLog). Callers must type-
+// assert an EventLog to this interface — it is optional so fakes used in
+// tests need not implement it.
+type AppendObservable interface {
+	// RegisterObserver registers obs to be called synchronously on every
+	// future successful Append/AppendBatch. It returns an unregister function
+	// that removes obs; calling unregister more than once is a no-op.
+	RegisterObserver(obs AppendObserver) (unregister func())
+}
+
 // LogEntry is a single event retrieved from ReadPartition.
 type LogEntry struct {
 	// Seq is the partition-local monotonically increasing sequence number.
