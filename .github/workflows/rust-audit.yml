@@ -2,7 +2,7 @@ name: Rust Audit
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
     paths:
       - "rust/**"
       - ".github/workflows/rust-audit.yml"
