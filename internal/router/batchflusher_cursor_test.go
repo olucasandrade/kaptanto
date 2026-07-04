@@ -168,8 +168,24 @@ func TestBatchFlusherCursorDeferredUntilFlushSucceeds(t *testing.T) {
 		_ = r.Run(ctx)
 	}()
 
-	// Give the router time to attempt (and fail) at least one flush.
-	time.Sleep(150 * time.Millisecond)
+	// Wait until the router has attempted (and failed) at least one flush,
+	// rather than sleeping a fixed duration — a slow runner could otherwise
+	// let this pass without ever exercising the failure/discard path.
+	attemptDeadline := time.After(2 * time.Second)
+waitForAttempt:
+	for {
+		select {
+		case <-attemptDeadline:
+			cancel()
+			<-done
+			t.Fatal("router never attempted FlushBatch while broker was down")
+		default:
+		}
+		if len(consumer.getFlushAttempts()) > 0 {
+			break waitForAttempt
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if got := consumer.getFlushed(); len(got) != 0 {
 		cancel()

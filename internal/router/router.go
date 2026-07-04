@@ -321,11 +321,14 @@ func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
 	var snaps []consumerSnap
 	var deliveryErrs []error
 
-	// backoffState tracks consecutive FlushBatch failures per BatchFlusher
-	// consumer on this partition (queue-sink-flushbatch-loss fix). It is
-	// scoped to this goroutine — safe without locking since only this
-	// partition's goroutine ever touches it.
-	backoffState := make(map[BatchFlusher]*flusherBackoff)
+	// backoffState tracks consecutive FlushBatch failures per consumer index
+	// on this partition (queue-sink-flushbatch-loss fix), keyed by fe.idx
+	// rather than the BatchFlusher value itself — the interface doesn't
+	// require comparability, so a non-comparable concrete flusher type would
+	// panic on map access. fe.idx is stable because the router never
+	// unregisters consumers. Scoped to this goroutine — safe without locking
+	// since only this partition's goroutine ever touches it.
+	backoffState := make(map[int]*flusherBackoff)
 	// backoffUntil is the latest nextAt across all consumers currently in
 	// backoff; the loop waits until this time before the next ReadPartition
 	// attempt, so a down broker does not cause a tight re-read/re-flush loop.
@@ -381,51 +384,67 @@ func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
 
 		// Flush once per batch for consumers that implement BatchFlusher, then
 		// promote or discard each consumer's provisional cursor advance based
-		// on the flush outcome (queue-sink-flushbatch-loss fix). Acquiring
-		// RLock to snapshot the consumer list is safe here; the flush itself
-		// happens outside the lock.
-		type flusherEntry struct {
-			bf  BatchFlusher
-			idx int // index into r.consumers, for provisional-cursor promotion/discard
-		}
-		r.mu.RLock()
-		flushers := make([]flusherEntry, 0, len(r.consumers))
-		for i, cs := range r.consumers {
-			if bf, ok := cs.consumer.(BatchFlusher); ok {
-				flushers = append(flushers, flusherEntry{bf: bf, idx: i})
-			}
-		}
-		r.mu.RUnlock()
-		for _, fe := range flushers {
-			if ctx.Err() != nil {
-				return
-			}
-			if err := fe.bf.FlushBatch(ctx, partitionID); err != nil {
-				slog.Warn("router: batch flush error", "partition", partitionID, "err", err)
-				// Discard this consumer's provisional cursor advance so the
-				// next ReadPartition re-reads and re-delivers the same
-				// window (queue-sink-flushbatch-loss fix). Apply/extend the
-				// NextDelay backoff schedule so a persistently unreachable
-				// broker does not cause a hot loop.
-				r.discardProvisional(fe.idx, partitionID)
-				bo := backoffState[fe.bf]
-				if bo == nil {
-					bo = &flusherBackoff{}
-					backoffState[fe.bf] = bo
-				}
-				bo.attempts++
-				bo.nextAt = time.Now().Add(NextDelay(bo.attempts - 1))
-				if backoffUntil.IsZero() || bo.nextAt.After(backoffUntil) {
-					backoffUntil = bo.nextAt
-				}
-				continue
-			}
-			// Flush succeeded — clear any prior backoff and promote the
-			// provisional cursor to the durable, persisted cursor.
-			delete(backoffState, fe.bf)
-			r.promoteProvisional(ctx, fe.idx, partitionID)
+		// on the flush outcome (queue-sink-flushbatch-loss fix).
+		backoffUntil = r.flushBatchConsumers(ctx, partitionID, backoffState, backoffUntil)
+	}
+}
+
+// flusherEntry pairs a BatchFlusher consumer with its index into r.consumers,
+// which promoteProvisional/discardProvisional need to locate the consumer's
+// provisional cursor state.
+type flusherEntry struct {
+	bf  BatchFlusher
+	idx int
+}
+
+// flushBatchConsumers flushes every BatchFlusher consumer once for
+// partitionID, then promotes or discards that consumer's provisional cursor
+// advance based on the flush outcome (queue-sink-flushbatch-loss fix). A
+// failed flush discards the provisional advance — so the next ReadPartition
+// re-reads and re-delivers the same window — and extends backoffState's
+// NextDelay schedule for that consumer so a persistently unreachable broker
+// does not cause a hot loop. Returns the backoffUntil the caller should wait
+// on before its next ReadPartition attempt (unchanged if no flush failed).
+//
+// Acquiring RLock to snapshot the consumer list is safe here; the flush
+// itself happens outside the lock. If ctx is cancelled mid-loop, remaining
+// flushers are skipped — runPartition's outer loop checks ctx.Done() again
+// on its next iteration and returns there.
+func (r *Router) flushBatchConsumers(ctx context.Context, partitionID uint32, backoffState map[int]*flusherBackoff, backoffUntil time.Time) time.Time {
+	r.mu.RLock()
+	flushers := make([]flusherEntry, 0, len(r.consumers))
+	for i, cs := range r.consumers {
+		if bf, ok := cs.consumer.(BatchFlusher); ok {
+			flushers = append(flushers, flusherEntry{bf: bf, idx: i})
 		}
 	}
+	r.mu.RUnlock()
+
+	for _, fe := range flushers {
+		if ctx.Err() != nil {
+			return backoffUntil
+		}
+		if err := fe.bf.FlushBatch(ctx, partitionID); err != nil {
+			slog.Warn("router: batch flush error", "partition", partitionID, "err", err)
+			r.discardProvisional(fe.idx, partitionID)
+			bo := backoffState[fe.idx]
+			if bo == nil {
+				bo = &flusherBackoff{}
+				backoffState[fe.idx] = bo
+			}
+			bo.attempts++
+			bo.nextAt = time.Now().Add(NextDelay(bo.attempts - 1))
+			if backoffUntil.IsZero() || bo.nextAt.After(backoffUntil) {
+				backoffUntil = bo.nextAt
+			}
+			continue
+		}
+		// Flush succeeded — clear any prior backoff and promote the
+		// provisional cursor to the durable, persisted cursor.
+		delete(backoffState, fe.idx)
+		r.promoteProvisional(ctx, fe.idx, partitionID)
+	}
+	return backoffUntil
 }
 
 // promoteProvisional promotes consumer index idx's provisional cursor advance
