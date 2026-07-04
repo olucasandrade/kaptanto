@@ -2,8 +2,19 @@
 // MongoDB Change Streams, persists resume tokens, and emits ChangeEvents.
 //
 // Critical invariant (CHK-01): the resume token is NEVER saved to the
-// checkpoint store until after el.Append succeeds. This guarantees that on
-// restart the source re-delivers any event that was not durably committed.
+// checkpoint store until after the corresponding event(s) are durably
+// appended to the EventLog. This guarantees that on restart the source
+// re-delivers any event that was not durably committed.
+//
+// CHK-01 batch granularity: change-stream events are appended to the
+// EventLog in batches (see consumeStream), and the resume token is saved
+// once per batch — the token of the LAST event in the batch — rather than
+// once per event. A crash mid-batch re-opens the stream from the PREVIOUS
+// batch's token and re-sends the whole in-flight batch (up to
+// maxChangeStreamBatchSize events) on restart, instead of just the last
+// event. This is safe: EventLog.Append/AppendBatch dedups by
+// IdempotencyKey (LOG-03), so the re-sent events collapse into no-ops. Only
+// the size of the replay window on restart changes, not durability.
 package mongodb
 
 import (
@@ -13,6 +24,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -28,6 +40,11 @@ import (
 const (
 	defaultInitialBackoff = 2 * time.Second
 	defaultMaxBackoff     = 60 * time.Second
+
+	// maxChangeStreamBatchSize caps the number of events drained via TryNext
+	// into a single AppendBatch call (see consumeStream). Mirrors the
+	// Postgres WAL path's per-commit batch cap.
+	maxChangeStreamBatchSize = 256
 )
 
 // ChangeStreamIter is the injectable interface for a MongoDB change stream
@@ -35,6 +52,12 @@ const (
 // a fake.
 type ChangeStreamIter interface {
 	Next(ctx context.Context) bool
+	// TryNext is a non-blocking advance: it reports whether a document is
+	// already available in the driver's internal buffer without waiting for
+	// a new one to arrive from the server. Used to greedily drain already
+	// buffered events into a batch (see consumeStream). *mongo.ChangeStream
+	// provides this natively.
+	TryNext(ctx context.Context) bool
 	Decode(v any) error
 	ResumeToken() bson.Raw
 	Err() error
@@ -83,15 +106,17 @@ func (c *Config) validate() error {
 // It persists resume tokens to a CheckpointStore so it can survive restarts.
 //
 // CHK-01 invariant: when an EventLog is configured, the resume token is saved
-// only after el.Append succeeds. A crash between Append and Save means the
-// source will re-deliver the event on restart; the EventLog's idempotency key
-// deduplicates the duplicate delivery.
+// only after the durable write (Append or AppendBatch) succeeds. A crash
+// between the durable write and the token Save means the source will
+// re-deliver the not-yet-checkpointed event(s) on restart; the EventLog's
+// idempotency key deduplicates the duplicate delivery. See the package doc
+// comment for the batch-granularity nuance introduced by consumeStream.
 type MongoDBConnector struct {
-	cfg          Config
-	store        checkpoint.CheckpointStore
-	idGen        *event.IDGenerator
-	eventLog     eventlog.EventLog // nil if no durable log
-	events       chan *event.ChangeEvent
+	cfg           Config
+	store         checkpoint.CheckpointStore
+	idGen         *event.IDGenerator
+	eventLog      eventlog.EventLog // nil if no durable log
+	events        chan *event.ChangeEvent
 	needsSnapshot bool
 	mu            sync.Mutex // guards needsSnapshot
 
@@ -106,6 +131,13 @@ type MongoDBConnector struct {
 	// client is the underlying MongoDB client (nil when watchFn is injected
 	// by tests, so we only connect when a real URI is provided).
 	client *mongo.Client
+
+	// batchStats tracks flush/event counts across all collection goroutines,
+	// exposed via BatchStats for tests/observability that need to confirm
+	// batching is actually occurring (as opposed to always flushing size-1
+	// batches).
+	batchesFlushed atomic.Uint64
+	eventsFlushed  atomic.Uint64
 }
 
 // New creates a MongoDBConnector without a durable EventLog. Delegates to
@@ -185,6 +217,15 @@ func (c *MongoDBConnector) NeedsSnapshot() bool {
 	return c.needsSnapshot
 }
 
+// BatchStats returns the cumulative number of AppendBatch flushes and events
+// flushed across all collection goroutines. Exposed for tests/observability
+// to confirm that batching is actually happening (events > batches implies
+// at least one batch held more than one event) rather than always degrading
+// to size-1 batches.
+func (c *MongoDBConnector) BatchStats() (batches, events uint64) {
+	return c.batchesFlushed.Load(), c.eventsFlushed.Load()
+}
+
 // Events returns the read-only channel on which ChangeEvents are emitted.
 // Callers should range over this channel concurrently with Run.
 func (c *MongoDBConnector) Events() <-chan *event.ChangeEvent {
@@ -197,6 +238,10 @@ func (c *MongoDBConnector) Events() <-chan *event.ChangeEvent {
 //
 // token is the change stream resume token associated with ev and is saved
 // to the checkpoint store after a successful Append.
+//
+// This single-event path remains available for callers that don't batch
+// (e.g. direct unit-test exercise of CHK-01); consumeStream uses
+// AppendAndQueueBatch on the hot path.
 func (c *MongoDBConnector) AppendAndQueue(ctx context.Context, ev *event.ChangeEvent, token bson.Raw) error {
 	if c.eventLog != nil {
 		if _, err := c.eventLog.Append(ev); err != nil {
@@ -216,6 +261,51 @@ func (c *MongoDBConnector) AppendAndQueue(ctx context.Context, ev *event.ChangeE
 	case c.events <- ev:
 	default:
 	}
+
+	c.batchesFlushed.Add(1)
+	c.eventsFlushed.Add(1)
+	return nil
+}
+
+// AppendAndQueueBatch durably appends evs to the EventLog in a single
+// AppendBatch call (if configured) and forwards each event to the events
+// channel individually (drain-or-drop, same semantics as AppendAndQueue —
+// batching only changes how many events share one durable write and one
+// checkpoint save, not the per-event forwarding contract).
+//
+// lastToken must be the resume token of the LAST event in evs. It is the
+// only token saved to the checkpoint store for this batch (CHK-01 batch
+// granularity — see the package doc comment). If AppendBatch fails, none of
+// the events are forwarded and the token is NOT saved.
+func (c *MongoDBConnector) AppendAndQueueBatch(ctx context.Context, evs []*event.ChangeEvent, lastToken bson.Raw) error {
+	if len(evs) == 0 {
+		return nil
+	}
+
+	if c.eventLog != nil {
+		if _, err := c.eventLog.AppendBatch(evs); err != nil {
+			return fmt.Errorf("mongodb: eventlog append batch: %w", err)
+		}
+	}
+
+	// CHK-01: save the LAST event's token only after the durable write
+	// succeeds. Saved once per batch, not once per event.
+	tokenStr := tokenToString(lastToken)
+	if err := c.store.Save(ctx, c.cfg.SourceID, tokenStr); err != nil {
+		return fmt.Errorf("mongodb: save checkpoint: %w", err)
+	}
+
+	// Forward to channel: drain-or-drop per event, looped rather than bulk
+	// sent, preserving the existing per-event drop semantics.
+	for _, ev := range evs {
+		select {
+		case c.events <- ev:
+		default:
+		}
+	}
+
+	c.batchesFlushed.Add(1)
+	c.eventsFlushed.Add(uint64(len(evs)))
 	return nil
 }
 
@@ -342,26 +432,74 @@ func (c *MongoDBConnector) runCollection(ctx context.Context, collName string) (
 	}
 }
 
+// decodeNext decodes the document iter is currently positioned on, captures
+// its resume token, and normalizes it into a ChangeEvent. On decode or
+// normalize failure it logs a warning and returns ok=false so the caller can
+// skip this document without aborting the surrounding batch — the same
+// skip-and-continue behavior as before batching was introduced.
+//
+// The resume token is read via iter.ResumeToken() immediately after Decode,
+// matching the token to the document that was just consumed.
+func (c *MongoDBConnector) decodeNext(collName string, iter ChangeStreamIter) (ev *event.ChangeEvent, token bson.Raw, ok bool) {
+	var rawDoc bson.Raw
+	if decErr := iter.Decode(&rawDoc); decErr != nil {
+		slog.Warn("mongodb: decode change stream doc", "collection", collName, "error", decErr)
+		return nil, nil, false
+	}
+
+	token = iter.ResumeToken()
+
+	ev, normErr := mongoparser.NormalizeChangeEvent(rawDoc, c.cfg.SourceID, c.idGen)
+	if normErr != nil {
+		slog.Warn("mongodb: normalize change event", "collection", collName, "error", normErr)
+		return nil, token, false
+	}
+	return ev, token, true
+}
+
 // consumeStream iterates over events from iter until iter is exhausted, the
 // context is cancelled, or an InvalidResumeToken error occurs.
+//
+// Batching (perf): each outer iteration blocks on Next for the first event,
+// then greedily drains any further ALREADY-buffered events via the
+// non-blocking TryNext (capped at maxChangeStreamBatchSize) before flushing
+// the whole batch through a single AppendAndQueueBatch call. This amortizes
+// the EventLog's per-Append fsync (LOG-01) across many events instead of
+// paying it once per event — the same fix already applied to the Postgres
+// WAL path (see postgres.receiveLoop's flushWALBuf).
+//
+// TryNext still issues a network round-trip ("getMore") when its internal
+// buffer is empty, so the drain loop is only entered after a successful
+// blocking Next, and it flushes immediately on the first empty TryNext
+// rather than waiting or retrying for more. At low event rates this
+// degenerates to exactly today's per-event batches of size 1, with no added
+// latency and no extra getMore traffic.
+//
+// See the package doc comment for the CHK-01 batch-granularity change this
+// introduces (resume token saved once per batch, not once per event).
 func (c *MongoDBConnector) consumeStream(ctx context.Context, collName string, iter ChangeStreamIter) (needsSnapshot bool, err error) {
 	for iter.Next(ctx) {
-		var rawDoc bson.Raw
-		if decErr := iter.Decode(&rawDoc); decErr != nil {
-			slog.Warn("mongodb: decode change stream doc", "collection", collName, "error", decErr)
-			continue
+		batch := make([]*event.ChangeEvent, 0, 1)
+		var lastToken bson.Raw
+
+		if ev, token, ok := c.decodeNext(collName, iter); ok {
+			batch = append(batch, ev)
+			lastToken = token
 		}
 
-		token := iter.ResumeToken()
-
-		ev, normErr := mongoparser.NormalizeChangeEvent(rawDoc, c.cfg.SourceID, c.idGen)
-		if normErr != nil {
-			slog.Warn("mongodb: normalize change event", "collection", collName, "error", normErr)
-			continue
+		for len(batch) < maxChangeStreamBatchSize && iter.TryNext(ctx) {
+			ev, token, ok := c.decodeNext(collName, iter)
+			if !ok {
+				continue
+			}
+			batch = append(batch, ev)
+			lastToken = token
 		}
 
-		if aqErr := c.AppendAndQueue(ctx, ev, token); aqErr != nil {
-			return false, aqErr
+		if len(batch) > 0 {
+			if aqErr := c.AppendAndQueueBatch(ctx, batch, lastToken); aqErr != nil {
+				return false, aqErr
+			}
 		}
 	}
 
