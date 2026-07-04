@@ -32,7 +32,16 @@ func buildTableFilters(tables map[string]config.TableConfig) (
 	return rowFilters, colFilters, nil
 }
 
-func buildBackfillConfigs(tables map[string]config.TableConfig, sourceID string) []backfill.BackfillConfig {
+// buildBackfillConfigs assembles one BackfillConfig per table. pkCols must
+// hold the real, discovered primary-key columns for every key in tables
+// (see discoverPrimaryKeys) — this function does no discovery itself and
+// trusts the caller; production wiring in runPipeline fails fast before
+// calling this if discovery found a table with no primary key.
+func buildBackfillConfigs(
+	tables map[string]config.TableConfig,
+	sourceID string,
+	pkCols map[string][]string,
+) []backfill.BackfillConfig {
 	configs := make([]backfill.BackfillConfig, 0, len(tables))
 	for tableKey := range tables {
 		schema, table := "", tableKey
@@ -44,7 +53,7 @@ func buildBackfillConfigs(tables map[string]config.TableConfig, sourceID string)
 			Schema:        schema,
 			Table:         table,
 			Strategy:      "snapshot_and_stream",
-			PKCols:        []string{"id"},
+			PKCols:        pkCols[tableKey],
 			NumPartitions: numEventLogPartitions,
 		})
 	}

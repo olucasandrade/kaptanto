@@ -2,17 +2,30 @@
 // that publishes CDC events to Google Cloud Pub/Sub using the pubsub/v2 client library.
 //
 // Key design decisions:
-//   - CHK-01 (Durability): Deliver calls result.Get(ctx), which blocks until the
-//     Pub/Sub server acknowledges the publish. The router's cursor is NOT advanced
-//     until result.Get returns nil, preserving at-least-once delivery.
+//   - CHK-01 (Durability): Deliver calls the non-blocking pub.Publish and only
+//     buffers the returned PublishResult in memory; result.Get(ctx) — which
+//     blocks until the Pub/Sub server acknowledges the publish — is called by
+//     FlushBatch, invoked by the Router once per ReadPartition batch. The
+//     Router does not persist this consumer's cursor at Deliver time — it
+//     records a provisional advance and promotes it to the durable cursor
+//     only after FlushBatch returns nil. A FlushBatch failure discards the
+//     provisional advance, so the Router re-reads and re-delivers the same
+//     batch (after a backoff) instead of losing it — see router.BatchFlusher
+//     and internal/router/router.go.
 //   - DLV-02 (Per-key ordering): OrderingKey is set to string(entry.Event.Key) (the CDC
 //     primary key bytes). EnableMessageOrdering=true routes messages with the same key
 //     to the same ordering group, giving per-key ordering.
 //   - DLV-04 (Idempotency attribute): Every message carries a "Kaptanto-Idempotency-Key"
 //     attribute set to entry.Event.IdempotencyKey, enabling downstream deduplication.
-//   - DLV-03 (No internal retry): On publish failure, Deliver calls ResumePublish if the
-//     error is ErrPublishingPaused, then returns a non-nil error immediately. Retry is
-//     the RetryScheduler's responsibility.
+//     This also covers batches re-delivered after a FlushBatch failure, so
+//     messages the broker already committed before the failure are
+//     deduplicated downstream rather than silently lost or double-applied.
+//   - DLV-03 (No internal retry): On an encoding/resolution error Deliver
+//     returns a non-nil error immediately. On a publish/ack failure,
+//     FlushBatch calls ResumePublish if the error is ErrPublishingPaused,
+//     then returns a non-nil error. Neither retries internally — retry (with
+//     NextDelay backoff for FlushBatch failures) is the Router's
+//     responsibility.
 //   - CGO-free: cloud.google.com/go/pubsub/v2 is a pure Go client; CGO_ENABLED=0 is safe.
 //   - Per-table topic routing: When TopicTemplate is set, Deliver evaluates the template
 //     against entry.Event per-message and routes to the resolved topic's publisher. A lazy

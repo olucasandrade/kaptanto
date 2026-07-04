@@ -4,15 +4,27 @@
 // Key design decisions:
 //   - NATSSinkConsumer connects to a user-configured external NATS URL, never
 //     reusing the embedded eventlog connection.
-//   - Deliver blocks until js.PublishMsg returns a PubAck, preserving CHK-01:
-//     the router's cursor does not advance until the broker has confirmed the write.
+//   - CHK-01 (Durability): Deliver only buffers a message in memory and returns
+//     immediately; the actual PublishMsgAsync + PubAck wait happens in
+//     FlushBatch, called by the Router once per ReadPartition batch. The Router
+//     does not persist this consumer's cursor at Deliver time — it records a
+//     provisional advance and promotes it to the durable cursor only after
+//     FlushBatch returns nil. A FlushBatch failure discards the provisional
+//     advance, so the Router re-reads and re-delivers the same batch (after a
+//     backoff) instead of losing it — see router.BatchFlusher and
+//     internal/router/router.go.
 //   - Every published message includes a "Kaptanto-Idempotency-Key" header set
-//     to entry.Event.IdempotencyKey (DLV-04).
+//     to entry.Event.IdempotencyKey (DLV-04); this also covers batches
+//     re-delivered after a FlushBatch failure, so messages the broker already
+//     committed before the failure are deduplicated downstream rather than
+//     silently lost or double-applied.
 //   - The NATS subject is derived by executing a Go template against the ChangeEvent
 //     at deliver time (DLV-02 subject routing); per-key delivery ordering is an
 //     RTR-04 router guarantee, not a NATS JetStream feature.
-//   - On publish failure Deliver returns a non-nil error; retry is the RetryScheduler's
-//     responsibility — NATSSinkConsumer never retries internally (DLV-03).
+//   - DLV-03 (No internal retry): On a template/encoding error Deliver returns
+//     a non-nil error immediately; on a publish/ack error FlushBatch returns a
+//     non-nil error. Neither retries internally — retry (with NextDelay backoff
+//     for FlushBatch failures) is the Router's responsibility.
 //   - If StreamName is set in config, NewNATSSinkConsumer validates the stream exists
 //     and returns a clear error immediately if it does not (fail-fast).
 package natssink
