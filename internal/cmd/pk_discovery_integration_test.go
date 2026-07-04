@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/olucasandrade/kaptanto/internal/config"
@@ -26,10 +27,7 @@ func TestDiscoverPrimaryKeys_Integration(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
+	conn := connectWithPingRetry(t, ctx, dsn)
 	defer func() { _ = conn.Close(ctx) }()
 
 	const (
@@ -127,4 +125,37 @@ func TestDiscoverPrimaryKeys_Integration(t *testing.T) {
 			t.Fatalf("order_items PK = %v, want [order_id line_no]", result[orderItemsTbl])
 		}
 	})
+}
+
+// connectWithPingRetry connects to Postgres and verifies the connection with
+// a Ping, retrying the connect+ping pair a few times on failure. This CI
+// environment's freshly-started Postgres container has, on this test, been
+// observed to accept a connection successfully (pgx.Connect returns no
+// error) that is then immediately unusable (`conn closed` on the first
+// query) even though the server's own log shows nothing wrong — a transient
+// condition in the container/network handshake, not the database itself.
+// This mirrors the readiness-retry pattern already used for RabbitMQ/MongoDB
+// startup elsewhere in this repo's CI workflows.
+func connectWithPingRetry(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
+	t.Helper()
+
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			lastErr = err
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		if pingErr := conn.Ping(ctx); pingErr != nil {
+			lastErr = pingErr
+			_ = conn.Close(ctx)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		return conn
+	}
+	t.Fatalf("connect (with ping) after %d attempts: %v", maxAttempts, lastErr)
+	return nil
 }
