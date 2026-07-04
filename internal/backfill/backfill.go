@@ -159,9 +159,22 @@ type AppendFn func(ctx context.Context, ev *event.ChangeEvent) error
 // connector.AppendAndQueueBatch. In tests it can be a fake.
 type AppendBatchFn func(ctx context.Context, evs []*event.ChangeEvent) error
 
-// OpenConnFn opens a pgx.Conn for snapshot SELECT queries. The backfill engine
-// is NOT allowed to use the replication connection.
-type OpenConnFn func(ctx context.Context) (*pgx.Conn, error)
+// SnapshotConn is the minimal surface snapshotTable needs from a Postgres
+// connection: row-estimate/WAL-LSN lookups (QueryRow) and the paged keyset
+// SELECT (Query), plus Close to release the connection when the snapshot
+// loop finishes. *pgx.Conn satisfies this interface, so production callers
+// (OpenConnFn) pass it through unchanged; tests can substitute a fake to
+// exercise pagination, watermark checks, and flush/persist ordering without
+// a live database.
+type SnapshotConn interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Close(ctx context.Context) error
+}
+
+// OpenConnFn opens a connection for snapshot SELECT queries. The backfill
+// engine is NOT allowed to use the replication connection (SRC-01).
+type OpenConnFn func(ctx context.Context) (SnapshotConn, error)
 
 // BackfillEngineImpl is the production BackfillEngine. It receives its
 // dependencies at construction time and implements the full keyset-cursor

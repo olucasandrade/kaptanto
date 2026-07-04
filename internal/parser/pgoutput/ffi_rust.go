@@ -12,7 +12,9 @@ import "C"
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"unsafe"
 
 	"github.com/jackc/pglogrepl"
@@ -70,10 +72,19 @@ func encodeSchema(rel *pglogrepl.RelationMessageV2) []byte {
 // decodeAndSerializeRow encodes the column tuple as length-prefixed binary,
 // calls kaptanto_decode_serialize in Rust, and returns the resulting JSON bytes.
 // One CGO call per DML operation — not per column.
+//
+// TOAST merge (matches decodeColumns' semantics exactly, see types.go): the
+// Rust decoder has no concept of a previous row, so every unchanged-TOAST
+// ('u') column always comes back as JSON null. When cols contains at least
+// one such column, mergeToastColumns re-homes prevRow's cached value onto
+// the decoded result (or removes the null placeholder key entirely if
+// prevRow has no cached value for it) as a Go-side post-processing pass —
+// no Rust/CGO surface change required. The common case (no TOAST columns in
+// this tuple) skips the unmarshal/re-marshal round trip entirely.
 func decodeAndSerializeRow(
 	rel *pglogrepl.RelationMessageV2,
 	cols []*pglogrepl.TupleDataColumn,
-	prevRow map[string]any, // unused in Rust path; TOAST resolved via Rust cache
+	prevRow map[string]any,
 ) ([]byte, error) {
 	colBytes := encodeColumns(cols)
 	schemaBytes := encodeSchema(rel)
@@ -97,7 +108,55 @@ func decodeAndSerializeRow(
 	}
 	result := C.GoBytes(unsafe.Pointer(ptr), C.int(outLen))
 	C.kaptanto_free_buf(ptr, outLen)
-	return result, nil
+
+	if !hasToastColumn(cols) {
+		return result, nil
+	}
+	return mergeToastColumns(rel, cols, prevRow, result)
+}
+
+// hasToastColumn reports whether cols contains at least one unchanged-TOAST
+// ('u') column, the only case decodeAndSerializeRow needs the Go-side merge
+// post-processing pass for.
+func hasToastColumn(cols []*pglogrepl.TupleDataColumn) bool {
+	for _, col := range cols {
+		if col.DataType == pglogrepl.TupleDataTypeToast {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeToastColumns applies decodeColumns' TOAST-merge semantics (types.go)
+// to a JSON row Rust already decoded: for every column whose wire DataType
+// is the unchanged-TOAST marker, prevRow's cached value replaces the null
+// Rust always emits for it, or — if prevRow has no cached value for that
+// column — the key is removed entirely (decodeColumns omits it rather than
+// leaving a stray null).
+func mergeToastColumns(
+	rel *pglogrepl.RelationMessageV2,
+	cols []*pglogrepl.TupleDataColumn,
+	prevRow map[string]any,
+	decoded []byte,
+) ([]byte, error) {
+	var row map[string]any
+	if err := json.Unmarshal(decoded, &row); err != nil {
+		return nil, fmt.Errorf("rust: unmarshal decoded row for TOAST merge: %w", err)
+	}
+	for i, col := range cols {
+		if col.DataType != pglogrepl.TupleDataTypeToast || i >= len(rel.Columns) {
+			continue
+		}
+		name := rel.Columns[i].Name
+		if prevRow != nil {
+			if v, ok := prevRow[name]; ok {
+				row[name] = v
+				continue
+			}
+		}
+		delete(row, name)
+	}
+	return json.Marshal(row)
 }
 
 // newToastCache allocates a Rust-owned TOAST cache and returns an opaque handle.
