@@ -2,7 +2,7 @@ name: Rust FFI Test
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
     paths:
       - "rust/**"
       - "internal/parser/pgoutput/**"
