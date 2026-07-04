@@ -2,7 +2,7 @@ name: Workflow SAST
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
     paths:
       - ".github/**"
   pull_request:
