@@ -186,7 +186,7 @@ func NewRabbitMQSinkConsumer(id string, cfg config.RabbitMQSinkConfig) (*RabbitM
 	}
 
 	// 5. Start reconnect goroutine.
-	go c.reconnectLoop(ctx, cfg.URL, tlsCfg)
+	go c.reconnectLoop(ctx, conn, cfg.URL, tlsCfg)
 
 	return c, nil
 }
@@ -386,11 +386,13 @@ func (c *RabbitMQSinkConsumer) Close() {
 // reconnectLoop watches for connection drops and re-dials with exponential
 // backoff (initial=1s, max=30s, +50% jitter). It runs as a background goroutine
 // started by NewRabbitMQSinkConsumer and is stopped when Close() cancels ctx.
-func (c *RabbitMQSinkConsumer) reconnectLoop(ctx context.Context, url string, tlsCfg *tls.Config) {
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
-
+//
+// conn is the connection dialed by NewRabbitMQSinkConsumer, passed directly
+// rather than re-read from c.conn: if Close() runs before this goroutine gets
+// scheduled, c.conn is already nil, and re-reading it here would register
+// NotifyClose on a nil *amqp.Connection and panic (observed as a nil-pointer
+// SIGSEGV in CI, where scheduling timing made the race visible).
+func (c *RabbitMQSinkConsumer) reconnectLoop(ctx context.Context, conn *amqp.Connection, url string, tlsCfg *tls.Config) {
 	// Obtain initial close-notification channel.
 	notifyClose := conn.NotifyClose(make(chan *amqp.Error, 1))
 
