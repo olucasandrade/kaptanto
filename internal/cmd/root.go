@@ -416,7 +416,34 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		bkStore = sqliteBkStore
 	}
 
-	bkConfigs := buildBackfillConfigs(cfg.Tables, connCfg.SourceID)
+	// Discover each table's real primary-key columns before building backfill
+	// configs — hardcoding "id" breaks any table whose PK isn't named "id",
+	// silently mispaginates non-unique "id" columns, and can never
+	// byte-match a composite-PK WAL key for BKF-02 watermark suppression.
+	//
+	// SRC-01: this uses its own short-lived pgx.Conn (connect, discover,
+	// close), never the replication connection and never openConnFn's
+	// lazily-opened snapshot connection below.
+	var bkPKCols map[string][]string
+	if len(cfg.Tables) > 0 {
+		pkCtx, pkCancel := context.WithTimeout(ctx, 10*time.Second)
+		pkConn, err := pgx.Connect(pkCtx, cfg.Source)
+		if err != nil {
+			pkCancel()
+			return fmt.Errorf("backfill: connect for primary-key discovery: %w", err)
+		}
+		bkPKCols, err = discoverPrimaryKeys(pkCtx, pkConn, cfg.Tables)
+		closeErr := pkConn.Close(context.Background())
+		pkCancel()
+		if err != nil {
+			return fmt.Errorf("backfill: %w", err)
+		}
+		if closeErr != nil {
+			slog.Warn("backfill: close primary-key discovery connection", "err", closeErr)
+		}
+	}
+
+	bkConfigs := buildBackfillConfigs(cfg.Tables, connCfg.SourceID, bkPKCols)
 	openConnFn := func(ctx context.Context) (backfill.SnapshotConn, error) {
 		return pgx.Connect(ctx, cfg.Source)
 	}

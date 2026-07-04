@@ -62,6 +62,17 @@ func (r *recordingCursorStore) LoadCursor(_ context.Context, consumerID string, 
 	return v, nil
 }
 
+// lastSaved returns the last seq SaveCursor was called with for
+// (consumerID, partitionID), and whether SaveCursor was ever called at all
+// for that key — distinguishing "never saved" from "saved value 1" in a way
+// LoadCursor's RTR-03 default (1) cannot.
+func (r *recordingCursorStore) lastSaved(consumerID string, partitionID uint32) (uint64, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.data[r.key(consumerID, partitionID)]
+	return v, ok
+}
+
 // maxSeq returns the highest seq ever passed to SaveCursor for
 // (consumerID, partitionID), across the entire call history — used to prove
 // the persisted cursor never transiently exceeded a floor, even though the
