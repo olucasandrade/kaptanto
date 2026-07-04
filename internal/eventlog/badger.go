@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"sync"
 	"time"
 
 	badger "github.com/dgraph-io/badger/v4"
@@ -25,6 +26,10 @@ type BadgerEventLog struct {
 	numPartitions uint32
 	retention     time.Duration
 	notifyChs     []chan struct{} // one depth-1 buffered channel per partition
+
+	obsMu     sync.RWMutex
+	observers map[int]AppendObserver // keyed by monotonically increasing id for stable unregister
+	nextObsID int
 }
 
 // Open creates or reopens a BadgerEventLog at dir.
@@ -76,7 +81,46 @@ func Open(dir string, numPartitions uint32, retention time.Duration) (*BadgerEve
 		numPartitions: numPartitions,
 		retention:     retention,
 		notifyChs:     notifyChs,
+		observers:     make(map[int]AppendObserver),
 	}, nil
+}
+
+// RegisterObserver implements AppendObservable. obs is called synchronously,
+// after the durable write commits, on every future Append/AppendBatch that
+// writes at least one non-duplicate event — including calls already in
+// flight when RegisterObserver is invoked, since registration and the
+// observer dispatch loop both hold obsMu (see notifyObservers).
+func (b *BadgerEventLog) RegisterObserver(obs AppendObserver) (unregister func()) {
+	b.obsMu.Lock()
+	id := b.nextObsID
+	b.nextObsID++
+	b.observers[id] = obs
+	b.obsMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			b.obsMu.Lock()
+			delete(b.observers, id)
+			b.obsMu.Unlock()
+		})
+	}
+}
+
+// notifyObservers dispatches evs/seqs (already filtered to non-duplicates by
+// the caller) to every registered observer, synchronously and in the calling
+// goroutine — this is what makes RegisterObserver's "sees every future
+// commit" guarantee hold: the write is durable in Badger before this runs,
+// and this runs before Append/AppendBatch returns.
+func (b *BadgerEventLog) notifyObservers(evs []*event.ChangeEvent, seqs []uint64) {
+	if len(evs) == 0 {
+		return
+	}
+	b.obsMu.RLock()
+	defer b.obsMu.RUnlock()
+	for _, obs := range b.observers {
+		obs.ObserveAppend(evs, seqs)
+	}
 }
 
 // NotifyCh returns the read-only notify channel for the given partition.
@@ -172,6 +216,11 @@ func (b *BadgerEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 	// slow reader never stalls the writer (CHK-01 preserved).
 	b.notify(partition)
 
+	// Notify observers (e.g. WatermarkChecker's index) synchronously, after
+	// the durable commit and before returning, so registered observers never
+	// miss an event (see AppendObserver's documented contract).
+	b.notifyObservers([]*event.ChangeEvent{ev}, []uint64{seq})
+
 	return seq, nil
 }
 
@@ -252,13 +301,25 @@ func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error)
 	// Pulse notify channels for every partition that received at least one new
 	// (non-duplicate) event. Coalescing via the depth-1 buffer means we call
 	// notify at most once per partition regardless of how many events landed there.
+	// Also collect the non-duplicate subset to hand to observers (LOG-03: seq==0
+	// marks a duplicate that was silently skipped and must not be observed).
 	notified := make(map[uint32]bool, len(items))
+	writtenEvs := make([]*event.ChangeEvent, 0, len(evs))
+	writtenSeqs := make([]uint64, 0, len(evs))
 	for i, item := range items {
-		if seqs[i] != 0 && !notified[item.partition] {
-			b.notify(item.partition)
-			notified[item.partition] = true
+		if seqs[i] != 0 {
+			if !notified[item.partition] {
+				b.notify(item.partition)
+				notified[item.partition] = true
+			}
+			writtenEvs = append(writtenEvs, evs[i])
+			writtenSeqs = append(writtenSeqs, seqs[i])
 		}
 	}
+
+	// Notify observers synchronously, after the durable commit and before
+	// returning (see AppendObserver's documented contract).
+	b.notifyObservers(writtenEvs, writtenSeqs)
 
 	return seqs, nil
 }

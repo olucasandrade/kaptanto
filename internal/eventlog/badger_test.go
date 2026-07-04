@@ -609,3 +609,126 @@ func TestBadgerEventLog_ConcurrentAppendDuringTTLExpiry(t *testing.T) {
 		}
 	}
 }
+
+// recordingObserver implements eventlog.AppendObserver and records every call
+// it receives, guarded by a mutex so it is safe to inspect from the test
+// goroutine after concurrent Append/AppendBatch calls.
+type recordingObserver struct {
+	mu    sync.Mutex
+	calls [][]string // one entry per ObserveAppend call: the idempotency keys observed
+}
+
+func (r *recordingObserver) ObserveAppend(evs []*event.ChangeEvent, seqs []uint64) {
+	if len(evs) != len(seqs) {
+		panic("ObserveAppend: evs/seqs length mismatch")
+	}
+	keys := make([]string, len(evs))
+	for i, ev := range evs {
+		if seqs[i] == 0 {
+			panic("ObserveAppend must never be called with the duplicate sentinel seq=0")
+		}
+		keys[i] = ev.IdempotencyKey
+	}
+	r.mu.Lock()
+	r.calls = append(r.calls, keys)
+	r.mu.Unlock()
+}
+
+func (r *recordingObserver) allKeys() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, c := range r.calls {
+		out = append(out, c...)
+	}
+	return out
+}
+
+// TestBadgerEventLog_RegisterObserver_SyncBeforeReturn verifies the
+// AppendObserver contract that WatermarkChecker's indexed watermark path
+// depends on: a registered observer is called synchronously — with the
+// non-duplicate event(s) — before Append/AppendBatch returns, and duplicates
+// (seq==0) are never handed to the observer (LOG-03).
+func TestBadgerEventLog_RegisterObserver_SyncBeforeReturn(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	obs := &recordingObserver{}
+	unregister := el.RegisterObserver(obs)
+
+	ev1 := makeEvent("src:public.t:1:insert:0/1", `{"id": 1}`)
+	_, err = el.Append(ev1)
+	require.NoError(t, err)
+
+	evs := []*event.ChangeEvent{
+		makeEvent("src:public.t:2:insert:0/2", `{"id": 2}`),
+		makeEvent("src:public.t:3:insert:0/3", `{"id": 3}`),
+	}
+	_, err = el.AppendBatch(evs)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{ev1.IdempotencyKey, evs[0].IdempotencyKey, evs[1].IdempotencyKey}, obs.allKeys(),
+		"observer must see every non-duplicate event from Append and AppendBatch")
+
+	// A duplicate Append/AppendBatch must not be observed (seq==0 events are
+	// filtered before notifyObservers).
+	_, err = el.Append(ev1)
+	require.NoError(t, err)
+	_, err = el.AppendBatch(evs)
+	require.NoError(t, err)
+	assert.Len(t, obs.allKeys(), 3, "duplicate appends must not generate additional observer calls")
+
+	// After unregistering, further appends must not reach the observer.
+	unregister()
+	ev4 := makeEvent("src:public.t:4:insert:0/4", `{"id": 4}`)
+	_, err = el.Append(ev4)
+	require.NoError(t, err)
+	assert.Len(t, obs.allKeys(), 3, "unregistered observer must not receive further calls")
+
+	// Calling unregister a second time must be a safe no-op.
+	unregister()
+}
+
+// TestBadgerEventLog_RegisterObserver_ConcurrentAppendAndUnregister exercises
+// RegisterObserver's synchronization under -race: concurrent Append/AppendBatch
+// calls notifying observers while another goroutine registers/unregisters.
+func TestBadgerEventLog_RegisterObserver_ConcurrentAppendAndUnregister(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		i := 0
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			ev := makeEvent(fmt.Sprintf("src:public.t:%d:insert:0/%d", i, i), fmt.Sprintf(`{"id": %d}`, i))
+			_, err := el.Append(ev)
+			assert.NoError(t, err)
+			i++
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			obs := &recordingObserver{}
+			unregister := el.RegisterObserver(obs)
+			unregister()
+		}
+	}()
+
+	time.Sleep(30 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}
