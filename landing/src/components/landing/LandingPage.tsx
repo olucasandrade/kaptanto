@@ -24,7 +24,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">latency</div>
             <h3>Low-latency streaming</h3>
             <p>
-              Events flow from the WAL as each transaction commits. Burst p50 latency: 1.2s at ~2.4k eps.
+              Events flow from the WAL as each transaction commits. Burst p50 latency: 2.3s at ~2.1k eps.
               No polling interval.
             </p>
           </div>
@@ -92,7 +92,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
         <div class="sl sr">Use Cases</div>
         <div class="stt sr">Built for event-driven pipelines at product scale.</div>
         <div class="sd sr">
-          Best fit: notification fan-out, search index sync, cache invalidation, audit trails. Up to ~3.6k eps large-batch throughput.
+          Best fit: notification fan-out, search index sync, cache invalidation, audit trails. Up to ~3.5k eps large-batch throughput.
         </div>
         <div class="fg sr">
           <div class="fc">
@@ -406,7 +406,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               </li>
               <li>Optional Rust FFI acceleration for pgoutput decoding and JSON serialization</li>
               <li>
-                Benchmark suite — Docker Compose harness vs. Debezium, Sequin, PeerDB across 4 scenarios
+                Benchmark suite — Docker Compose harness vs. Debezium, Sequin, PeerDB across 5 scenarios
               </li>
             </ul>
           </div>
