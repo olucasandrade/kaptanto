@@ -337,7 +337,46 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
         <div class="chlog sr">
           <div class="chver">
             <div class="chver-h">
-              <span class="chtag">v0.2.0</span>
+              <span class="chtag">v0.3.0</span>
+              <span class="chdate">Jul 2026</span>
+              <span class="chname">Security & Correctness</span>
+            </div>
+            <ul class="chlist">
+              <li>
+                Bearer-token authentication for the SSE and gRPC data plane —{' '}
+                <code>auth-token</code> config or <code>KAPTANTO_AUTH_TOKEN</code> env var, enforced
+                on every network output; <code>--insecure</code> opts out with a startup warning
+              </li>
+              <li>
+                Server-side TLS and mTLS for inbound SSE and gRPC (<code>server-tls</code>),
+                separate from per-sink outbound TLS
+              </li>
+              <li>
+                Postgres fails closed when no tables are configured — capturing everything now
+                requires an explicit <code>--all-tables</code> opt-in
+              </li>
+              <li>
+                Backfill correctness: real primary-key column discovery (no more assumed{' '}
+                <code>id</code>), quoted identifiers in snapshot SQL, WAL-canonical PK forms so
+                watermark hashes match (BKF-02)
+              </li>
+              <li>
+                Router correctness: cursor floor for blocked message groups, per-partition pending
+                buffers, per-consumer cursor gating (RTR-04)
+              </li>
+              <li>
+                Performance: raw-bytes fan-out passthrough (no per-consumer re-marshal),
+                event-driven dispatch replacing the 10 ms poll loop, batched MongoDB and backfill
+                appends
+              </li>
+              <li>
+                Log hygiene: DSN passwords and raw primary-key values redacted from all logs
+              </li>
+            </ul>
+          </div>
+          <div class="chver chver-old">
+            <div class="chver-h">
+              <span class="chtag chtag-old">v0.2.0</span>
               <span class="chdate">May 2026</span>
               <span class="chname">Queue Sinks</span>
             </div>
