@@ -29,7 +29,7 @@ const jsonLd = {
         'Universal change data capture for Postgres and MongoDB with real-time event streaming.',
       license: 'https://opensource.org/licenses/MIT',
       downloadUrl: 'https://get.kaptan.to',
-      softwareVersion: '0.2.0',
+      softwareVersion: '0.3.0',
     },
     {
       '@type': 'FAQPage',

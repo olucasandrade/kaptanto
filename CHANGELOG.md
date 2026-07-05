@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-04
+
+### Added
+
+#### Data-plane security
+- **Bearer-token authentication** for the SSE and gRPC data plane (`auth-token` config field or `KAPTANTO_AUTH_TOKEN` env var); enforced at startup for every network output, including sink-mode observability endpoints — `--insecure` opts out with a loud warning
+- **Server-side TLS / mTLS** for the inbound SSE and gRPC servers (`server-tls` YAML block), distinct from per-sink outbound TLS; incomplete client-CA-only configs are rejected at startup
+- Case-insensitive `Bearer` scheme handling; sink observability endpoints protected by the same middleware
+
+#### Source safety
+- Postgres source now **fails closed when no tables are configured**; capturing the whole database requires an explicit `--all-tables` opt-in
+
+### Fixed
+
+#### Router / delivery correctness
+- Consumer cursor persists only up to the lowest blocked-group floor, and follow-on events for blocked message groups are queued and drained inline instead of dropped or re-read (RTR-04)
+- `BatchFlusher` cursor advance deferred until the flush actually succeeds
+- Delivery gated by each consumer's own cursor; pending buffer scoped per partition to prevent cross-partition data loss
+- Retries delivered outside the scheduler lock
+
+#### Backfill / snapshot correctness
+- Snapshot discovers the table's real primary-key columns instead of assuming a column named `id`
+- Schema, table, and PK identifiers quoted in keyset snapshot SQL
+- Snapshot PK values normalized to WAL text form so watermark hashes match (BKF-02); watermark check pages through partitions instead of loading them whole
+- Cursor advances from the last scanned PK; sends to a nil EventLog block instead of silently dropping rows
+
+#### Parsing / key correctness
+- Unique idempotency key per change within a transaction (previously collided)
+- Primary-key canonicalization for `pgtype.Numeric`, `bytea`, UUID `[16]byte`, bool, and `timestamptz` values so WAL and snapshot forms agree
+- Nil-tuple guards in pgoutput insert/update/delete handlers
+- `--tables` splits on commas as documented
+
+#### Security hardening
+- DSN passwords — including query-parameter form — redacted from startup logs and HA errors
+- Raw primary-key values and idempotency keys removed from delivery-failure and dead-letter logs
+- Data directory created with `0700`; HTTP server timeouts set on SSE and observability endpoints; SSE CORS locked down by default with a configurable allowed origin
+
+### Performance
+
+- Raw-bytes passthrough on fan-out: events are no longer re-marshaled per consumer (EventLog → outputs)
+- Router dispatch: 10 ms poll loop replaced with event-driven notify (500 ms fallback); per-event allocations eliminated
+- Backfill: snapshot row appends batched to amortise fsync cost; watermark scan replaced with an indexed lookup (was O(rows × events)); per-row field/PK work hoisted out of the loop
+- MongoDB: change-stream appends batched into the EventLog
+- Queue sinks: publishes batched via the `BatchFlusher` interface; SSE consumer drops redundant cursor persistence; column-filter allow-set precomputed per consumer
+
+### Infrastructure
+
+- CI strictness: golangci-lint standard suite with gocyclo 25, dedicated race-detector job, 70% coverage gate with per-package floors, mutation-test efficacy ratchet at 60%
+- Security scanning is now blocking: CodeQL, zizmor, cargo-audit; GitHub Actions SHA-pinned; dependency bumps for CVEs (`golang.org/x/net`, `pgx/v5`)
+- New e2e crash/restart durability, backfill race, and SSE coverage; Rust FFI tests wired into CI; integration suite skip-detection canaries and RabbitMQ round-trip
+- Landing page CI gate (lint/typecheck/build + smoke tests), site-wide security headers, live GitHub star count, benchmark report refreshed from the July 2026 clean runs
+- Benchmark harness fixes: idempotent NATS stream pre-creation, statsd RSS collection, stack lifecycle owned by `cmd/scenarios`
+
 ## [0.2.0] - 2026-05-30
 
 ### Added
