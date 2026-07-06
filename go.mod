@@ -27,7 +27,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.44.0
 	github.com/rabbitmq/amqp091-go v1.12.0
 	github.com/spf13/pflag v1.0.10
-	github.com/twmb/franz-go v1.21.3
+	github.com/twmb/franz-go v1.21.4
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260504210720-963be6fd5989
 	golang.org/x/sync v0.21.0
 	google.golang.org/api v0.286.0
