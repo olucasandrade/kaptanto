@@ -18,14 +18,13 @@ func TestCompileUnknownLanguage(t *testing.T) {
 	require.Contains(t, err.Error(), "jq")
 }
 
-func TestCompileJQNotRegistered(t *testing.T) {
+func TestCompileJQSuccess(t *testing.T) {
 	t.Parallel()
 
-	_, err := Compile(LangJQ, ".table")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "jq engine not registered")
-	require.Contains(t, err.Error(), "go-template")
-	require.Contains(t, err.Error(), "jq")
+	eng, err := Compile(LangJQ, ".table")
+	require.NoError(t, err)
+	require.NotNil(t, eng)
+	require.Equal(t, LangJQ, eng.Language())
 }
 
 func TestCompileGoTemplateSuccess(t *testing.T) {

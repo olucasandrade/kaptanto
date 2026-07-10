@@ -16,8 +16,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/event"
 )
 
-// Supported transform languages. Only registered engines can be compiled;
-// "jq" is allowlisted for G1-03 but not registered until that issue lands.
+// Supported transform languages. Only registered engines can be compiled.
 const (
 	LangGoTemplate = "go-template"
 	LangJQ         = "jq"
@@ -39,21 +38,18 @@ type Engine interface {
 // compilerFunc parses an expression into an Engine.
 type compilerFunc func(expression string) (Engine, error)
 
-// compilers maps language name → compile function. Only go-template is
-// registered here; jq is added by G1-03.
+// compilers maps language name → compile function.
 var compilers = map[string]compilerFunc{
 	LangGoTemplate: compileGoTemplate,
+	LangJQ:         compileJQ,
 }
 
 // allowlist is the set of languages Compile accepts by name. Unknown
-// language errors always name this list. Languages may appear here before
-// their engine is registered (e.g. jq until G1-03).
+// language errors always name this list.
 var allowlist = []string{LangGoTemplate, LangJQ}
 
 // Compile parses expression for the given language ("jq" | "go-template").
 // Unknown language or parse failure => error (TRF-01, startup-fatal for callers).
-// When language is "jq" and the engine is not yet registered, Compile returns
-// an error that names the allowlist.
 func Compile(language, expression string) (Engine, error) {
 	fn, ok := compilers[language]
 	if !ok {
@@ -63,11 +59,7 @@ func Compile(language, expression string) (Engine, error) {
 }
 
 func unsupportedLanguageError(language string) error {
-	names := allowlistNames()
-	if language == LangJQ {
-		return fmt.Errorf("jq engine not registered; supported languages: %s", names)
-	}
-	return fmt.Errorf("unknown transform language %q; supported languages: %s", language, names)
+	return fmt.Errorf("unknown transform language %q; supported languages: %s", language, allowlistNames())
 }
 
 func allowlistNames() string {
