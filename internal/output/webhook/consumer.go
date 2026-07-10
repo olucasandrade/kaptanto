@@ -3,6 +3,7 @@
 // webhook endpoint.
 //
 // Key design decisions:
+//
 //   - CHK-01 (Durability): Deliver only buffers a pendingReq in memory and
 //     returns immediately; the actual HTTP call happens in FlushBatch, called
 //     by the Router once per ReadPartition batch. The Router does not persist
@@ -11,29 +12,48 @@
 //     A FlushBatch failure discards the provisional advance, so the Router
 //     re-reads and re-delivers the same batch (after a backoff) instead of
 //     losing it — see router.BatchFlusher and internal/router/router.go.
+//
 //   - DLV-02 (Per-key ordering): FlushBatch sends requests sequentially in
 //     buffer order for a single partition. A URL change starts a new chunk;
 //     events are never reordered across URLs. First error aborts the flush so
 //     ordering holds across re-delivery.
+//
 //   - DLV-04 (Idempotency header): Single-event mode stamps every request with
-//     X-Kaptanto-Idempotency-Key set to entry.Event.IdempotencyKey. Batch mode
-//     omits the header — each event's idempotency_key field is inside the JSON
-//     array. Downstream receivers deduplicate re-delivered batches by this key.
-//   - DLV-03 (No internal retry): On a template/encoding error Deliver returns
+//     X-Kaptanto-Idempotency-Key set to entry.Event.IdempotencyKey (including
+//     when a transform reshaped the body). Batch mode always stamps
+//     X-Kaptanto-Idempotency-Keys with the comma-joined keys in chunk order.
+//     Downstream receivers deduplicate re-delivered batches by these keys.
+//
+//   - DLV-03 (No internal retry): On a transform/encoding error Deliver returns
 //     a non-nil error immediately; on an HTTP error FlushBatch returns a
 //     non-nil error. Neither retries internally — retry (with NextDelay
 //     backoff for FlushBatch failures) is the Router's responsibility. The
 //     only time knob is the per-request timeout (default 30s).
-//   - WHK-01 (2xx-only success): Only HTTP status codes in [200, 300) advance
-//     the cursor. 3xx/4xx/5xx/timeout/conn-error all return an error from
-//     FlushBatch. 429 is an ordinary failure.
+//
+//     Batch poison isolation (max-events > 1): when an ARRAY chunk receives a
+//     3xx/other-4xx response, FlushBatch re-sends that chunk one-request-per-
+//     event in order within the same call so the poison seq can be identified.
+//     This is error isolation, NOT retry — after a transient individual failure
+//     during isolation, FlushBatch aborts immediately and must NEVER continue
+//     re-sending the remaining events of that chunk.
+//
+//   - WHK-01 (Response classification): 2xx advances the cursor. 408, 429, 5xx,
+//     network errors, timeouts, and context deadlines are transient (plain
+//     error). 3xx and other 4xx are poison (&router.PermanentFlushError).
+//
 //   - WHK-02 (No redirects): http.Client.CheckRedirect returns
 //     http.ErrUseLastResponse so 3xx responses are never followed and hit the
-//     non-2xx error path.
+//     poison classification path.
+//
 //   - WHK-03 (Signature over exact body bytes): When signing.secret is set,
 //     X-Kaptanto-Signature is HMAC-SHA256 over t + "." + the exact request
-//     body bytes after batching/array join (Stripe-style header format).
-//   - CGO-free: stdlib only (net/http, crypto/hmac, text/template);
+//     body bytes on the wire (post-transform, after batching/array join).
+//
+//   - TRF-01 / TRF-02: payload-template and transform.* compile at startup via
+//     transform.Compile; drop results are not buffered (cursor advances with
+//     the next successful flush).
+//
+//   - CGO-free for the sink itself (gojq lives in internal/transform);
 //     CGO_ENABLED=0 is safe.
 package webhooksink
 
@@ -60,6 +80,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/router"
+	"github.com/olucasandrade/kaptanto/internal/transform"
 )
 
 // Compile-time assertion: WebhookSinkConsumer must implement router.Consumer.
@@ -82,7 +103,7 @@ type WebhookSinkConsumer struct {
 	client   *http.Client       // shared; Transport carries TLS from buildTLSConfig
 	url      string             // static URL (env-expanded); used when urlT is nil
 	urlT     *template.Template // nil when url-template unset
-	payloadT *template.Template // nil when payload-template unset
+	engine   transform.Engine   // nil when no transform / payload-template
 	method   string
 	headers  map[string]string // already env-expanded
 	authHdr  string            // precomputed "Bearer …" or "Basic …"; "" if none
@@ -99,6 +120,7 @@ type pendingReq struct {
 	url            string // resolved at Deliver time (url-template is per-event)
 	body           []byte
 	idempotencyKey string
+	seq            uint64
 }
 
 // NewWebhookSinkConsumer creates a WebhookSinkConsumer from cfg.
@@ -139,7 +161,7 @@ func NewWebhookSinkConsumer(id string, cfg config.WebhookSinkConfig) (*WebhookSi
 		client:   client,
 		url:      cfg.URL,
 		urlT:     norm.urlT,
-		payloadT: norm.payloadT,
+		engine:   norm.engine,
 		method:   norm.method,
 		headers:  headers,
 		authHdr:  norm.authHdr,
@@ -158,7 +180,7 @@ type webhookNorm struct {
 	batchMax int
 	timeout  time.Duration
 	urlT     *template.Template
-	payloadT *template.Template
+	engine   transform.Engine
 }
 
 // expandWebhookConfig applies ${VAR} env expansion to secret-bearing fields.
@@ -181,7 +203,7 @@ func expandWebhookConfig(cfg config.WebhookSinkConfig) config.WebhookSinkConfig 
 	return cfg
 }
 
-// validateWebhookConfig enforces startup rules 1–8 and returns normalized fields.
+// validateWebhookConfig enforces startup rules 1–13 and returns normalized fields.
 func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 	var zero webhookNorm
 
@@ -240,7 +262,7 @@ func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 		timeout = d
 	}
 
-	// 7. Parse templates at construction.
+	// 7. Parse url-template at construction.
 	var urlT *template.Template
 	if cfg.URLTemplate != "" {
 		t, err := template.New("url").Parse(cfg.URLTemplate)
@@ -249,13 +271,10 @@ func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 		}
 		urlT = t
 	}
-	var payloadT *template.Template
-	if cfg.PayloadTemplate != "" {
-		t, err := template.New("payload").Parse(cfg.PayloadTemplate)
-		if err != nil {
-			return zero, fmt.Errorf("webhook sink: payload-template parse error: %w", err)
-		}
-		payloadT = t
+
+	engine, err := compileWebhookEngine(cfg)
+	if err != nil {
+		return zero, err
 	}
 
 	var authHdr string
@@ -286,8 +305,55 @@ func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 		batchMax: batchMax,
 		timeout:  timeout,
 		urlT:     urlT,
-		payloadT: payloadT,
+		engine:   engine,
 	}, nil
+}
+
+// compileWebhookEngine enforces validations 9–13 and compiles the transform
+// engine (payload-template sugar or transform.*). Returns nil engine when unset.
+func compileWebhookEngine(cfg config.WebhookSinkConfig) (transform.Engine, error) {
+	lang := cfg.Transform.Language
+	expr := cfg.Transform.Expression
+	hasPayload := cfg.PayloadTemplate != ""
+	hasTransformField := lang != "" || expr != ""
+
+	// 9. payload-template AND transform.* both set → error.
+	if hasPayload && hasTransformField {
+		return nil, fmt.Errorf("webhook sink: payload-template is shorthand for transform; set only one")
+	}
+
+	// 11. language allowlist (empty is OK when both language and expression empty).
+	if lang != "" && lang != transform.LangJQ && lang != transform.LangGoTemplate {
+		return nil, fmt.Errorf("webhook sink: transform.language %q not allowed — must be one of %q, %q",
+			lang, transform.LangJQ, transform.LangGoTemplate)
+	}
+
+	// 12. empty language xor expression → error.
+	if (lang == "") != (expr == "") {
+		return nil, fmt.Errorf("webhook sink: transform.language and transform.expression must both be set or both be empty")
+	}
+
+	// 10. go-template language + batch.max-events > 1 → error (jq exempt).
+	if lang == transform.LangGoTemplate && cfg.Batch.MaxEvents > 1 {
+		return nil, fmt.Errorf("webhook sink: transform language %q requires batch.max-events=1", transform.LangGoTemplate)
+	}
+
+	// 13. Compile transform / payload-template (TRF-01).
+	switch {
+	case hasPayload:
+		eng, err := transform.Compile(transform.LangGoTemplate, cfg.PayloadTemplate)
+		if err != nil {
+			return nil, fmt.Errorf("webhook sink: payload-template: %w", err)
+		}
+		return eng, nil
+	case lang != "":
+		eng, err := transform.Compile(lang, expr)
+		if err != nil {
+			return nil, fmt.Errorf("webhook sink: transform: %w", err)
+		}
+		return eng, nil
+	}
+	return nil, nil
 }
 
 // ID returns the stable, unique identifier for this consumer instance.
@@ -296,7 +362,8 @@ func (c *WebhookSinkConsumer) ID() string {
 }
 
 // SetMetrics injects a KaptantoMetrics reference so the consumer reports
-// QueuePublishTotal, QueuePublishErrors, and QueuePublishLatency.
+// QueuePublishTotal, QueuePublishErrors, QueuePublishLatency, and
+// TransformDroppedTotal.
 // Call after construction, before Deliver.
 func (c *WebhookSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 	c.m = m
@@ -306,8 +373,9 @@ func (c *WebhookSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // publishing. No network I/O happens here; the actual HTTP call is performed
 // by FlushBatch.
 //
-// On template/encoding error Deliver returns a non-nil error immediately; the
-// RetryScheduler will block the key (DLV-03).
+// On transform/encoding error Deliver returns a non-nil error immediately; the
+// RetryScheduler will block the key (DLV-03). A transform drop returns nil
+// without buffering (TRF-02).
 func (c *WebhookSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
 	_ = ctx
 
@@ -316,9 +384,15 @@ func (c *WebhookSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEnt
 		return err
 	}
 
-	body, err := c.buildBody(entry)
+	body, drop, err := c.buildBody(entry)
 	if err != nil {
 		return err
+	}
+	if drop {
+		if c.m != nil {
+			c.m.TransformDroppedTotal.WithLabelValues(c.id).Inc()
+		}
+		return nil
 	}
 
 	c.mu.Lock()
@@ -326,6 +400,7 @@ func (c *WebhookSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEnt
 		url:            urlStr,
 		body:           body,
 		idempotencyKey: entry.Event.IdempotencyKey,
+		seq:            entry.Seq,
 	})
 	c.mu.Unlock()
 	return nil
@@ -352,30 +427,40 @@ func (c *WebhookSinkConsumer) resolveURL(ev *event.ChangeEvent) (string, error) 
 }
 
 // buildBody returns the HTTP body for entry.
-func (c *WebhookSinkConsumer) buildBody(entry eventlog.LogEntry) ([]byte, error) {
-	if c.payloadT != nil {
-		var buf bytes.Buffer
-		if err := c.payloadT.Execute(&buf, entry.Event); err != nil {
-			return nil, fmt.Errorf("webhook sink: payload-template execution: %w", err)
-		}
-		return buf.Bytes(), nil
-	}
+// When engine is set, raw is transformed; drop=true means do not buffer (TRF-02).
+func (c *WebhookSinkConsumer) buildBody(entry eventlog.LogEntry) ([]byte, bool, error) {
+	var raw []byte
 	if len(entry.Raw) > 0 {
-		return entry.Raw, nil
+		raw = entry.Raw
+	} else {
+		data, err := json.Marshal(entry.Event)
+		if err != nil {
+			return nil, false, fmt.Errorf("webhook sink: marshal event: %w", err)
+		}
+		raw = data
 	}
-	data, err := json.Marshal(entry.Event)
+	if c.engine == nil {
+		return raw, false, nil
+	}
+	out, drop, err := c.engine.Apply(raw, entry.Event)
 	if err != nil {
-		return nil, fmt.Errorf("webhook sink: marshal event: %w", err)
+		return nil, false, err
 	}
-	return data, nil
+	if drop {
+		return nil, true, nil
+	}
+	return out, false, nil
 }
 
 // httpReq is one outbound HTTP request produced by grouping pendingReq values.
 type httpReq struct {
-	url            string
-	body           []byte
-	idempotencyKey string // set only in single-event mode
-	single         bool
+	url             string
+	body            []byte
+	idempotencyKey  string // single-event mode
+	idempotencyKeys string // batch mode (comma-joined)
+	seq             uint64 // single-event mode
+	single          bool
+	items           []pendingReq // batch mode: originals for poison isolation
 }
 
 // FlushBatch sends all buffered requests for partitionID. It pops the pending
@@ -398,7 +483,7 @@ func (c *WebhookSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32
 	var firstErr error
 
 	for _, req := range reqs {
-		if err := c.sendOne(ctx, req); err != nil {
+		if err := c.sendGrouped(ctx, req); err != nil {
 			errorCount++
 			firstErr = err
 			break
@@ -418,6 +503,69 @@ func (c *WebhookSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32
 	return firstErr
 }
 
+// sendGrouped sends one grouped request. For batch ARRAY responses that are
+// poison (3xx/other 4xx), it isolates by re-sending one-per-event (DLV-03).
+func (c *WebhookSinkConsumer) sendGrouped(ctx context.Context, req httpReq) error {
+	status, snippet, err := c.doRequest(ctx, req)
+	if err != nil {
+		return fmt.Errorf("webhook sink: %s %s: %w", c.method, req.url, err)
+	}
+	if status >= 200 && status < 300 {
+		return nil
+	}
+	cause := fmt.Errorf("webhook sink: %s %s returned %d: %.256s", c.method, req.url, status, snippet)
+	if isTransientStatus(status) {
+		return cause
+	}
+	// Poison: 3xx or other 4xx.
+	if req.single || len(req.items) <= 1 {
+		seq := req.seq
+		if !req.single && len(req.items) == 1 {
+			seq = req.items[0].seq
+		}
+		return &router.PermanentFlushError{Seq: seq, Cause: cause}
+	}
+	// Batch poison isolation — NOT retry (DLV-03).
+	return c.isolatePoisonChunk(ctx, req.items)
+}
+
+// isolatePoisonChunk re-sends each event in items as an individual request, in
+// order. Individual 2xx continues; transient aborts with a plain error (no
+// further resend); individual poison returns PermanentFlushError for that seq.
+func (c *WebhookSinkConsumer) isolatePoisonChunk(ctx context.Context, items []pendingReq) error {
+	for _, item := range items {
+		single := httpReq{
+			url:            item.url,
+			body:           item.body,
+			idempotencyKey: item.idempotencyKey,
+			seq:            item.seq,
+			single:         true,
+		}
+		status, snippet, err := c.doRequest(ctx, single)
+		if err != nil {
+			// Transient network/timeout — abort isolation; do not resend further.
+			return fmt.Errorf("webhook sink: %s %s: %w", c.method, item.url, err)
+		}
+		if status >= 200 && status < 300 {
+			continue
+		}
+		cause := fmt.Errorf("webhook sink: %s %s returned %d: %.256s", c.method, item.url, status, snippet)
+		if isTransientStatus(status) {
+			return cause
+		}
+		return &router.PermanentFlushError{Seq: item.seq, Cause: cause}
+	}
+	return nil
+}
+
+// isTransientStatus reports whether an HTTP status is a transient failure
+// (408, 429, 5xx). All other non-2xx codes are poison.
+func isTransientStatus(status int) bool {
+	return status == http.StatusRequestTimeout ||
+		status == http.StatusTooManyRequests ||
+		status >= 500
+}
+
 // groupRequests chunks pendingReq values into outbound HTTP requests.
 // batchMax == 1 → one request per entry.
 // batchMax > 1 → consecutive same-URL entries into JSON arrays of ≤ batchMax;
@@ -430,6 +578,7 @@ func groupRequests(batch []pendingReq, batchMax int) []httpReq {
 				url:            p.url,
 				body:           p.body,
 				idempotencyKey: p.idempotencyKey,
+				seq:            p.seq,
 				single:         true,
 			})
 		}
@@ -440,37 +589,43 @@ func groupRequests(batch []pendingReq, batchMax int) []httpReq {
 	i := 0
 	for i < len(batch) {
 		url := batch[i].url
-		var bodies [][]byte
-		for i < len(batch) && batch[i].url == url && len(bodies) < batchMax {
-			bodies = append(bodies, batch[i].body)
+		var items []pendingReq
+		for i < len(batch) && batch[i].url == url && len(items) < batchMax {
+			items = append(items, batch[i])
 			i++
 		}
 		var buf bytes.Buffer
 		buf.WriteByte('[')
-		for j, b := range bodies {
+		keys := make([]string, 0, len(items))
+		for j, it := range items {
 			if j > 0 {
 				buf.WriteByte(',')
 			}
-			buf.Write(b)
+			buf.Write(it.body)
+			keys = append(keys, it.idempotencyKey)
 		}
 		buf.WriteByte(']')
 		out = append(out, httpReq{
-			url:    url,
-			body:   buf.Bytes(),
-			single: false,
+			url:             url,
+			body:            buf.Bytes(),
+			idempotencyKeys: strings.Join(keys, ","),
+			single:          false,
+			items:           items,
 		})
 	}
 	return out
 }
 
-// sendOne issues a single HTTP request with timeout, headers, and optional HMAC.
-func (c *WebhookSinkConsumer) sendOne(ctx context.Context, req httpReq) error {
+// doRequest issues a single HTTP request with timeout, headers, and optional HMAC.
+// It returns the status code and a body snippet on HTTP responses; err is set
+// only for transport / request-construction failures.
+func (c *WebhookSinkConsumer) doRequest(ctx context.Context, req httpReq) (status int, snippet []byte, err error) {
 	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	httpReq, err := http.NewRequestWithContext(reqCtx, c.method, req.url, bytes.NewReader(req.body))
 	if err != nil {
-		return fmt.Errorf("webhook sink: create request: %w", err)
+		return 0, nil, fmt.Errorf("create request: %w", err)
 	}
 
 	for k, v := range c.headers {
@@ -480,6 +635,8 @@ func (c *WebhookSinkConsumer) sendOne(ctx context.Context, req httpReq) error {
 	httpReq.Header.Set("User-Agent", "kaptanto")
 	if req.single {
 		httpReq.Header.Set("X-Kaptanto-Idempotency-Key", req.idempotencyKey)
+	} else {
+		httpReq.Header.Set("X-Kaptanto-Idempotency-Keys", req.idempotencyKeys)
 	}
 	if c.authHdr != "" {
 		httpReq.Header.Set("Authorization", c.authHdr)
@@ -491,17 +648,13 @@ func (c *WebhookSinkConsumer) sendOne(ctx context.Context, req httpReq) error {
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("webhook sink: %s %s: %w", c.method, req.url, err)
+		return 0, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	snippet, _ = io.ReadAll(io.LimitReader(resp.Body, 1024))
 	_, _ = io.Copy(io.Discard, resp.Body)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("webhook sink: %s %s returned %d: %.256s", c.method, req.url, resp.StatusCode, snippet)
-	}
-	return nil
+	return resp.StatusCode, snippet, nil
 }
 
 // Ping verifies the webhook host is reachable via a TCP (or TLS) dial with a

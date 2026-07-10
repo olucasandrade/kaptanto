@@ -149,11 +149,11 @@ func TestResolveURL_StaticEmpty(t *testing.T) {
 	assert.Contains(t, err.Error(), "url is empty")
 }
 
-func TestSendOne_InvalidURL(t *testing.T) {
+func TestDoRequest_InvalidURL(t *testing.T) {
 	c, err := NewWebhookSinkConsumer("w", config.WebhookSinkConfig{URL: "http://example.com"})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
-	err = c.sendOne(t.Context(), httpReq{url: "://bad", body: []byte(`{}`), single: true})
+	_, _, err = c.doRequest(t.Context(), httpReq{url: "://bad", body: []byte(`{}`), single: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create request")
 }
