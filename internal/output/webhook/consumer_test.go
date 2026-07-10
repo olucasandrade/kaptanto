@@ -36,7 +36,12 @@ var (
 )
 
 func makeEntry(partition uint32, schema, table, idem string, raw []byte) eventlog.LogEntry {
+	return makeEntrySeq(partition, 0, schema, table, idem, raw)
+}
+
+func makeEntrySeq(partition uint32, seq uint64, schema, table, idem string, raw []byte) eventlog.LogEntry {
 	return eventlog.LogEntry{
+		Seq:         seq,
 		PartitionID: partition,
 		Event: &event.ChangeEvent{
 			Schema:         schema,
@@ -141,7 +146,8 @@ func TestNewWebhookSinkConsumer_Validations(t *testing.T) {
 			PayloadTemplate: "{{.Unclosed",
 		})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "payload-template parse error")
+		assert.Contains(t, err.Error(), "payload-template")
+		assert.Contains(t, err.Error(), "go-template parse")
 	})
 
 	t.Run("batch.max-events < 0", func(t *testing.T) {
@@ -342,7 +348,7 @@ func TestDeliver_PayloadTemplate(t *testing.T) {
 		entry := makeEntry(0, "public", "orders", "idem-err", nil)
 		err := c.Deliver(context.Background(), entry)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "payload-template execution")
+		assert.Contains(t, err.Error(), "transform (go-template)")
 	})
 }
 
@@ -390,7 +396,8 @@ func TestFlushBatch_Batching(t *testing.T) {
 			mu.Lock()
 			bodies = append(bodies, b)
 			mu.Unlock()
-			assert.Empty(t, r.Header.Get("X-Kaptanto-Idempotency-Key"), "batch mode omits idempotency header")
+			assert.Empty(t, r.Header.Get("X-Kaptanto-Idempotency-Key"), "batch mode uses Keys header")
+			assert.NotEmpty(t, r.Header.Get("X-Kaptanto-Idempotency-Keys"), "batch mode sets Keys header")
 			w.WriteHeader(200)
 		}))
 		t.Cleanup(srv.Close)
