@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // --- Load tests ---
@@ -80,6 +81,96 @@ func TestLoad_EmptyFile(t *testing.T) {
 	// All fields at zero values
 	assert.Equal(t, "", cfg.Source)
 	assert.Nil(t, cfg.Tables)
+}
+
+func TestLoad_WebhookTransformDLQYAMLRoundTrip(t *testing.T) {
+	yamlText := `
+source: postgres://user:pass@host/db
+output: webhook
+sinks:
+  webhook:
+    url: https://example.com/cdc
+    url-template: https://example.com/{{.Schema}}/{{.Table}}
+    method: PATCH
+    timeout: 15s
+    headers:
+      X-Env: ${WEBHOOK_ENV}
+      X-Static: kaptanto
+    auth:
+      bearer-token: ${WEBHOOK_TOKEN}
+      basic:
+        username: user
+        password: ${WEBHOOK_PASSWORD}
+    signing:
+      secret: ${WEBHOOK_SIGNING_SECRET}
+    batch:
+      max-events: 25
+    payload-template: |
+      {"id":"{{.ID}}"}
+    transform:
+      language: jq
+      expression: |
+        .after |= with_entries(select(.key != "password"))
+    tls:
+      ca-file: /certs/ca.pem
+      cert-file: /certs/client.pem
+      key-file: /certs/client-key.pem
+dlq:
+  enabled: true
+  path: /var/lib/kaptanto/dlq.db
+  retention: 168h
+`
+	path := writeTempYAML(t, yamlText)
+
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	encoded, err := yaml.Marshal(cfg)
+	require.NoError(t, err)
+
+	var roundTrip config.Config
+	require.NoError(t, yaml.Unmarshal(encoded, &roundTrip))
+
+	require.NotNil(t, roundTrip.Sinks.Webhook)
+	webhook := roundTrip.Sinks.Webhook
+	assert.Equal(t, "https://example.com/cdc", webhook.URL)
+	assert.Equal(t, "https://example.com/{{.Schema}}/{{.Table}}", webhook.URLTemplate)
+	assert.Equal(t, "PATCH", webhook.Method)
+	assert.Equal(t, "15s", webhook.Timeout)
+	assert.Equal(t, map[string]string{"X-Env": "${WEBHOOK_ENV}", "X-Static": "kaptanto"}, webhook.Headers)
+	assert.Equal(t, "${WEBHOOK_TOKEN}", webhook.Auth.BearerToken)
+	assert.Equal(t, "user", webhook.Auth.Basic.Username)
+	assert.Equal(t, "${WEBHOOK_PASSWORD}", webhook.Auth.Basic.Password)
+	assert.Equal(t, "${WEBHOOK_SIGNING_SECRET}", webhook.Signing.Secret)
+	assert.Equal(t, 25, webhook.Batch.MaxEvents)
+	assert.Equal(t, "{\"id\":\"{{.ID}}\"}\n", webhook.PayloadTemplate)
+	assert.Equal(t, "jq", webhook.Transform.Language)
+	assert.Equal(t, ".after |= with_entries(select(.key != \"password\"))\n", webhook.Transform.Expression)
+	assert.Equal(t, "/certs/ca.pem", webhook.TLS.CAFile)
+	assert.Equal(t, "/certs/client.pem", webhook.TLS.CertFile)
+	assert.Equal(t, "/certs/client-key.pem", webhook.TLS.KeyFile)
+	require.NotNil(t, roundTrip.DLQ.Enabled)
+	assert.True(t, *roundTrip.DLQ.Enabled)
+	assert.Equal(t, "/var/lib/kaptanto/dlq.db", roundTrip.DLQ.Path)
+	assert.Equal(t, "168h", roundTrip.DLQ.Retention)
+}
+
+func TestLoad_DLQEnabledUnsetAndExplicitFalse(t *testing.T) {
+	unsetPath := writeTempYAML(t, `
+dlq:
+  path: /var/lib/kaptanto/dlq.db
+`)
+	unsetCfg, err := config.Load(unsetPath)
+	require.NoError(t, err)
+	assert.Nil(t, unsetCfg.DLQ.Enabled)
+
+	falsePath := writeTempYAML(t, `
+dlq:
+  enabled: false
+`)
+	falseCfg, err := config.Load(falsePath)
+	require.NoError(t, err)
+	require.NotNil(t, falseCfg.DLQ.Enabled)
+	assert.False(t, *falseCfg.DLQ.Enabled)
 }
 
 // --- Defaults tests ---
@@ -171,6 +262,29 @@ func TestMerge_ChangedRetention(t *testing.T) {
 	err := config.Merge(cfg, cmd)
 	require.NoError(t, err)
 	assert.Equal(t, "48h0m0s", cfg.Retention)
+}
+
+func TestMerge_DLQFlagsOverrideYAML(t *testing.T) {
+	enabled := true
+	cfg := &config.Config{
+		DLQ: config.DLQConfig{
+			Enabled:   &enabled,
+			Path:      "/from/yaml/dlq.db",
+			Retention: "24h",
+		},
+	}
+	cmd := newCmdWithFlags()
+	setFlag(cmd, "dlq-enabled", "false")
+	setFlag(cmd, "dlq-path", "/from/cli/dlq.db")
+	setFlagDuration(cmd, "dlq-retention", 72*time.Hour)
+
+	err := config.Merge(cfg, cmd)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.DLQ.Enabled)
+	assert.False(t, *cfg.DLQ.Enabled)
+	assert.Equal(t, "/from/cli/dlq.db", cfg.DLQ.Path)
+	assert.Equal(t, "72h0m0s", cfg.DLQ.Retention)
 }
 
 func TestMerge_ChangedTables_ReplacesPriorConfig(t *testing.T) {
@@ -281,6 +395,9 @@ func newCmdWithFlags() *cobra.Command {
 	cmd.Flags().Int("port", 7654, "")
 	cmd.Flags().String("data-dir", "./data", "")
 	cmd.Flags().Duration("retention", 0, "")
+	cmd.Flags().Bool("dlq-enabled", true, "")
+	cmd.Flags().String("dlq-path", "", "")
+	cmd.Flags().Duration("dlq-retention", 0, "")
 	return cmd
 }
 
