@@ -107,6 +107,9 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().String("tls-client-ca", "", "path to CA PEM for client certificate verification (mTLS); requires --tls-cert and --tls-key")
 	root.PersistentFlags().String("auth-token", "", "static bearer token required by SSE/gRPC clients (prefer KAPTANTO_AUTH_TOKEN env var to avoid leaking the secret in process listings)")
 	root.PersistentFlags().Bool("insecure", false, "allow plaintext SSE/gRPC without TLS or auth token (not recommended for production; logs a security warning)")
+	root.PersistentFlags().Bool("dlq-enabled", true, "enable the dead-letter queue for poison events (default on; --dlq-enabled=false restores pre-DLQ log-and-drop)")
+	root.PersistentFlags().String("dlq-path", "", "path to the DLQ SQLite store (default <data-dir>/dlq.db)")
+	root.PersistentFlags().Duration("dlq-retention", 0, "DLQ retention period (e.g. 168h); 0 keeps entries forever")
 
 	root.Version = version.Version
 	root.AddCommand(newVersionCmd())
