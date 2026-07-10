@@ -20,6 +20,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"sync"
 	"time"
@@ -55,6 +56,18 @@ func NextDelay(attempt int) time.Duration {
 		return retryDelays[len(retryDelays)-1]
 	}
 	return retryDelays[attempt]
+}
+
+// JitteredDelay returns NextDelay(attempt) scaled by full jitter: a uniform
+// random duration in (0, base]. Full jitter decorrelates retry storms when an
+// endpoint outage blocks many keys at once. The 1s scheduler tick is the
+// effective floor. Uses math/rand/v2 (no seeding needed).
+func JitteredDelay(attempt int) time.Duration {
+	base := NextDelay(attempt)
+	if base <= 0 {
+		return 1
+	}
+	return time.Duration(rand.Int64N(int64(base))) + 1
 }
 
 // isPermanentError reports whether err is a permanent delivery error that
@@ -167,9 +180,9 @@ func (rs *RetryScheduler) ensureStateLocked(c Consumer) *consumerRetryState {
 
 // AddBlocked enqueues a RetryRecord for consumer c under the given groupKey.
 //
-// - First failure: creates a new queue with rec as the head (retry candidate).
-// - Follow-on entries while already blocked: appends rec to the existing queue
-//   so that all events for the key are preserved in order (RTR-04).
+//   - First failure: creates a new queue with rec as the head (retry candidate).
+//   - Follow-on entries while already blocked: appends rec to the existing queue
+//     so that all events for the key are preserved in order (RTR-04).
 //
 // The head of the queue is the record being actively retried by Tick; only
 // after the head succeeds does Tick promote the next entry to head.
@@ -438,7 +451,7 @@ func (rs *RetryScheduler) drainGroup(ctx context.Context, s *consumerRetryState,
 				notify()
 				continue
 			}
-			rec.NextRetryAt = time.Now().Add(NextDelay(rec.Attempts))
+			rec.NextRetryAt = time.Now().Add(JitteredDelay(rec.Attempts))
 			rs.mu.Unlock()
 			return
 		}
