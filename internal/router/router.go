@@ -165,8 +165,8 @@ type Router struct {
 	cursorStore     ConsumerCursorStore
 	rs              *RetryScheduler
 	metrics         *observability.KaptantoMetrics
-	ownedPartitions []uint32            // nil = all partitions (non-cluster default)
-	notifyChs       []<-chan struct{}    // per-partition notify channels; nil if EventLog doesn't support it
+	ownedPartitions []uint32          // nil = all partitions (non-cluster default)
+	notifyChs       []<-chan struct{} // per-partition notify channels; nil if EventLog doesn't support it
 }
 
 // NewRouter creates a new Router. If cs is nil, an in-memory noopCursorStore
@@ -439,7 +439,7 @@ func (r *Router) flushBatchConsumers(ctx context.Context, partitionID uint32, ba
 				backoffState[fe.idx] = bo
 			}
 			bo.attempts++
-			bo.nextAt = time.Now().Add(NextDelay(bo.attempts - 1))
+			bo.nextAt = time.Now().Add(JitteredDelay(bo.attempts - 1))
 			if backoffUntil.IsZero() || bo.nextAt.After(backoffUntil) {
 				backoffUntil = bo.nextAt
 			}
