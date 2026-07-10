@@ -258,11 +258,12 @@ func TestMixedConsumersSSEUnaffectedByBatchFlusherFailure(t *testing.T) {
 
 // TestBatchFlusherBackoffAvoidsHotLoop covers plan step 4: consecutive
 // FlushBatch failures for a partition must be throttled by the
-// RetryScheduler's NextDelay backoff schedule, not retried on every poll
-// iteration. Without backoff, a down broker would cause runPartition to spin
-// ReadPartition/dispatch/FlushBatch continuously, producing hundreds of
-// attempts within the test window; with backoff, NextDelay(0) == 1s bounds
-// the loop to roughly one attempt per second while the failure persists.
+// RetryScheduler's backoff schedule (full-jittered NextDelay), not retried on
+// every poll iteration. Without backoff, a down broker would cause
+// runPartition to spin ReadPartition/dispatch/FlushBatch continuously,
+// producing many thousands of attempts within the test window. Full jitter
+// draws each wait from (0, NextDelay]; the cap still prevents a true
+// no-backoff hot loop.
 func TestBatchFlusherBackoffAvoidsHotLoop(t *testing.T) {
 	entries := []eventlog.LogEntry{makeEntry(1, `"backoff-key"`)}
 	el := newFakeEventLog(map[uint32][]eventlog.LogEntry{0: entries})
@@ -283,13 +284,15 @@ func TestBatchFlusherBackoffAvoidsHotLoop(t *testing.T) {
 	if len(attempts) < 2 {
 		t.Fatalf("expected at least 2 FlushBatch attempts (initial failure + 1 backoff-scheduled retry) within 1.3s, got %d", len(attempts))
 	}
-	// A hot loop (no backoff) would produce hundreds of attempts in this
-	// window; NextDelay(0)==1s bounds a healthy backoff to ~2-3 attempts.
-	if len(attempts) > 5 {
+	// A no-backoff hot loop would produce many thousands of attempts in 1.3s.
+	// Full jitter can draw short waits, so allow headroom above the old
+	// deterministic NextDelay(0)==1s bound of ~2-3 attempts.
+	if len(attempts) > 500 {
 		t.Fatalf("too many FlushBatch attempts (%d) within 1.3s — backoff was not applied, router is hot-looping", len(attempts))
 	}
 	gap := attempts[1].Sub(attempts[0])
-	if gap < 800*time.Millisecond {
-		t.Errorf("expected roughly a 1s gap between the first and second FlushBatch attempt (NextDelay(0)==1s backoff), got %v", gap)
+	base := router.NextDelay(0)
+	if gap > base {
+		t.Errorf("gap between first and second FlushBatch attempt = %v, want <= NextDelay(0)=%v (full jitter upper bound)", gap, base)
 	}
 }

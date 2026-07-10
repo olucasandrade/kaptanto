@@ -9,14 +9,21 @@ package router
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/olucasandrade/kaptanto/internal/dlq"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 )
+
+// poisonStreakLimit is the number of consecutive PermanentFlushError
+// dead-letters on one consumer+partition before further poisons are treated
+// as transient (RTR-07 poison-streak guard). Fixed; not configurable.
+const poisonStreakLimit = 25
 
 // pollInterval is the fallback timer used when the EventLog does not implement
 // PartitionNotifier (e.g. fakes in tests) or when a notify signal is missed
@@ -58,6 +65,14 @@ type Consumer interface {
 // a partition apply the RetryScheduler's NextDelay backoff schedule before
 // the partition is polled again, so a persistently unreachable broker does
 // not hot-loop ReadPartition.
+//
+// PermanentFlushError (RTR-07): when FlushBatch returns a PermanentFlushError
+// naming one poisoned seq, the router dead-letters that seq to the DLQ, records
+// it in a per-consumer skip-set, discards the provisional advance, and resets
+// flusher backoff. Subsequent dispatches skip the poisoned seq; the rest of
+// the window is re-flushed. A poison-streak guard (25 consecutive dead-letters
+// with no successful flush) treats further poisons as transient to avoid
+// draining a misconfigured endpoint into the DLQ.
 //
 // Re-reading a failed window can re-deliver entries to OTHER consumers
 // registered on the same partition; this is harmless because each consumer's
@@ -143,6 +158,25 @@ type consumerState struct {
 	// only populated/consulted when isBatchFlusher is true.
 	isBatchFlusher         bool
 	provisionalByPartition map[uint32]uint64
+
+	// skippedSeqs is the RTR-07 poison skip-set: seqs that were permanently
+	// flush-failed, durably written to the DLQ, and must not be re-delivered
+	// to this consumer. Lazy (nil until the first poison skip). Memory-only —
+	// after a crash the poison re-delivers, re-poisons, and DLQ-02 dedup
+	// re-skips. Pruned when promoteProvisional advances the durable cursor
+	// past a skipped seq.
+	skippedSeqs map[uint32]map[uint64]struct{}
+
+	// poisonStreak counts consecutive PermanentFlushError dead-letters per
+	// partition with no intervening successful flush. poisonStreakLogged
+	// records that the misconfiguration warning was emitted once for that
+	// partition. Both reset on successful FlushBatch.
+	poisonStreak       map[uint32]int
+	poisonStreakLogged map[uint32]struct{}
+
+	// poisonNoDLQLogged tracks seqs for which we already logged that DLQ is
+	// disabled (one loud log per seq, forever-transient path).
+	poisonNoDLQLogged map[uint32]map[uint64]struct{}
 }
 
 // consumerSnap is a lightweight snapshot of a consumer's state captured at
@@ -152,6 +186,7 @@ type consumerSnap struct {
 	consumer Consumer
 	blocked  bool
 	cursor   uint64 // this consumer's next-seq for the partition at snapshot time
+	skipped  bool   // entry.Seq is in this consumer's RTR-07 skip-set
 }
 
 // Router reads from the EventLog and delivers events to all registered
@@ -165,8 +200,9 @@ type Router struct {
 	cursorStore     ConsumerCursorStore
 	rs              *RetryScheduler
 	metrics         *observability.KaptantoMetrics
-	ownedPartitions []uint32            // nil = all partitions (non-cluster default)
-	notifyChs       []<-chan struct{}    // per-partition notify channels; nil if EventLog doesn't support it
+	dlq             dlq.Store         // optional; nil disables FlushBatch poison skip (DLQ-01)
+	ownedPartitions []uint32          // nil = all partitions (non-cluster default)
+	notifyChs       []<-chan struct{} // per-partition notify channels; nil if EventLog doesn't support it
 }
 
 // NewRouter creates a new Router. If cs is nil, an in-memory noopCursorStore
@@ -205,6 +241,16 @@ func NewRouter(el eventlog.EventLog, numPartitions uint32, cs ConsumerCursorStor
 // Call after construction, before Run.
 func (r *Router) SetMetrics(m *observability.KaptantoMetrics) {
 	r.metrics = m
+}
+
+// SetDLQ wires a dead-letter store for the FlushBatch poison path (RTR-07).
+// A nil store disables poison skip: PermanentFlushError is treated as
+// transient forever (DLQ-01 — never skip without a durable copy). Call after
+// construction, before Run.
+func (r *Router) SetDLQ(store dlq.Store) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dlq = store
 }
 
 // SetOwnedPartitions configures which partitions this Router instance reads.
@@ -431,6 +477,12 @@ func (r *Router) flushBatchConsumers(ctx context.Context, partitionID uint32, ba
 			return backoffUntil
 		}
 		if err := fe.bf.FlushBatch(ctx, partitionID); err != nil {
+			var pfe *PermanentFlushError
+			if errors.As(err, &pfe) {
+				if r.handlePoisonFlush(ctx, fe.idx, partitionID, pfe, backoffState) {
+					continue
+				}
+			}
 			slog.Warn("router: batch flush error", "partition", partitionID, "err", err)
 			r.discardProvisional(fe.idx, partitionID)
 			bo := backoffState[fe.idx]
@@ -439,19 +491,199 @@ func (r *Router) flushBatchConsumers(ctx context.Context, partitionID uint32, ba
 				backoffState[fe.idx] = bo
 			}
 			bo.attempts++
-			bo.nextAt = time.Now().Add(NextDelay(bo.attempts - 1))
+			bo.nextAt = time.Now().Add(JitteredDelay(bo.attempts - 1))
 			if backoffUntil.IsZero() || bo.nextAt.After(backoffUntil) {
 				backoffUntil = bo.nextAt
 			}
 			continue
 		}
-		// Flush succeeded — clear any prior backoff and promote the
-		// provisional cursor to the durable, persisted cursor.
+		// Flush succeeded — clear any prior backoff, reset poison streak,
+		// and promote the provisional cursor to the durable, persisted cursor.
 		delete(backoffState, fe.idx)
+		r.resetPoisonStreak(fe.idx, partitionID)
 		r.promoteProvisional(ctx, fe.idx, partitionID)
 	}
 	return backoffUntil
 }
+
+
+// handlePoisonFlush implements RTR-07 for a PermanentFlushError from FlushBatch.
+// On success it dead-letters the poisoned seq, records it in the skip-set,
+// discards the provisional cursor, and resets flusher backoff. Returns true
+// when the poison was durably skipped; false means fall through to transient
+// handling (never skip without a durable DLQ copy — DLQ-01).
+//
+// Ordering (hard rule): dlq.Write must return nil before the seq is added to
+// the skip-set; then discard provisional. Never extend backoff after a
+// successful poison skip.
+func (r *Router) handlePoisonFlush(ctx context.Context, idx int, partitionID uint32, pfe *PermanentFlushError, backoffState map[int]*flusherBackoff) bool {
+	if pfe == nil {
+		return false
+	}
+
+	r.mu.Lock()
+	if idx >= len(r.consumers) {
+		r.mu.Unlock()
+		return false
+	}
+	cs := &r.consumers[idx]
+	streak := 0
+	if cs.poisonStreak != nil {
+		streak = cs.poisonStreak[partitionID]
+	}
+	if streak >= poisonStreakLimit {
+		if cs.poisonStreakLogged == nil {
+			cs.poisonStreakLogged = make(map[uint32]struct{})
+		}
+		if _, logged := cs.poisonStreakLogged[partitionID]; !logged {
+			cs.poisonStreakLogged[partitionID] = struct{}{}
+			slog.Error("router: poison streak — suspected endpoint misconfiguration",
+				"consumer", cs.consumer.ID(),
+				"partition", partitionID,
+				"streak", streak,
+			)
+		}
+		r.mu.Unlock()
+		return false
+	}
+	cursor := cs.cursorByPartition[partitionID]
+	consumerID := cs.consumer.ID()
+	store := r.dlq
+	metrics := r.metrics
+	r.mu.Unlock()
+
+	fromSeq := cursor
+	if fromSeq == 0 {
+		fromSeq = 1
+	}
+	// cursorByPartition stores next-seq (last-delivered+1), the ReadPartition fromSeq.
+	entries, err := r.eventLog.ReadPartition(ctx, partitionID, fromSeq, 256)
+	if err != nil {
+		slog.Error("router: poison flush re-read failed",
+			"consumer", consumerID,
+			"partition", partitionID,
+			"seq", pfe.Seq,
+			"err", err,
+		)
+		return false
+	}
+	var found *eventlog.LogEntry
+	for i := range entries {
+		if entries[i].Seq == pfe.Seq {
+			found = &entries[i]
+			break
+		}
+	}
+	if found == nil {
+		slog.Error("router: poison flush seq not found in window",
+			"consumer", consumerID,
+			"partition", partitionID,
+			"seq", pfe.Seq,
+			"from_seq", fromSeq,
+		)
+		return false
+	}
+
+	if store == nil {
+		r.logPoisonDLQDisabledOnce(idx, partitionID, pfe.Seq, consumerID)
+		return false
+	}
+
+	found.PartitionID = partitionID
+	dlqEntry := buildDLQEntry(&RetryRecord{
+		Entry:      *found,
+		Attempts:   1,
+		ConsumerID: consumerID,
+		LastErr:    pfe,
+	})
+	if writeErr := store.Write(ctx, dlqEntry); writeErr != nil {
+		if metrics != nil {
+			metrics.DLQWriteFailuresTotal.WithLabelValues(consumerID).Inc()
+		}
+		slog.Error("router: poison flush DLQ write failed",
+			"consumer", consumerID,
+			"partition", partitionID,
+			"seq", pfe.Seq,
+			"err", writeErr,
+		)
+		return false
+	}
+	if metrics != nil {
+		metrics.DLQEventsTotal.WithLabelValues(consumerID).Inc()
+	}
+	slog.Error("router: poison flush dead-lettered",
+		"consumer", consumerID,
+		"partition", partitionID,
+		"seq", pfe.Seq,
+		"dlq", "persisted",
+	)
+
+	// Durable write succeeded — now record skip, discard provisional, reset backoff.
+	r.mu.Lock()
+	if idx < len(r.consumers) {
+		cs := &r.consumers[idx]
+		if cs.skippedSeqs == nil {
+			cs.skippedSeqs = make(map[uint32]map[uint64]struct{})
+		}
+		if cs.skippedSeqs[partitionID] == nil {
+			cs.skippedSeqs[partitionID] = make(map[uint64]struct{})
+		}
+		cs.skippedSeqs[partitionID][pfe.Seq] = struct{}{}
+		if cs.poisonStreak == nil {
+			cs.poisonStreak = make(map[uint32]int)
+		}
+		cs.poisonStreak[partitionID]++
+	}
+	r.mu.Unlock()
+
+	r.discardProvisional(idx, partitionID)
+	delete(backoffState, idx)
+	return true
+}
+
+// logPoisonDLQDisabledOnce emits one loud error per (consumer, partition, seq)
+// when DLQ is disabled and a PermanentFlushError cannot be skipped.
+func (r *Router) logPoisonDLQDisabledOnce(idx int, partitionID uint32, seq uint64, consumerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if idx >= len(r.consumers) {
+		return
+	}
+	cs := &r.consumers[idx]
+	if cs.poisonNoDLQLogged == nil {
+		cs.poisonNoDLQLogged = make(map[uint32]map[uint64]struct{})
+	}
+	if cs.poisonNoDLQLogged[partitionID] == nil {
+		cs.poisonNoDLQLogged[partitionID] = make(map[uint64]struct{})
+	}
+	if _, ok := cs.poisonNoDLQLogged[partitionID][seq]; ok {
+		return
+	}
+	cs.poisonNoDLQLogged[partitionID][seq] = struct{}{}
+	slog.Error("router: poison flush with DLQ disabled — treating as transient",
+		"consumer", consumerID,
+		"partition", partitionID,
+		"seq", seq,
+	)
+}
+
+// resetPoisonStreak clears the consecutive-poison counter for a consumer
+// partition after a successful FlushBatch.
+func (r *Router) resetPoisonStreak(idx int, partitionID uint32) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if idx >= len(r.consumers) {
+		return
+	}
+	cs := &r.consumers[idx]
+	if cs.poisonStreak != nil {
+		delete(cs.poisonStreak, partitionID)
+	}
+	if cs.poisonStreakLogged != nil {
+		delete(cs.poisonStreakLogged, partitionID)
+	}
+}
+
 
 // promoteProvisional promotes consumer index idx's provisional cursor advance
 // for partitionID into its durable cursor and persists it via cursorStore.
@@ -474,7 +706,19 @@ func (r *Router) promoteProvisional(ctx context.Context, idx int, partitionID ui
 	if provisional > cs.cursorByPartition[partitionID] {
 		cs.cursorByPartition[partitionID] = provisional
 	}
-	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, cs.cursorByPartition[partitionID]); err != nil {
+	newCursor := cs.cursorByPartition[partitionID]
+	// RTR-07: prune skip-set entries at or below the newly persisted cursor.
+	if m := cs.skippedSeqs[partitionID]; m != nil {
+		for seq := range m {
+			if seq <= newCursor {
+				delete(m, seq)
+			}
+		}
+		if len(m) == 0 {
+			delete(cs.skippedSeqs, partitionID)
+		}
+	}
+	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, newCursor); err != nil {
 		slog.Warn("router: failed to save cursor after batch flush",
 			"consumer", cs.consumer.ID(),
 			"partition", partitionID,
@@ -566,10 +810,15 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 			// IsBlocked acquires its own mutex — safe to call under RLock.
 			blocked = r.rs.IsBlocked(cs.consumer.ID(), groupKey)
 		}
+		skipped := false
+		if m := cs.skippedSeqs[partitionID]; m != nil {
+			_, skipped = m[entry.Seq]
+		}
 		snaps[i] = consumerSnap{
 			consumer: cs.consumer,
 			blocked:  blocked,
 			cursor:   cs.cursorByPartition[partitionID],
+			skipped:  skipped,
 		}
 	}
 	r.mu.RUnlock()
@@ -599,6 +848,11 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 		}
 		if entry.Seq < snap.cursor {
 			continue // already delivered and acked by this consumer
+		}
+		if snap.skipped {
+			// RTR-07: poison already DLQ'd — do not re-deliver. errs[i]
+			// stays nil so Phase 3 advances the (provisional) cursor past it.
+			continue
 		}
 		errs[i] = snap.consumer.Deliver(ctx, entry)
 	}
