@@ -116,3 +116,84 @@ func TestKaptantoMetrics(t *testing.T) {
 		}
 	})
 }
+
+// TestDLQAndTransformMetrics verifies the DLQ and transform collectors are
+// registered on a fresh custom registry with the expected names and help text.
+func TestDLQAndTransformMetrics(t *testing.T) {
+	t.Run("NewKaptantoMetrics called twice does not panic", func(t *testing.T) {
+		m1 := NewKaptantoMetrics()
+		m2 := NewKaptantoMetrics()
+		if m1 == nil || m2 == nil {
+			t.Fatal("expected non-nil KaptantoMetrics from both calls")
+		}
+	})
+
+	t.Run("DLQ and transform fields are non-nil", func(t *testing.T) {
+		m := NewKaptantoMetrics()
+		if m.DLQEventsTotal == nil {
+			t.Fatal("expected DLQEventsTotal to be non-nil")
+		}
+		if m.DLQWriteFailuresTotal == nil {
+			t.Fatal("expected DLQWriteFailuresTotal to be non-nil")
+		}
+		if m.DLQFallbackWritesTotal == nil {
+			t.Fatal("expected DLQFallbackWritesTotal to be non-nil")
+		}
+		if m.DLQSize == nil {
+			t.Fatal("expected DLQSize to be non-nil")
+		}
+		if m.TransformDroppedTotal == nil {
+			t.Fatal("expected TransformDroppedTotal to be non-nil")
+		}
+		if m.TransformErrorsTotal == nil {
+			t.Fatal("expected TransformErrorsTotal to be non-nil")
+		}
+	})
+
+	t.Run("DLQ and transform Inc/Set do not panic", func(t *testing.T) {
+		m := NewKaptantoMetrics()
+		m.DLQEventsTotal.WithLabelValues("consumer-1").Inc()
+		m.DLQWriteFailuresTotal.WithLabelValues("consumer-1").Inc()
+		m.DLQFallbackWritesTotal.WithLabelValues("consumer-1").Inc()
+		m.DLQSize.Set(3)
+		m.TransformDroppedTotal.WithLabelValues("consumer-1").Inc()
+		m.TransformErrorsTotal.WithLabelValues("consumer-1").Inc()
+	})
+
+	t.Run("names and help appear in /metrics gather output", func(t *testing.T) {
+		m := NewKaptantoMetrics()
+		m.DLQEventsTotal.WithLabelValues("consumer-1").Inc()
+		m.DLQWriteFailuresTotal.WithLabelValues("consumer-1").Inc()
+		m.DLQFallbackWritesTotal.WithLabelValues("consumer-1").Inc()
+		m.DLQSize.Set(7)
+		m.TransformDroppedTotal.WithLabelValues("consumer-1").Inc()
+		m.TransformErrorsTotal.WithLabelValues("consumer-1").Inc()
+
+		h := m.Handler()
+		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		body := rr.Body.String()
+
+		want := []struct {
+			name string
+			help string
+		}{
+			{"kaptanto_dlq_events_total", "Total events written to the dead-letter queue, labeled by consumer."},
+			{"kaptanto_dlq_write_failures_total", "Total failed writes to the dead-letter queue, labeled by consumer."},
+			{"kaptanto_dlq_fallback_writes_total", "Total DLQ fallback writes (e.g. when primary DLQ storage fails), labeled by consumer."},
+			{"kaptanto_dlq_size", "Current number of events in the dead-letter queue."},
+			{"kaptanto_transform_dropped_total", "Total events dropped by transform filters, labeled by consumer."},
+			{"kaptanto_transform_errors_total", "Total transform evaluation errors, labeled by consumer."},
+		}
+		for _, w := range want {
+			if !strings.Contains(body, w.name) {
+				t.Fatalf("expected %s in body, got:\n%s", w.name, body)
+			}
+			helpLine := "# HELP " + w.name + " " + w.help
+			if !strings.Contains(body, helpLine) {
+				t.Fatalf("expected help %q in body, got:\n%s", helpLine, body)
+			}
+		}
+	})
+}

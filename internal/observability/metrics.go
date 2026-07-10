@@ -21,6 +21,12 @@ type KaptantoMetrics struct {
 	QueuePublishTotal   *prometheus.CounterVec   // queue_publish_total{sink}
 	QueuePublishErrors  *prometheus.CounterVec   // queue_publish_errors_total{sink}
 	QueuePublishLatency *prometheus.HistogramVec // queue_publish_latency_seconds{sink}
+	DLQEventsTotal         *prometheus.CounterVec // kaptanto_dlq_events_total{consumer}
+	DLQWriteFailuresTotal  *prometheus.CounterVec // kaptanto_dlq_write_failures_total{consumer}
+	DLQFallbackWritesTotal *prometheus.CounterVec // kaptanto_dlq_fallback_writes_total{consumer}
+	DLQSize                prometheus.Gauge       // kaptanto_dlq_size
+	TransformDroppedTotal  *prometheus.CounterVec // kaptanto_transform_dropped_total{consumer}
+	TransformErrorsTotal   *prometheus.CounterVec // kaptanto_transform_errors_total{consumer}
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -64,6 +70,30 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Help:    "Publish round-trip latency to queue sinks in seconds, labeled by sink type.",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"sink"}),
+		DLQEventsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kaptanto_dlq_events_total",
+			Help: "Total events written to the dead-letter queue, labeled by consumer.",
+		}, []string{"consumer"}),
+		DLQWriteFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kaptanto_dlq_write_failures_total",
+			Help: "Total failed writes to the dead-letter queue, labeled by consumer.",
+		}, []string{"consumer"}),
+		DLQFallbackWritesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kaptanto_dlq_fallback_writes_total",
+			Help: "Total DLQ fallback writes (e.g. when primary DLQ storage fails), labeled by consumer.",
+		}, []string{"consumer"}),
+		DLQSize: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "kaptanto_dlq_size",
+			Help: "Current number of events in the dead-letter queue.",
+		}),
+		TransformDroppedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kaptanto_transform_dropped_total",
+			Help: "Total events dropped by transform filters, labeled by consumer.",
+		}, []string{"consumer"}),
+		TransformErrorsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kaptanto_transform_errors_total",
+			Help: "Total transform evaluation errors, labeled by consumer.",
+		}, []string{"consumer"}),
 	}
 	reg.MustRegister(
 		m.EventsDelivered,
@@ -74,6 +104,12 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.QueuePublishTotal,
 		m.QueuePublishErrors,
 		m.QueuePublishLatency,
+		m.DLQEventsTotal,
+		m.DLQWriteFailuresTotal,
+		m.DLQFallbackWritesTotal,
+		m.DLQSize,
+		m.TransformDroppedTotal,
+		m.TransformErrorsTotal,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
