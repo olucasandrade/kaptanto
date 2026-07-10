@@ -2,8 +2,10 @@
 //
 // RetryScheduler re-attempts blocked message group entries on an exponential
 // backoff schedule (1s, 5s, 30s, 2min, 10min plateau). After maxRetries failed
-// attempts the entry is dead-lettered: logged at slog.Error and removed from
-// blockedGroups so it no longer blocks subsequent events for that key.
+// attempts (or on a PermanentDeliveryError) the entry is dead-lettered: written
+// to the configured dlq.Store when present (DLQ-01), otherwise logged at
+// slog.Error and removed from blockedGroups so it no longer blocks subsequent
+// events for that key.
 //
 // RTR-06 — cursor floor: RetryScheduler's blockedGroups queue is memory-only.
 // Router must never persist a consumer's cursor past the lowest seq of a
@@ -18,6 +20,8 @@ package router
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"math/rand/v2"
@@ -25,7 +29,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/olucasandrade/kaptanto/internal/dlq"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
 )
 
 // retryDelays defines the exponential backoff schedule for delivery retries.
@@ -48,6 +54,9 @@ const maxRetries = 15
 
 // retryTickInterval is how often RetryScheduler.Run fires its internal tick.
 const retryTickInterval = 1 * time.Second
+
+// maxReasonBytes is the maximum length of a DLQ Reason string built from LastErr.
+const maxReasonBytes = 1024
 
 // NextDelay returns the backoff duration for the given attempt index.
 // If attempt >= len(retryDelays) the last (maximum) duration is returned.
@@ -72,25 +81,17 @@ func JitteredDelay(attempt int) time.Duration {
 
 // isPermanentError reports whether err is a permanent delivery error that
 // should trigger immediate dead-lettering without waiting for maxRetries.
+// It recognizes PermanentDeliveryError implementors via the unwrap chain, plus
+// the historical io.ErrClosedPipe / os.ErrDeadlineExceeded sentinels.
 func isPermanentError(err error) bool {
-	return isErr(err, io.ErrClosedPipe) || isErr(err, os.ErrDeadlineExceeded)
-}
-
-// isErr is a helper that checks errors.Is without importing "errors" at top.
-func isErr(err, target error) bool {
-	// Inline unwrap loop avoids a circular import risk and keeps the function
-	// readable. errors.Is does the same thing.
-	for {
-		if err == target {
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		u, ok := err.(unwrapper)
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
+	if err == nil {
+		return false
 	}
+	var perm PermanentDeliveryError
+	if errors.As(err, &perm) {
+		return true
+	}
+	return errors.Is(err, io.ErrClosedPipe) || errors.Is(err, os.ErrDeadlineExceeded)
 }
 
 // RetryRecord is a blocked message group entry that holds the original event,
@@ -103,6 +104,9 @@ type RetryRecord struct {
 	Attempts    int
 	NextRetryAt time.Time
 	ConsumerID  string
+	// LastErr is the most recent delivery error observed by drainGroup. It
+	// becomes the DLQ Entry.Reason when the record is dead-lettered.
+	LastErr error
 }
 
 // consumerRetryState is the per-consumer blocked map used by RetryScheduler.
@@ -147,6 +151,13 @@ type RetryScheduler struct {
 	mu     sync.Mutex
 	states map[string]*consumerRetryState // key = consumer.ID()
 
+	// dlq is the optional dead-letter store. nil disables persistence and
+	// keeps the historical log-and-drop dead-letter path.
+	dlq dlq.Store
+
+	// metrics, when non-nil, receives dlq_events_total / dlq_write_failures_total.
+	metrics *observability.KaptantoMetrics
+
 	// OnFloorReleased, if set, is called after a blocked group's head record
 	// is popped (delivered or dead-lettered) and the floor for
 	// (consumerID, partitionID) has been recomputed. ok reports whether a
@@ -161,6 +172,23 @@ type RetryScheduler struct {
 // NewRetryScheduler creates a new, empty RetryScheduler.
 func NewRetryScheduler() *RetryScheduler {
 	return &RetryScheduler{states: make(map[string]*consumerRetryState)}
+}
+
+// SetDLQ wires a dead-letter store into the scheduler. A nil store disables
+// DLQ persistence (log-and-drop). Safe for concurrent use; intended for root
+// command wiring before Run.
+func (rs *RetryScheduler) SetDLQ(store dlq.Store) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.dlq = store
+}
+
+// SetMetrics wires Prometheus collectors for DLQ write success/failure.
+// A nil metrics value disables increments. Safe for concurrent use.
+func (rs *RetryScheduler) SetMetrics(m *observability.KaptantoMetrics) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.metrics = m
 }
 
 // ensureStateLocked returns the consumerRetryState for c, creating it if
@@ -391,7 +419,7 @@ func (rs *RetryScheduler) Tick(ctx context.Context) {
 // drainGroup delivers queued records for one blocked group head-first until
 // the first transient failure, an empty queue, or ctx cancellation. rs.mu is
 // held only to read the current head and to apply each delivery outcome —
-// never across Deliver.
+// never across Deliver or DLQ Store.Write.
 func (rs *RetryScheduler) drainGroup(ctx context.Context, s *consumerRetryState, groupKey string) {
 	for ctx.Err() == nil {
 		rs.mu.Lock()
@@ -437,18 +465,15 @@ func (rs *RetryScheduler) drainGroup(ctx context.Context, s *consumerRetryState,
 			rs.mu.Unlock()
 			notify()
 		case isPermanentError(err):
-			// Dead-letter the head; next entry becomes eligible immediately.
-			deadLetterHead(s, groupKey, queue)
-			notify := rs.afterPopLocked(s, rec.Entry.PartitionID)
+			rec.LastErr = err
 			rs.mu.Unlock()
-			notify()
+			rs.deadLetterHead(ctx, s, groupKey, rec)
 		default:
+			rec.LastErr = err
 			rec.Attempts++
 			if rec.Attempts >= maxRetries {
-				deadLetterHead(s, groupKey, queue)
-				notify := rs.afterPopLocked(s, rec.Entry.PartitionID)
 				rs.mu.Unlock()
-				notify()
+				rs.deadLetterHead(ctx, s, groupKey, rec)
 				continue
 			}
 			rec.NextRetryAt = time.Now().Add(JitteredDelay(rec.Attempts))
@@ -472,16 +497,127 @@ func (rs *RetryScheduler) Run(ctx context.Context) {
 	}
 }
 
-// deadLetterHead logs a slog.Error for the head entry of a blocked group and
-// pops it. If the queue has more entries the next one becomes the new head and
-// is made immediately eligible (NextRetryAt = now). If the queue is now empty
-// the group key is removed from blockedGroups.
-func deadLetterHead(s *consumerRetryState, groupKey string, queue []*RetryRecord) {
-	rec := queue[0]
-	// Identify the event by ULID, partition, and seq — enough to locate it in
-	// the event log. Never log Event.Key (raw row PK) or the idempotency key
-	// (which embeds the PK): natural keys such as emails or account numbers
-	// must not leak into log pipelines.
+// buildDLQEntry constructs a dlq.Entry from a RetryRecord. Payload prefers
+// Entry.Raw and falls back to json.Marshal of the ChangeEvent. Reason is
+// truncated to maxReasonBytes.
+func buildDLQEntry(rec *RetryRecord) dlq.Entry {
+	payload := rec.Entry.Raw
+	if len(payload) == 0 && rec.Entry.Event != nil {
+		payload, _ = json.Marshal(rec.Entry.Event)
+	}
+	reason := ""
+	if rec.LastErr != nil {
+		reason = rec.LastErr.Error()
+		if len(reason) > maxReasonBytes {
+			reason = reason[:maxReasonBytes]
+		}
+	}
+	eventID := ""
+	table := ""
+	idem := ""
+	if rec.Entry.Event != nil {
+		eventID = rec.Entry.Event.ID.String()
+		table = rec.Entry.Event.Table
+		idem = rec.Entry.Event.IdempotencyKey
+	}
+	return dlq.Entry{
+		ConsumerID:     rec.ConsumerID,
+		EventID:        eventID,
+		Table:          table,
+		PartitionID:    rec.Entry.PartitionID,
+		Seq:            rec.Entry.Seq,
+		Attempts:       rec.Attempts,
+		Reason:         reason,
+		IdempotencyKey: idem,
+		Payload:        payload,
+	}
+}
+
+// popHeadLocked removes the head of groupKey's queue. If follow-ons remain,
+// the next entry becomes head and is made immediately eligible. Caller must
+// hold rs.mu and have already verified queue[0] is the record being popped.
+func popHeadLocked(s *consumerRetryState, groupKey string, queue []*RetryRecord) {
+	if len(queue) == 1 {
+		delete(s.blockedGroups, groupKey)
+		return
+	}
+	queue[1].NextRetryAt = time.Now()
+	s.blockedGroups[groupKey] = queue[1:]
+}
+
+// deadLetterHead persists the head record to the DLQ (when configured) and
+// pops it from the blocked queue. Store.Write runs with rs.mu RELEASED —
+// the same off-lock discipline drainGroup uses for Deliver.
+//
+// DLQ-01: if Write fails, the head is NOT popped. NextRetryAt is pushed to
+// the plateau so both delivery and the DLQ write are re-attempted on the
+// next plateau tick. The RTR-06 floor stays pinned; cursors do not advance
+// past the stuck event. This is the intentional no-silent-loss trade-off.
+//
+// Caller must NOT hold rs.mu.
+func (rs *RetryScheduler) deadLetterHead(ctx context.Context, s *consumerRetryState, groupKey string, rec *RetryRecord) {
+	entry := buildDLQEntry(rec)
+
+	rs.mu.Lock()
+	store := rs.dlq
+	metrics := rs.metrics
+	rs.mu.Unlock()
+
+	if store == nil {
+		// Disabled: today's behavior exactly — log + pop.
+		rs.mu.Lock()
+		queue := s.blockedGroups[groupKey]
+		if len(queue) == 0 || queue[0] != rec {
+			rs.mu.Unlock()
+			return
+		}
+		slog.Error("router: dead-letter",
+			"consumer_id", rec.ConsumerID,
+			"event_id", rec.Entry.Event.ID.String(),
+			"table", rec.Entry.Event.Table,
+			"partition", rec.Entry.PartitionID,
+			"seq", rec.Entry.Seq,
+			"attempts", rec.Attempts,
+		)
+		popHeadLocked(s, groupKey, queue)
+		notify := rs.afterPopLocked(s, rec.Entry.PartitionID)
+		rs.mu.Unlock()
+		notify()
+		return
+	}
+
+	// Write with lock RELEASED.
+	writeErr := store.Write(ctx, entry)
+
+	rs.mu.Lock()
+	queue := s.blockedGroups[groupKey]
+	if len(queue) == 0 || queue[0] != rec {
+		// Head changed while we were writing — bail cleanly (do not pop the
+		// new head, do not mutate NextRetryAt on a different record).
+		rs.mu.Unlock()
+		return
+	}
+
+	if writeErr != nil {
+		// DLQ-01: do NOT pop. Plateau both delivery and DLQ write retries.
+		maxAttempt := len(retryDelays) - 1
+		rec.NextRetryAt = time.Now().Add(JitteredDelay(maxAttempt))
+		if metrics != nil {
+			metrics.DLQWriteFailuresTotal.WithLabelValues(rec.ConsumerID).Inc()
+		}
+		slog.Error("router: dead-letter DLQ write failed",
+			"consumer_id", rec.ConsumerID,
+			"event_id", rec.Entry.Event.ID.String(),
+			"table", rec.Entry.Event.Table,
+			"partition", rec.Entry.PartitionID,
+			"seq", rec.Entry.Seq,
+			"attempts", rec.Attempts,
+			"err", writeErr,
+		)
+		rs.mu.Unlock()
+		return
+	}
+
 	slog.Error("router: dead-letter",
 		"consumer_id", rec.ConsumerID,
 		"event_id", rec.Entry.Event.ID.String(),
@@ -489,11 +625,13 @@ func deadLetterHead(s *consumerRetryState, groupKey string, queue []*RetryRecord
 		"partition", rec.Entry.PartitionID,
 		"seq", rec.Entry.Seq,
 		"attempts", rec.Attempts,
+		"dlq", "persisted",
 	)
-	if len(queue) == 1 {
-		delete(s.blockedGroups, groupKey)
-	} else {
-		queue[1].NextRetryAt = time.Now()
-		s.blockedGroups[groupKey] = queue[1:]
+	popHeadLocked(s, groupKey, queue)
+	if metrics != nil {
+		metrics.DLQEventsTotal.WithLabelValues(rec.ConsumerID).Inc()
 	}
+	notify := rs.afterPopLocked(s, rec.Entry.PartitionID)
+	rs.mu.Unlock()
+	notify()
 }
