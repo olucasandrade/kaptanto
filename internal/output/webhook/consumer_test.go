@@ -195,30 +195,16 @@ func TestNewWebhookSinkConsumer_EnvExpansion(t *testing.T) {
 	require.NoError(t, c2.Deliver(context.Background(), entry))
 	require.NoError(t, c2.FlushBatch(context.Background(), 0))
 
-	t.Run("unset expands empty", func(t *testing.T) {
-		c3 := newConsumer(t, config.WebhookSinkConfig{
+	t.Run("unset secret reference errors at construction", func(t *testing.T) {
+		_, err := webhooksink.NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
 			URL: srv.URL,
 			Auth: config.WebhookAuthConfig{
 				Basic: config.WebhookBasicAuth{Username: "u", Password: "${UNSET_WH_PASS}"},
 			},
 		})
-		var gotAuth string
-		srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gotAuth = r.Header.Get("Authorization")
-			w.WriteHeader(200)
-		}))
-		t.Cleanup(srv2.Close)
-		c4 := newConsumer(t, config.WebhookSinkConfig{
-			URL: srv2.URL,
-			Auth: config.WebhookAuthConfig{
-				Basic: config.WebhookBasicAuth{Username: "u", Password: "${UNSET_WH_PASS}"},
-			},
-		})
-		_ = c3
-		require.NoError(t, c4.Deliver(context.Background(), entry))
-		require.NoError(t, c4.FlushBatch(context.Background(), 0))
-		want := "Basic " + base64.StdEncoding.EncodeToString([]byte("u:"))
-		assert.Equal(t, want, gotAuth)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing environment variable")
+		assert.Contains(t, err.Error(), "UNSET_WH_PASS")
 	})
 }
 

@@ -129,7 +129,10 @@ type pendingReq struct {
 // configuration (fail-fast), and builds a shared http.Client. The caller is
 // responsible for calling Close() when done.
 func NewWebhookSinkConsumer(id string, cfg config.WebhookSinkConfig) (*WebhookSinkConsumer, error) {
-	cfg = expandWebhookConfig(cfg)
+	cfg, err := expandWebhookConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	norm, err := validateWebhookConfig(cfg)
 	if err != nil {
@@ -183,16 +186,45 @@ type webhookNorm struct {
 	engine   transform.Engine
 }
 
-// expandWebhookConfig applies ${VAR} env expansion to secret-bearing fields.
-func expandWebhookConfig(cfg config.WebhookSinkConfig) config.WebhookSinkConfig {
+// expandWebhookConfig applies ${VAR} env expansion. Non-secret fields expand
+// to the empty string for backward compatibility; secret-bearing fields
+// (bearer token, basic password, signing secret) require the referenced
+// variable to be present and return an error if any referenced variable is
+// missing.
+func expandWebhookConfig(cfg config.WebhookSinkConfig) (config.WebhookSinkConfig, error) {
 	expand := func(s string) string {
 		return os.Expand(s, os.Getenv)
 	}
 	cfg.URL = expand(cfg.URL)
 	cfg.URLTemplate = expand(cfg.URLTemplate)
-	cfg.Auth.BearerToken = expand(cfg.Auth.BearerToken)
-	cfg.Auth.Basic.Password = expand(cfg.Auth.Basic.Password)
-	cfg.Signing.Secret = expand(cfg.Signing.Secret)
+
+	expandSecret := func(s string) (string, error) {
+		var missing []string
+		out := os.Expand(s, func(name string) string {
+			v, ok := os.LookupEnv(name)
+			if !ok {
+				missing = append(missing, name)
+				return ""
+			}
+			return v
+		})
+		if len(missing) > 0 {
+			return "", fmt.Errorf("webhook sink: missing environment variable(s): %s", strings.Join(missing, ", "))
+		}
+		return out, nil
+	}
+
+	var err error
+	if cfg.Auth.BearerToken, err = expandSecret(cfg.Auth.BearerToken); err != nil {
+		return cfg, err
+	}
+	if cfg.Auth.Basic.Password, err = expandSecret(cfg.Auth.Basic.Password); err != nil {
+		return cfg, err
+	}
+	if cfg.Signing.Secret, err = expandSecret(cfg.Signing.Secret); err != nil {
+		return cfg, err
+	}
+
 	if cfg.Headers != nil {
 		expanded := make(map[string]string, len(cfg.Headers))
 		for k, v := range cfg.Headers {
@@ -200,7 +232,7 @@ func expandWebhookConfig(cfg config.WebhookSinkConfig) config.WebhookSinkConfig 
 		}
 		cfg.Headers = expanded
 	}
-	return cfg
+	return cfg, nil
 }
 
 // validateWebhookConfig enforces startup rules 1–13 and returns normalized fields.
@@ -668,7 +700,7 @@ func (c *WebhookSinkConsumer) Ping() error {
 	if c.urlT != nil {
 		var buf bytes.Buffer
 		if err := c.urlT.Execute(&buf, &event.ChangeEvent{}); err != nil {
-			return nil
+			return fmt.Errorf("webhook sink: ping: url-template execution: %w", err)
 		}
 		raw = strings.TrimSpace(buf.String())
 		if raw == "" {
@@ -751,6 +783,10 @@ func buildTLSConfig(tlsCfg config.TLSConfig) (*tls.Config, error) {
 			return nil, fmt.Errorf("webhook sink: no valid certs in ca-file %q", tlsCfg.CAFile)
 		}
 		cfg.RootCAs = pool
+	}
+
+	if (tlsCfg.CertFile != "") != (tlsCfg.KeyFile != "") {
+		return nil, fmt.Errorf("webhook sink: tls.cert-file and tls.key-file must both be set for mTLS")
 	}
 
 	if tlsCfg.CertFile != "" && tlsCfg.KeyFile != "" {
