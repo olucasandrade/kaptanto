@@ -1,9 +1,6 @@
-// Package routing provides event matching for action routing (RTG-01).
-//
-// A MatchConfig specifies which events should be delivered to an action based
-// on table names and operations. Compile validates the config at startup (any
-// error aborts startup per RTG-01) and returns a Matcher that evaluates each
-// event in O(1) via pre-built lookup maps.
+// Package routing provides compiled match-rule evaluation for the kaptanto
+// action/routing layer. Each MatchConfig compiles into a Matcher at startup
+// (RTG-01); Match calls on the hot path are allocation-free on miss (RTG-02).
 package routing
 
 import (
@@ -11,86 +8,137 @@ import (
 	"strings"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
+	"github.com/olucasandrade/kaptanto/internal/output"
 )
 
-// MatchConfig declares which events an action should receive.
-// An empty Tables slice means "match all tables"; an empty Operations slice
-// means "match all operations". Both conditions must pass (AND).
+// MatchConfig declares a single match rule in YAML/JSON configuration.
 type MatchConfig struct {
-	Tables     []string `yaml:"tables"`     // e.g. ["public.orders", "public.users"]
-	Operations []string `yaml:"operations"` // e.g. ["insert", "update"]
+	Tables     []string `yaml:"tables"`     // globs: "public.orders", "public.*", "*"; empty = all
+	Operations []string `yaml:"operations"` // insert|update|delete|read; empty = all
+	Where      string   `yaml:"where"`      // existing WHERE grammar; empty = always true
 }
 
-// Matcher evaluates a ChangeEvent against a compiled MatchConfig.
-// Zero-alloc on the hot path (lookup maps built once at Compile time).
+// opBitmask encodes a set of operations as bitflags for O(1) membership check.
+type opBitmask uint8
+
+const (
+	opInsert opBitmask = 1 << iota
+	opUpdate
+	opDelete
+	opRead
+	opAll = opInsert | opUpdate | opDelete | opRead
+)
+
+var canonicalOps = map[string]opBitmask{
+	"insert": opInsert,
+	"update": opUpdate,
+	"delete": opDelete,
+	"read":   opRead,
+}
+
+// Matcher is the compiled form of a MatchConfig. Its Match method is safe for
+// concurrent use and performs no allocations on the miss path.
 type Matcher struct {
-	tables     map[string]struct{} // nil = match all
-	operations map[event.Operation]struct{} // nil = match all
+	tables    []tableGlob
+	matchAll  bool // true when Tables is empty (match all tables)
+	ops       opBitmask
+	rowFilter *output.RowFilter
 }
 
-// validOperations is the set of known operations for validation.
-var validOperations = map[string]struct{}{
-	"insert":  {},
-	"update":  {},
-	"delete":  {},
-	"read":    {},
-	"control": {},
-}
-
-// Compile validates cfg and returns a Matcher. Returns an error if any
-// operation name is invalid. An empty/nil cfg matches all events.
-func Compile(cfg MatchConfig) (*Matcher, error) {
+// Compile validates and compiles mc into a Matcher. It returns a descriptive
+// error naming the offending field and value on any validation failure.
+// Compile must be called at startup; any error should abort the process (RTG-01).
+func Compile(mc MatchConfig) (*Matcher, error) {
 	m := &Matcher{}
 
-	if len(cfg.Tables) > 0 {
-		m.tables = make(map[string]struct{}, len(cfg.Tables))
-		for _, t := range cfg.Tables {
-			t = strings.TrimSpace(t)
-			if t == "" {
-				return nil, fmt.Errorf("routing: empty table name in match config")
+	// --- Tables ---
+	if len(mc.Tables) == 0 {
+		m.matchAll = true
+	} else {
+		m.tables = make([]tableGlob, len(mc.Tables))
+		for i, pat := range mc.Tables {
+			g, err := compileTableGlob(pat)
+			if err != nil {
+				return nil, fmt.Errorf("compile match rule: %w", err)
 			}
-			m.tables[t] = struct{}{}
+			m.tables[i] = g
 		}
 	}
 
-	if len(cfg.Operations) > 0 {
-		m.operations = make(map[event.Operation]struct{}, len(cfg.Operations))
-		for _, op := range cfg.Operations {
-			op = strings.TrimSpace(strings.ToLower(op))
-			if _, ok := validOperations[op]; !ok {
-				return nil, fmt.Errorf("routing: unknown operation %q (valid: insert, update, delete, read, control)", op)
+	// --- Operations ---
+	if len(mc.Operations) == 0 {
+		m.ops = opAll
+	} else {
+		for _, raw := range mc.Operations {
+			op := strings.ToLower(strings.TrimSpace(raw))
+			bit, ok := canonicalOps[op]
+			if !ok {
+				return nil, fmt.Errorf("compile match rule: operations: unknown operation %q", raw)
 			}
-			m.operations[event.Operation(op)] = struct{}{}
+			m.ops |= bit
 		}
 	}
+
+	// --- WHERE ---
+	rf, err := output.ParseRowFilter(mc.Where)
+	if err != nil {
+		return nil, fmt.Errorf("compile match rule: where: %w", err)
+	}
+	m.rowFilter = rf
 
 	return m, nil
 }
 
-// Match returns true when the event passes this matcher's table and operation
-// filters. A nil event never matches.
-func (m *Matcher) Match(e *event.ChangeEvent) bool {
-	if e == nil {
+// Match reports whether ev satisfies this matcher's tables AND operations AND
+// where clause. It performs no heap allocation on the miss path and no I/O ever.
+func (m *Matcher) Match(ev *event.ChangeEvent) bool {
+	// Fast-path: operation bitmask check.
+	if !m.matchOp(ev.Operation) {
 		return false
 	}
-	if m.tables != nil {
-		key := e.Table
-		if e.Schema != "" {
-			key = e.Schema + "." + e.Table
-		}
-		if _, ok := m.tables[key]; !ok {
+
+	// Table glob check.
+	if !m.matchAll {
+		name := qualifiedName(ev.Schema, ev.Table)
+		if !m.matchTable(name) {
 			return false
 		}
 	}
-	if m.operations != nil {
-		if _, ok := m.operations[e.Operation]; !ok {
-			return false
-		}
-	}
-	return true
+
+	// WHERE row filter (always true for nil/empty filter).
+	return m.rowFilter.Match(ev)
 }
 
-// MatchAll returns a Matcher that matches every event.
-func MatchAll() *Matcher {
-	return &Matcher{}
+// matchOp checks the operation against the compiled bitmask.
+func (m *Matcher) matchOp(op event.Operation) bool {
+	switch op {
+	case event.OpInsert:
+		return m.ops&opInsert != 0
+	case event.OpUpdate:
+		return m.ops&opUpdate != 0
+	case event.OpDelete:
+		return m.ops&opDelete != 0
+	case event.OpRead:
+		return m.ops&opRead != 0
+	default:
+		return false
+	}
+}
+
+// matchTable checks the qualified table name against all compiled globs.
+func (m *Matcher) matchTable(name string) bool {
+	for i := range m.tables {
+		if m.tables[i].match(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// qualifiedName builds "schema.table" or just "table" when schema is empty.
+func qualifiedName(schema, table string) string {
+	if schema == "" {
+		return table
+	}
+	return schema + "." + table
 }
