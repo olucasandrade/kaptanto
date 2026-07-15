@@ -292,7 +292,8 @@ func TestBatchFlusherBackoffAvoidsHotLoop(t *testing.T) {
 	}
 	gap := attempts[1].Sub(attempts[0])
 	base := router.NextDelay(0)
-	if gap > base {
-		t.Errorf("gap between first and second FlushBatch attempt = %v, want <= NextDelay(0)=%v (full jitter upper bound)", gap, base)
+	// Sleep guarantees *at least* the requested duration; allow scheduler overhead.
+	if gap > base+50*time.Millisecond {
+		t.Errorf("gap between first and second FlushBatch attempt = %v, want <= NextDelay(0)+50ms=%v (full jitter upper bound)", gap, base+50*time.Millisecond)
 	}
 }
