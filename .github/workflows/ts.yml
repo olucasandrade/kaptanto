@@ -59,6 +59,14 @@ jobs:
           cache: "npm"
           cache-dependency-path: n8n-nodes-kaptanto/package-lock.json
 
+      # @kaptanto/events is a local linked dependency. Its dist/ is not checked
+      # in, so we must build it before the n8n package can resolve the module.
+      - name: Build @kaptanto/events dependency
+        working-directory: packages/kaptanto-events
+        run: |
+          npm ci
+          npm run build
+
       - run: npm ci
       - run: npm run build
       - run: npm test
