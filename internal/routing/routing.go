@@ -91,17 +91,19 @@ func Compile(mc MatchConfig) (*Matcher, error) {
 
 // Match reports whether ev satisfies this matcher's tables AND operations AND
 // where clause. It performs no heap allocation on the miss path and no I/O ever.
-func (m *Matcher) Match(ev *event.ChangeEvent) bool {
+// A non-nil error means the row data is malformed and the caller must treat it
+// as a permanent delivery failure.
+func (m *Matcher) Match(ev *event.ChangeEvent) (bool, error) {
 	// Fast-path: operation bitmask check.
 	if !m.matchOp(ev.Operation) {
-		return false
+		return false, nil
 	}
 
 	// Table glob check.
 	if !m.matchAll {
 		name := qualifiedName(ev.Schema, ev.Table)
 		if !m.matchTable(name) {
-			return false
+			return false, nil
 		}
 	}
 

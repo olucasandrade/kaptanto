@@ -26,13 +26,24 @@ func makeEvent(op event.Operation, before, after string) *event.ChangeEvent {
 }
 
 // TestParseRowFilter_Empty verifies that an empty expression produces a no-op filter.
+// mustMatch evaluates f against ev and fails the test on error.
+func mustMatch(t *testing.T, f *output.RowFilter, ev *event.ChangeEvent) bool {
+	t.Helper()
+	got, err := f.Match(ev)
+	if err != nil {
+		t.Fatalf("Match error: %v", err)
+	}
+	return got
+}
+
 func TestParseRowFilter_Empty(t *testing.T) {
 	f, err := output.ParseRowFilter("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	ev := makeEvent(event.OpInsert, "", `{"status":"anything"}`)
-	if !f.Match(ev) {
+	got := mustMatch(t, f, ev)
+	if !got {
 		t.Error("empty filter should always match")
 	}
 }
@@ -80,12 +91,14 @@ func TestRowFilter_MatchNotEqual(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"status":"active"}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("status=active should match status != 'cancelled'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"status":"cancelled"}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("status=cancelled should not match status != 'cancelled'")
 	}
 }
@@ -98,7 +111,8 @@ func TestRowFilter_MatchDeleteUsesBefore(t *testing.T) {
 	}
 
 	ev := makeEvent(event.OpDelete, `{"status":"active"}`, "")
-	if !f.Match(ev) {
+	got := mustMatch(t, f, ev)
+	if !got {
 		t.Error("delete event with Before.status=active should match status != 'cancelled'")
 	}
 }
@@ -111,18 +125,21 @@ func TestRowFilter_MatchIsNull(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"col":null}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("col=null should match 'col IS NULL'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"col":"x"}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("col=x should not match 'col IS NULL'")
 	}
 
 	// Missing key is also considered null.
 	ev3 := makeEvent(event.OpInsert, "", `{"other":"x"}`)
-	if !f.Match(ev3) {
+	got = mustMatch(t, f, ev3)
+	if !got {
 		t.Error("missing key should match 'col IS NULL'")
 	}
 }
@@ -135,12 +152,14 @@ func TestRowFilter_MatchIsNotNull(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"col":"x"}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("col=x should match 'col IS NOT NULL'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"col":null}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("col=null should not match 'col IS NOT NULL'")
 	}
 }
@@ -153,12 +172,14 @@ func TestRowFilter_MatchIn(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"status":"active"}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("status=active should match IN ('active','pending')")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"status":"cancelled"}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("status=cancelled should not match IN ('active','pending')")
 	}
 }
@@ -171,12 +192,14 @@ func TestRowFilter_MatchAnd(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"a":"x","b":"y"}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("a=x AND b=y should match")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"a":"x","b":"z"}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("a=x AND b=z should not match")
 	}
 }
@@ -189,12 +212,14 @@ func TestRowFilter_MatchOr(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"a":"x"}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("a=x should match 'a = z OR a = x'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"a":"other"}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("a=other should not match 'a = z OR a = x'")
 	}
 }
@@ -207,12 +232,14 @@ func TestRowFilter_MatchNot(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"a":"x"}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("a=x should match 'NOT a = z'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"a":"z"}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("a=z should not match 'NOT a = z'")
 	}
 }
@@ -225,12 +252,14 @@ func TestRowFilter_MatchNumericComparison(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"amount":100}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("amount=100 should match 'amount > 50'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"amount":25}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("amount=25 should not match 'amount > 50'")
 	}
 }
@@ -243,12 +272,14 @@ func TestRowFilter_MatchEqual(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"status":"active"}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("status=active should match 'status = active'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"status":"inactive"}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("status=inactive should not match 'status = active'")
 	}
 }
@@ -261,12 +292,14 @@ func TestRowFilter_MatchGreaterThanOrEqual(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"amount":50}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("amount=50 should match 'amount >= 50'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"amount":49}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("amount=49 should not match 'amount >= 50'")
 	}
 }
@@ -279,12 +312,14 @@ func TestRowFilter_MatchLessThan(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"amount":25}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("amount=25 should match 'amount < 50'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"amount":75}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("amount=75 should not match 'amount < 50'")
 	}
 }
@@ -297,12 +332,14 @@ func TestRowFilter_MatchLessThanOrEqual(t *testing.T) {
 	}
 
 	ev1 := makeEvent(event.OpInsert, "", `{"amount":50}`)
-	if !f.Match(ev1) {
+	got := mustMatch(t, f, ev1)
+	if !got {
 		t.Error("amount=50 should match 'amount <= 50'")
 	}
 
 	ev2 := makeEvent(event.OpInsert, "", `{"amount":51}`)
-	if f.Match(ev2) {
+	got = mustMatch(t, f, ev2)
+	if got {
 		t.Error("amount=51 should not match 'amount <= 50'")
 	}
 }
@@ -566,7 +603,10 @@ func TestRowFilter_PrefixedColumns(t *testing.T) {
 				t.Fatalf("parse error: %v", err)
 			}
 			ev := makeEvent(tt.op, tt.before, tt.after)
-			got := f.Match(ev)
+			got := mustMatch(t, f, ev)
+			if err != nil {
+				t.Fatalf("Match error: %v", err)
+			}
 			if got != tt.want {
 				t.Errorf("Match() = %v, want %v", got, tt.want)
 			}

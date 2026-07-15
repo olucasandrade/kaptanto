@@ -267,8 +267,14 @@ func (c *matchConsumer) ID() string { return c.id }
 
 // Deliver evaluates the match before delegating. Non-matching events are acked
 // without buffering (ACT-03: cursor advances, like a transform drop).
+// Malformed row JSON that prevents the filter from deciding is returned as a
+// permanent delivery error so the router dead-letters instead of retrying.
 func (c *matchConsumer) Deliver(ctx context.Context, e eventlog.LogEntry) error {
-	if !c.matcher.Match(e.Event) {
+	matched, err := c.matcher.Match(e.Event)
+	if err != nil {
+		return &router.PermanentError{Cause: err.Error()}
+	}
+	if !matched {
 		if c.m != nil {
 			c.m.ActionEventsSkipped.WithLabelValues(c.id).Inc()
 		}
