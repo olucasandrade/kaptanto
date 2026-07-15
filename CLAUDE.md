@@ -74,7 +74,7 @@ Backfill runs concurrently with WAL streaming. The WatermarkChecker discards sna
 | `internal/checkpoint/` | SQLite (local) or PostgreSQL (HA) for source LSN + consumer cursors |
 | `internal/action/` | Action registry: type definitions (ACT-01), param validation (ACT-02), routing match integration |
 | `internal/routing/` | Compiled match-rule evaluation: glob tables, bitmask ops, WHERE filters (RTG-01, RTG-02) |
-| `internal/openapi/` | `/openapi.json` generator: reflects configured actions into a byte-stable OpenAPI 3.1 spec (OAS-01) |
+| `internal/openapi/` | `/openapi.json` generator: reflects configured actions into a byte-stable OpenAPI 3.0.3 spec (OAS-01) |
 | `packages/kaptanto-events/` | TypeScript SDK: typed SSE client, `ChangeEvent` types, auto-reconnect |
 | `n8n-nodes-kaptanto/` | n8n community node: SSE trigger node with table/operation/consumer filters |
 
