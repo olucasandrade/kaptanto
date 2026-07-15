@@ -585,10 +585,6 @@ func TestBuildConsumers_NonSecretEnvExpansion(t *testing.T) {
 }
 
 func TestMatchConsumer_FlushBatch_NonBatchFlusher(t *testing.T) {
-	// A consumer that doesn't implement BatchFlusher
-	type plainConsumer struct {
-		router.Consumer
-	}
 	inner := &fakeConsumer{id: "test"}
 	mc := action.NewMatchConsumer(inner, mustCompile(t, "", ""), nil, "action:test:hook")
 	// fakeConsumer implements BatchFlusher, so this should delegate
