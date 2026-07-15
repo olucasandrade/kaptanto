@@ -162,6 +162,28 @@ type DLQConfig struct {
 	Retention string `yaml:"retention"` // Go duration; ""/0 = keep forever
 }
 
+// ActionConfig defines a single configured action instance.
+// Actions produce router.Consumer instances via the action registry's
+// BuildConsumers function. Each action references a registered Type (e.g.
+// "slack", "pagerduty") and supplies parameters + optional routing match.
+type ActionConfig struct {
+	Name      string            `yaml:"name"`      // unique identifier ([a-z0-9-]+, no ":")
+	Type      string            `yaml:"type"`      // registered action type name
+	Params    map[string]string `yaml:"params"`    // key/value params; secret params must be ${VAR} refs
+	Match     MatchConfig       `yaml:"match"`     // event routing filter (RTG-01)
+	Timeout   string            `yaml:"timeout"`   // override type's default timeout; Go duration
+	Transform *TransformConfig  `yaml:"transform"` // replaces (not merges) the type's default transform
+	Headers   map[string]string `yaml:"headers"`   // merge over type defaults; must not collide with computed auth
+	Batch     *WebhookBatch     `yaml:"batch"`     // override type's batching; rejected if type pins batch
+}
+
+// MatchConfig declares which events an action should receive.
+// Empty Tables means "match all tables"; empty Operations means "match all operations".
+type MatchConfig struct {
+	Tables     []string `yaml:"tables"`
+	Operations []string `yaml:"operations"`
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
 type SinksConfig struct {
@@ -211,6 +233,7 @@ type Config struct {
 	AuthToken       string                 `yaml:"auth-token"`        // static bearer token for SSE/gRPC data plane; also read from KAPTANTO_AUTH_TOKEN env var
 	Insecure        bool                   `yaml:"insecure"`          // allow plaintext/unauthenticated sse/grpc (loud warning at startup; not for production)
 	DLQ             DLQConfig              `yaml:"dlq"`               // router-level dead-letter queue (enabled by default when Enabled is nil)
+	Actions         []ActionConfig         `yaml:"actions"`           // configured action instances
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.

@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/olucasandrade/kaptanto/internal/action"
 	"github.com/olucasandrade/kaptanto/internal/backfill"
 	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 	"github.com/olucasandrade/kaptanto/internal/cluster"
@@ -373,6 +374,18 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	outputServer, err := buildOutputServer(cfg, rtr, cursorStore, metrics, healthHandler, healthProbes, rowFilters, colFilters)
 	if err != nil {
 		return err
+	}
+
+	// Build and register action consumers (after primary output, before source start).
+	actionConsumers, err := action.BuildConsumers(cfg, metrics)
+	if err != nil {
+		return err
+	}
+	for _, ac := range actionConsumers {
+		rtr.Register(ac)
+	}
+	if cfg.Output == "none" && len(actionConsumers) == 0 {
+		return fmt.Errorf("output: none requires at least one configured action")
 	}
 
 	if cfg.SourceType() == "mongodb" {
