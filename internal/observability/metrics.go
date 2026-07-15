@@ -27,6 +27,8 @@ type KaptantoMetrics struct {
 	DLQSize                prometheus.Gauge       // kaptanto_dlq_size
 	TransformDroppedTotal  *prometheus.CounterVec // kaptanto_transform_dropped_total{consumer}
 	TransformErrorsTotal   *prometheus.CounterVec // kaptanto_transform_errors_total{consumer}
+	ActionEventsMatched    *prometheus.CounterVec // kaptanto_action_events_matched_total{consumer}
+	ActionEventsSkipped    *prometheus.CounterVec // kaptanto_action_events_skipped_total{consumer}
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -94,6 +96,14 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Name: "kaptanto_transform_errors_total",
 			Help: "Total transform evaluation errors, labeled by consumer.",
 		}, []string{"consumer"}),
+		ActionEventsMatched: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kaptanto_action_events_matched_total",
+			Help: "Total events matched by action routing, labeled by consumer.",
+		}, []string{"consumer"}),
+		ActionEventsSkipped: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kaptanto_action_events_skipped_total",
+			Help: "Total events skipped by action routing, labeled by consumer.",
+		}, []string{"consumer"}),
 	}
 	reg.MustRegister(
 		m.EventsDelivered,
@@ -110,6 +120,8 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.DLQSize,
 		m.TransformDroppedTotal,
 		m.TransformErrorsTotal,
+		m.ActionEventsMatched,
+		m.ActionEventsSkipped,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -120,4 +132,9 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 // using the custom registry. Mount this at /metrics on the observability mux.
 func (m *KaptantoMetrics) Handler() http.Handler {
 	return promhttp.HandlerFor(m.reg, promhttp.HandlerOpts{Registry: m.reg})
+}
+
+// Registry exposes the underlying prometheus.Registry for test verification.
+func (m *KaptantoMetrics) Registry() *prometheus.Registry {
+	return m.reg
 }

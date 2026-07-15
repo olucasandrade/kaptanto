@@ -149,6 +149,8 @@ func buildOutputServer(
 	}
 
 	switch cfg.Output {
+	case "none":
+		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
 	case "stdout":
 		w := stdout.NewStdoutWriter(os.Stdout)
 		w.SetMetrics(metrics)
@@ -204,7 +206,7 @@ func buildOutputServer(
 		}
 		return buildSinkServer(cfg.Port, "rabbitmq", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
 	default:
-		return nil, fmt.Errorf("unknown output mode %q: valid modes are stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq", cfg.Output)
+		return nil, fmt.Errorf("unknown output mode %q: valid modes are none, stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq", cfg.Output)
 	}
 }
 
