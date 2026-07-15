@@ -1,0 +1,15 @@
+source: postgres://postgres:postgres@postgres:5432/app?sslmode=disable
+output: webhook
+data-dir: /data
+source-id: inngest_demo
+tables:
+  public.orders: {}
+
+actions:
+  - name: send-to-inngest
+    type: inngest
+    params:
+      event-key: "local"
+      event-name-template: "kaptanto/{{.Table}}.{{.Operation}}"
+    routing:
+      tables: ["public.orders"]

@@ -1,0 +1,16 @@
+source: postgres://postgres:postgres@localhost:5432/app?sslmode=disable
+output: webhook
+data-dir: /tmp/kaptanto-triggerdev
+source-id: triggerdev_demo
+tables:
+  public.orders: {}
+
+actions:
+  - name: send-to-triggerdev
+    type: triggerdev
+    params:
+      api-key: "tr_dev_secret_key"   # Replace with your Trigger.dev secret key
+      api-url: "https://api.trigger.dev"  # Or your self-hosted URL
+      event-name-template: "kaptanto/{{.Table}}.{{.Operation}}"
+    routing:
+      tables: ["public.orders"]
