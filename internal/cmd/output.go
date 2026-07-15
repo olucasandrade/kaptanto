@@ -149,6 +149,19 @@ func buildOutputServer(
 		)
 	}
 
+	// Short-circuit non-network outputs before generating OpenAPI: stdout and none
+	// do not expose /openapi.json, so a marshal failure should not prevent them
+	// from starting.
+	switch cfg.Output {
+	case "none":
+		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
+	case "stdout":
+		w := stdout.NewStdoutWriter(os.Stdout)
+		w.SetMetrics(metrics)
+		rtr.Register(w)
+		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
+	}
+
 	// Generate the OpenAPI spec once at startup (OAS-01: deterministic, cached).
 	oaOpts := openapi.NewGenerateOptions(cfg)
 	oaDoc := openapi.Generate(oaOpts)
@@ -159,13 +172,6 @@ func buildOutputServer(
 	oaHandler := openapi.NewHandler(oaBytes)
 
 	switch cfg.Output {
-	case "none":
-		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
-	case "stdout":
-		w := stdout.NewStdoutWriter(os.Stdout)
-		w.SetMetrics(metrics)
-		rtr.Register(w)
-		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
 	case "sse":
 		return buildSSEServer(cfg, rtr, metrics, healthHandler, oaHandler, rowFilters, colFilters)
 	case "grpc":
