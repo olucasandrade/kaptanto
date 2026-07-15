@@ -363,7 +363,9 @@ func TestCustom_LiteralSecret_Rejected(t *testing.T) {
 }
 
 func TestCustom_PermissiveExpansion_ExpandToEmpty(t *testing.T) {
+	var gotHeader string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("X-Token")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -390,6 +392,22 @@ func TestCustom_PermissiveExpansion_ExpandToEmpty(t *testing.T) {
 	consumers, err := action.BuildConsumersWithRegistry(cfg, observability.NewKaptantoMetrics(), reg)
 	require.NoError(t, err)
 	require.Len(t, consumers, 1)
+
+	entry := eventlog.LogEntry{
+		Seq:         1,
+		PartitionID: 0,
+		Event: &event.ChangeEvent{
+			Schema:         "public",
+			Table:          "orders",
+			Operation:      event.OpInsert,
+			Key:            json.RawMessage(`{"id":1}`),
+			IdempotencyKey: "idem-001",
+			After:          json.RawMessage(`{"id":1}`),
+		},
+	}
+	require.NoError(t, consumers[0].Deliver(context.Background(), entry))
+	require.NoError(t, consumers[0].(router.BatchFlusher).FlushBatch(context.Background(), 0))
+	assert.Empty(t, gotHeader, "unset env var must expand to an empty header value")
 }
 
 func TestCustom_PinsBatch_False(t *testing.T) {
