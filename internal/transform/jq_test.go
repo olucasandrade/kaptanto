@@ -10,6 +10,12 @@ import (
 
 const sampleJQRaw = `{"id":1,"status":"open","table":"orders","n":42}`
 
+func setShortJQTimeout(t *testing.T) {
+	t.Helper()
+	cleanup := SetJQRuntimeTimeoutForTest(50 * time.Millisecond)
+	t.Cleanup(cleanup)
+}
+
 func TestJQGolden(t *testing.T) {
 	t.Parallel()
 
@@ -91,6 +97,12 @@ func TestJQGolden(t *testing.T) {
 			raw:        sampleJQRaw,
 			wantErr:    true,
 			errSubstr:  "produced 2 outputs",
+		},
+		{
+			name:       "large integer preserved",
+			expression: ".id",
+			raw:        `{"id":12345678901234567890}`,
+			wantOut:    "12345678901234567890",
 		},
 	}
 
@@ -175,6 +187,28 @@ func TestJQInvalidJSON(t *testing.T) {
 	require.Equal(t, LangJQ, re.Language)
 	require.False(t, drop)
 	require.Nil(t, out)
+}
+
+// TestJQRecursiveNonEmittingCancels verifies that a recursive jq program that
+// never yields a value is cancelled by the runtime timeout instead of blocking
+// the caller forever.
+func TestJQRecursiveNonEmittingCancels(t *testing.T) {
+	t.Parallel()
+	setShortJQTimeout(t)
+
+	eng, err := Compile(LangJQ, "def f: f; f")
+	require.NoError(t, err)
+
+	start := time.Now()
+	_, _, err = eng.Apply([]byte(`{}`), nil)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	var re *RuntimeError
+	require.ErrorAs(t, err, &re)
+	require.Equal(t, LangJQ, re.Language)
+	require.Contains(t, err.Error(), "context deadline exceeded")
+	require.Less(t, elapsed, 500*time.Millisecond, "recursive jq must be cancelled")
 }
 
 func BenchmarkApplyJQ(b *testing.B) {
