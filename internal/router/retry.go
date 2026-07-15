@@ -366,6 +366,20 @@ func (rs *RetryScheduler) IsBlocked(consumerID, groupKey string) bool {
 	return len(s.blockedGroups[groupKey]) > 0
 }
 
+// BlockedQueue returns the current queue for (consumerID, groupKey). It is
+// exported only for tests.
+func (rs *RetryScheduler) BlockedQueue(consumerID, groupKey string) []*RetryRecord {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	s, ok := rs.states[consumerID]
+	if !ok {
+		return nil
+	}
+	out := make([]*RetryRecord, len(s.blockedGroups[groupKey]))
+	copy(out, s.blockedGroups[groupKey])
+	return out
+}
+
 // Tick re-attempts delivery for every blocked group whose head entry's
 // NextRetryAt is in the past.
 //
