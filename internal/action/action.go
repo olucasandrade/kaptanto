@@ -78,6 +78,9 @@ func BuildConsumersWithRegistry(cfg *config.Config, m *observability.KaptantoMet
 			if a.Webhook == nil {
 				return nil, fmt.Errorf("action %q: type \"custom\" requires a webhook: block", a.Name)
 			}
+			if err := validateCustomWebhookSecrets(a.Name, *a.Webhook); err != nil {
+				return nil, err
+			}
 			whCfg = *a.Webhook
 			// For custom, the webhook's own Transform is the default
 			defaultTransform = whCfg.Transform
@@ -179,6 +182,35 @@ func validateAndResolveParams(a *config.ActionConfig, t Type) (ResolvedParams, e
 // expandEnvRefs expands ${VAR} references in a string value.
 func expandEnvRefs(s string) string {
 	return os.Expand(s, os.Getenv)
+}
+
+// validateCustomWebhookSecrets enforces ACT-02 for the custom type's inline
+// webhook block: bearer tokens, basic passwords, and signing secrets must be
+// ${VAR} references, not literal secrets.
+func validateCustomWebhookSecrets(actionName string, cfg config.WebhookSinkConfig) error {
+	check := func(field, value string) error {
+		if value == "" {
+			return nil
+		}
+		trimmed := strings.TrimSpace(value)
+		if !envRefRegex.MatchString(trimmed) {
+			return fmt.Errorf(
+				"action %q: custom webhook %s is secret and must be an environment variable reference like ${VAR}",
+				actionName, field)
+		}
+		return nil
+	}
+
+	if err := check("auth.bearer-token", cfg.Auth.BearerToken); err != nil {
+		return err
+	}
+	if err := check("auth.basic.password", cfg.Auth.Basic.Password); err != nil {
+		return err
+	}
+	if err := check("signing.secret", cfg.Signing.Secret); err != nil {
+		return err
+	}
+	return nil
 }
 
 func applyOverrides(a *config.ActionConfig, t Type, whCfg *config.WebhookSinkConfig, defaultTransform config.TransformConfig) error {

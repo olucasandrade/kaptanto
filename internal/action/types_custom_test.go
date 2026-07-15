@@ -187,6 +187,7 @@ func TestCustom_Batching_Honored(t *testing.T) {
 }
 
 func TestCustom_Signing_Honored(t *testing.T) {
+	t.Setenv("CUSTOM_SIGNING_SECRET", "my-hmac-secret")
 	secret := "my-hmac-secret"
 	var gotBody []byte
 	var gotSignature string
@@ -209,7 +210,7 @@ func TestCustom_Signing_Honored(t *testing.T) {
 				Webhook: &config.WebhookSinkConfig{
 					URL:     srv.URL,
 					Method:  "POST",
-					Signing: config.WebhookSigning{Secret: secret},
+					Signing: config.WebhookSigning{Secret: "${CUSTOM_SIGNING_SECRET}"},
 				},
 			},
 		},
@@ -331,6 +332,34 @@ func TestCustom_Transform_Honored(t *testing.T) {
 	require.NoError(t, json.Unmarshal(gotBody, &body))
 	assert.Equal(t, "orders", body["table"])
 	assert.Equal(t, "insert", body["op"])
+}
+
+func TestCustom_LiteralSecret_Rejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	reg := action.NewRegistry()
+	reg.Register(action.DefaultRegistry.Lookup("custom"))
+
+	cfg := &config.Config{
+		Actions: []config.ActionConfig{
+			{
+				Name: "literal-secret",
+				Type: "custom",
+				Webhook: &config.WebhookSinkConfig{
+					URL:     srv.URL,
+					Signing: config.WebhookSigning{Secret: "hard-coded-secret"},
+				},
+			},
+		},
+	}
+
+	_, err := action.BuildConsumersWithRegistry(cfg, observability.NewKaptantoMetrics(), reg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "signing.secret")
+	assert.Contains(t, err.Error(), "environment variable reference")
 }
 
 func TestCustom_PermissiveExpansion_ExpandToEmpty(t *testing.T) {
