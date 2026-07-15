@@ -183,7 +183,8 @@ describe("KaptantoStream", () => {
     expect(received).toHaveLength(1);
     expect(received[0].id).toBe("good");
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("malformed SSE line"),
+      expect.stringContaining("skipping malformed SSE line"),
+      expect.anything(),
     );
     warnSpy.mockRestore();
   });
@@ -214,7 +215,8 @@ describe("KaptantoStream", () => {
     expect(received).toHaveLength(1);
     expect(received[0].id).toBe("valid");
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("non-JSON"),
+      expect.stringContaining("skipping non-JSON data"),
+      expect.anything(),
     );
     warnSpy.mockRestore();
   });
@@ -302,5 +304,84 @@ describe("KaptantoStream", () => {
 
     expect(received).toHaveLength(1);
     expect(received[0].id).toBe("with-event-field");
+  });
+
+  it("normalizes CRLF line endings", async () => {
+    const ev = makeEvent({ id: "crlf-event" });
+
+    server = createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify(ev)}\r\n\r\n`);
+      res.end();
+    });
+    port = await listen(server);
+
+    const stream = new KaptantoStream({
+      url: `http://127.0.0.1:${port}/events`,
+      consumer: "c",
+    });
+
+    const received: ChangeEvent[] = [];
+    for await (const ev of stream) {
+      received.push(ev);
+      stream.close();
+    }
+
+    expect(received).toHaveLength(1);
+    expect(received[0].id).toBe("crlf-event");
+  });
+
+  it("does not retry terminal 4xx responses", async () => {
+    let connectionCount = 0;
+
+    server = createServer((_req, res) => {
+      connectionCount++;
+      res.writeHead(401, { "Content-Type": "text/plain" });
+      res.end("unauthorized");
+    });
+    port = await listen(server);
+
+    const stream = new KaptantoStream({
+      url: `http://127.0.0.1:${port}/events`,
+      consumer: "c",
+    });
+
+    const iterator = stream[Symbol.asyncIterator]();
+    const result = await iterator.next();
+
+    expect(result.done).toBe(true);
+    expect(connectionCount).toBe(1);
+  });
+
+  it("applies exponential backoff when body parsing fails repeatedly", async () => {
+    let connectionCount = 0;
+
+    server = createServer((_req, res) => {
+      connectionCount++;
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      // Every response is valid HTTP but contains no parseable event, so the
+      // stream stays "unhealthy" and the attempt counter must keep growing.
+      res.write("data: not-valid-json\n\n");
+      res.end();
+    });
+    port = await listen(server);
+
+    const stream = new KaptantoStream({
+      url: `http://127.0.0.1:${port}/events`,
+      consumer: "c",
+    });
+
+    const start = Date.now();
+    const iterator = stream[Symbol.asyncIterator]();
+    const resultPromise = iterator.next();
+
+    // Let it attempt a few reconnect cycles; terminal close would resolve early.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    stream.close();
+    await resultPromise;
+
+    const elapsed = Date.now() - start;
+    expect(connectionCount).toBeGreaterThanOrEqual(2);
+    expect(elapsed).toBeGreaterThanOrEqual(100);
   });
 });
