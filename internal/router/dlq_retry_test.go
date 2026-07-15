@@ -267,3 +267,29 @@ func TestDeadLetterExhaustionWithDLQ(t *testing.T) {
 		t.Fatalf("metric = %v", n)
 	}
 }
+
+// TestDeadLetterDisabledNilEventNoPanic verifies that the disabled-DLQ log path
+// does not dereference a nil ChangeEvent when the record was queued without one.
+func TestDeadLetterDisabledNilEventNoPanic(t *testing.T) {
+	rs := router.NewRetryScheduler()
+	consumer := &permanentFailConsumer{id: "c-nil-event"}
+	rec := &router.RetryRecord{
+		Entry: eventlog.LogEntry{
+			Seq:         99,
+			PartitionID: 7,
+			Event:       nil,
+		},
+		Attempts:    15,
+		NextRetryAt: time.Now().Add(-time.Second),
+		ConsumerID:  consumer.id,
+	}
+	rs.AddBlocked(consumer, "gk", rec)
+
+	// Tick must complete without panicking; with no DLQ configured the disabled
+	// path logs and pops the head.
+	rs.Tick(context.Background())
+
+	if rs.BlockedCount(consumer) != 0 {
+		t.Fatal("expected head to be popped after disabled-DLQ dead-letter")
+	}
+}
