@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/itchyny/gojq"
@@ -16,9 +17,18 @@ import (
 // non-emitting programs cannot block the router indefinitely.
 const defaultJQRuntimeTimeout = 30 * time.Second
 
-// jqRuntimeTimeout is the mutable runtime bound so tests can exercise
-// cancellation without waiting 30s.
-var jqRuntimeTimeout = defaultJQRuntimeTimeout
+// jqRuntimeTimeoutNs is the mutable runtime bound so tests can exercise
+// cancellation without waiting 30s. Stored as an atomic int64 of nanoseconds
+// so parallel tests can read it without racing the test-only writer.
+var jqRuntimeTimeoutNs = atomic.Int64{}
+
+func init() {
+	jqRuntimeTimeoutNs.Store(int64(defaultJQRuntimeTimeout))
+}
+
+func jqRuntimeTimeout() time.Duration {
+	return time.Duration(jqRuntimeTimeoutNs.Load())
+}
 
 // jqEngine evaluates a compiled gojq expression against raw JSON.
 type jqEngine struct {
@@ -64,7 +74,7 @@ func (e *jqEngine) Apply(raw []byte, _ *event.ChangeEvent) ([]byte, bool, error)
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), jqRuntimeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), jqRuntimeTimeout())
 	defer cancel()
 
 	iter := e.code.RunWithContext(ctx, input)
