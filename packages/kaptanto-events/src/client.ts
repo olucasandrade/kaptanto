@@ -12,6 +12,9 @@ export interface KaptantoStreamOptions {
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 30_000;
 
+/** Terminal errors are not retried: 4xx responses indicate auth/config failure. */
+class KaptantoStreamTerminalError extends Error {}
+
 function backoffDelay(attempt: number): number {
   const exp = Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS);
   return exp * (0.5 + Math.random() * 0.5);
@@ -27,6 +30,10 @@ function buildUrl(opts: KaptantoStreamOptions): string {
     u.searchParams.set("operations", opts.operations.join(","));
   }
   return u.toString();
+}
+
+function isTerminalStatus(status: number): boolean {
+  return status >= 400 && status < 500;
 }
 
 /**
@@ -72,16 +79,23 @@ export class KaptantoStream implements AsyncIterable<ChangeEvent> {
         });
 
         if (!res.ok) {
-          throw new Error(`SSE request failed: ${res.status} ${res.statusText}`);
+          const msg = `SSE request failed: ${res.status} ${res.statusText}`;
+          if (isTerminalStatus(res.status)) {
+            throw new KaptantoStreamTerminalError(msg);
+          }
+          throw new Error(msg);
         }
         if (!res.body) {
           throw new Error("SSE response has no body");
         }
 
-        attempt = 0;
-        yield* this.parseStream(res.body);
+        yield* this.parseStream(res.body, () => {
+          attempt = 0;
+        });
       } catch (err: unknown) {
-        if (this.closed) return;
+        if (this.closed || err instanceof KaptantoStreamTerminalError) {
+          return;
+        }
 
         const delay = backoffDelay(attempt);
         attempt++;
@@ -92,6 +106,7 @@ export class KaptantoStream implements AsyncIterable<ChangeEvent> {
 
   private async *parseStream(
     body: ReadableStream<Uint8Array>,
+    onHealthyEvent: () => void,
   ): AsyncIterableIterator<ChangeEvent> {
     const decoder = new TextDecoder();
     let buffer = "";
@@ -103,19 +118,27 @@ export class KaptantoStream implements AsyncIterable<ChangeEvent> {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
+        // Normalize CRLF so the \n\n frame splitter also handles \r\n\r\n.
+        buffer = buffer.replace(/\r\n/g, "\n");
 
         const frames = buffer.split("\n\n");
         buffer = frames.pop()!;
 
         for (const frame of frames) {
           const event = this.parseFrame(frame);
-          if (event) yield event;
+          if (event) {
+            onHealthyEvent();
+            yield event;
+          }
         }
       }
 
       if (buffer.trim()) {
         const event = this.parseFrame(buffer);
-        if (event) yield event;
+        if (event) {
+          onHealthyEvent();
+          yield event;
+        }
       }
     } finally {
       reader.releaseLock();
@@ -137,7 +160,10 @@ export class KaptantoStream implements AsyncIterable<ChangeEvent> {
         continue;
       }
 
-      console.warn(`KaptantoStream: skipping malformed SSE line: ${line}`);
+      console.warn("KaptantoStream: skipping malformed SSE line", {
+        lineLength: line.length,
+        linePrefix: line.slice(0, 20),
+      });
     }
 
     if (dataLines.length === 0) return null;
@@ -147,12 +173,14 @@ export class KaptantoStream implements AsyncIterable<ChangeEvent> {
     try {
       parsed = JSON.parse(payload);
     } catch {
-      console.warn(`KaptantoStream: skipping non-JSON data: ${payload}`);
+      console.warn("KaptantoStream: skipping non-JSON data", {
+        payloadLength: payload.length,
+      });
       return null;
     }
 
     if (!isChangeEvent(parsed)) {
-      console.warn(`KaptantoStream: skipping invalid ChangeEvent`);
+      console.warn("KaptantoStream: skipping invalid ChangeEvent");
       return null;
     }
 
@@ -160,20 +188,22 @@ export class KaptantoStream implements AsyncIterable<ChangeEvent> {
   }
 
   private sleep(ms: number): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       if (this.closed) {
         resolve();
         return;
       }
-      const timer = setTimeout(resolve, ms);
-      this.ctrl.signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true },
-      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const onAbort = () => {
+        if (timer !== undefined) clearTimeout(timer);
+        this.ctrl.signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      timer = setTimeout(() => {
+        this.ctrl.signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      this.ctrl.signal.addEventListener("abort", onAbort, { once: true });
     });
   }
 }
