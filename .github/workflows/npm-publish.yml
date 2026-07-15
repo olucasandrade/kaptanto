@@ -38,7 +38,7 @@ jobs:
         with:
           node-version: "20"
           registry-url: https://registry.npmjs.org
-          cache: false # avoid cache poisoning in a publish workflow
+          cache: "" # disabled: avoid cache poisoning in a publish workflow
 
       - run: npm ci
       - run: npm run build
@@ -68,7 +68,7 @@ jobs:
         with:
           node-version: "22" # n8n-workflow -> isolated-vm requires Node >= 22
           registry-url: https://registry.npmjs.org
-          cache: false # avoid cache poisoning in a publish workflow
+          cache: "" # disabled: avoid cache poisoning in a publish workflow
 
       # @kaptanto/events is a local linked dependency; build it before the n8n
       # package attempts to resolve it.
