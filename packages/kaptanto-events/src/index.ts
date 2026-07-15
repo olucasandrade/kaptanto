@@ -8,3 +8,8 @@ export {
   isRead,
   isControl,
 } from "./types.js";
+
+export {
+  type KaptantoStreamOptions,
+  KaptantoStream,
+} from "./client.js";
