@@ -173,5 +173,10 @@ func TestFixtures_RoundTrip(t *testing.T) {
 			assert.JSONEq(t, string(origVal), string(rtVal),
 				"line %d: round-trip mismatch for key %q", i+1, key)
 		}
+		for key := range roundtripped {
+			if _, ok := original[key]; !ok {
+				t.Errorf("line %d: round-trip added extra key %q", i+1, key)
+			}
+		}
 	}
 }
