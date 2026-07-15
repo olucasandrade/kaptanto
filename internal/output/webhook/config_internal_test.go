@@ -84,6 +84,26 @@ func TestNewWebhookSinkConsumer_TLSFileError(t *testing.T) {
 	assert.Contains(t, err.Error(), "read ca-file")
 }
 
+func TestNewWebhookSinkConsumer_IncompleteMTLS(t *testing.T) {
+	t.Run("cert without key", func(t *testing.T) {
+		_, err := NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
+			URL: "http://example.com",
+			TLS: config.TLSConfig{CertFile: "/some/cert.pem"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must both be set for mTLS")
+	})
+
+	t.Run("key without cert", func(t *testing.T) {
+		_, err := NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
+			URL: "http://example.com",
+			TLS: config.TLSConfig{KeyFile: "/some/key.pem"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must both be set for mTLS")
+	})
+}
+
 func TestPing_HTTPS(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
@@ -138,8 +158,8 @@ func TestPing_URLTemplateExecuteError(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
-	// Execute against zero event fails → Ping returns nil.
-	require.NoError(t, c.Ping())
+	// A template that fails for every event must not report healthy.
+	require.Error(t, c.Ping())
 }
 
 func TestResolveURL_StaticEmpty(t *testing.T) {
