@@ -8,6 +8,8 @@ import type {
 import { KaptantoStream } from "@kaptanto/events";
 import type { Operation } from "@kaptanto/events";
 
+declare const process: { stderr: { write: (msg: string) => void } };
+
 export class KaptantoTrigger implements INodeType {
   description: INodeTypeDescription = {
     displayName: "Kaptanto Trigger",
@@ -96,8 +98,17 @@ export class KaptantoTrigger implements INodeType {
             this.helpers.returnJsonArray([event as unknown as IDataObject]),
           ]);
         }
-      } catch {
-        // Stream was closed or errored — closeFunction handles cleanup
+      } catch (err: unknown) {
+        // Expected closure after closeFunction() sets running=false; suppress
+        // only that case. Unexpected iterator failures must surface so n8n
+        // knows the trigger is no longer delivering events.
+        if (!running) {
+          return;
+        }
+        process.stderr.write(
+          `KaptantoTrigger: unexpected stream error: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+        throw err;
       }
     };
 
