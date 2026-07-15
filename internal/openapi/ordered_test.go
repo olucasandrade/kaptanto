@@ -62,13 +62,4 @@ func TestOrderedMap_MarshalJSON_Sorted(t *testing.T) {
 	}
 }
 
-func TestOrderedMap_IsZero(t *testing.T) {
-	var m orderedMap[string]
-	if !m.IsZero() {
-		t.Error("empty map should be zero")
-	}
-	m.Set("k", "v")
-	if m.IsZero() {
-		t.Error("non-empty map should not be zero")
-	}
-}
+

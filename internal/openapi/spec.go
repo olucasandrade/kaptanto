@@ -47,8 +47,8 @@ type Parameter struct {
 
 // Response describes a single response from an API operation.
 type Response struct {
-	Description string                  `json:"description"`
-	Content     orderedMap[MediaType]   `json:"content,omitempty"`
+	Description string                   `json:"description"`
+	Content     *orderedMap[MediaType]   `json:"content,omitempty"`
 }
 
 // MediaType describes a media type with optional schema.
@@ -77,8 +77,8 @@ type Schema struct {
 
 // Components holds reusable spec fragments.
 type Components struct {
-	Schemas         orderedMap[Schema]         `json:"schemas,omitempty"`
-	SecuritySchemes orderedMap[SecurityScheme]  `json:"securitySchemes,omitempty"`
+	Schemas         *orderedMap[Schema]         `json:"schemas,omitempty"`
+	SecuritySchemes *orderedMap[SecurityScheme] `json:"securitySchemes,omitempty"`
 }
 
 // SecurityScheme describes an authentication mechanism.

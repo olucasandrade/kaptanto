@@ -35,6 +35,9 @@ func (m *orderedMap[V]) Set(key string, val V) {
 
 // Len returns the number of entries.
 func (m *orderedMap[V]) Len() int {
+	if m == nil {
+		return 0
+	}
 	return len(m.entries)
 }
 
@@ -44,12 +47,6 @@ func (m *orderedMap[V]) Entries() []entry[V] {
 	copy(sorted, m.entries)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Key < sorted[j].Key })
 	return sorted
-}
-
-// IsZero reports whether the map is empty. This enables json omitempty to skip
-// empty orderedMap fields.
-func (m orderedMap[V]) IsZero() bool {
-	return len(m.entries) == 0
 }
 
 // MarshalJSON produces a JSON object with keys in sorted order.

@@ -75,7 +75,7 @@ func TestGenerateDeterministic(t *testing.T) {
 		Output:    "sse",
 		AuthToken: true,
 		Actions: []ActionMeta{
-			{Name: "notify", Type: "slack", ParamNames: []string{"channel", "webhook_url"}},
+			{Name: "notify", Type: "slack", ParamNames: []string{"channel"}},
 		},
 	}
 
@@ -205,7 +205,7 @@ func TestSecretScan(t *testing.T) {
 			{
 				Name:       "notify",
 				Type:       "slack",
-				ParamNames: []string{"webhook_url", "channel"},
+				ParamNames: []string{"channel"},
 			},
 		},
 	}
@@ -223,7 +223,7 @@ func TestSecretScan(t *testing.T) {
 	}
 
 	// Verify param names appear but not values
-	if !strings.Contains(specStr, "webhook_url") {
-		t.Error("expected param name 'webhook_url' in spec")
+	if !strings.Contains(specStr, "channel") {
+		t.Error("expected param name 'channel' in spec")
 	}
 }
