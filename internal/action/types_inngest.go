@@ -3,7 +3,7 @@ package action
 import (
 	"fmt"
 	"strings"
-	"text/template"
+	"text/template/parse"
 
 	"github.com/olucasandrade/kaptanto/internal/config"
 )
@@ -42,7 +42,7 @@ func (*inngestType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.Tr
 	eventKey := p["event-key"]
 	nameTemplate := p["event-name-template"]
 
-	if _, err := template.New("").Parse(nameTemplate); err != nil {
+	if err := validateEventNameTemplate(nameTemplate); err != nil {
 		return config.WebhookSinkConfig{}, config.TransformConfig{},
 			fmt.Errorf("inngest: invalid event-name-template: %w", err)
 	}
@@ -70,6 +70,65 @@ func (*inngestType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.Tr
 	}
 
 	return whCfg, transform, nil
+}
+
+var allowedEventNameFields = map[string]bool{
+	"Table":     true,
+	"Operation": true,
+	"Schema":    true,
+}
+
+// validateEventNameTemplate parses the template and rejects any construct other
+// than literal text and the exact field placeholders {{.Table}}, {{.Operation}},
+// and {{.Schema}}. This prevents pipelines, conditionals, and other Go template
+// features from silently becoming literal event names.
+func validateEventNameTemplate(tmpl string) error {
+	tree, err := parse.New("event-name").Parse(tmpl, "{{", "}}", map[string]*parse.Tree{})
+	if err != nil {
+		return err
+	}
+	return walkEventNameNodes(tree.Root)
+}
+
+func walkEventNameNodes(node parse.Node) error {
+	switch n := node.(type) {
+	case *parse.ListNode:
+		if n == nil {
+			return nil
+		}
+		for _, child := range n.Nodes {
+			if err := walkEventNameNodes(child); err != nil {
+				return err
+			}
+		}
+	case *parse.TextNode:
+		return nil
+	case *parse.ActionNode:
+		return walkEventNameNodes(n.Pipe)
+	case *parse.PipeNode:
+		if n == nil {
+			return nil
+		}
+		// A valid placeholder is a single command with one field argument.
+		if len(n.Cmds) != 1 {
+			return fmt.Errorf("unsupported template construct")
+		}
+		cmd := n.Cmds[0]
+		if len(cmd.Args) != 1 {
+			return fmt.Errorf("unsupported template construct")
+		}
+		return walkEventNameNodes(cmd.Args[0])
+	case *parse.FieldNode:
+		if len(n.Ident) != 1 || !allowedEventNameFields[n.Ident[0]] {
+			return fmt.Errorf("unsupported field %q", strings.Join(n.Ident, "."))
+		}
+		return nil
+	case *parse.StringNode:
+		return nil
+	default:
+		return fmt.Errorf("unsupported template construct %T", node)
+	}
+	return nil
 }
 
 // renderNameExpr converts a Go template string like "kaptanto/{{.Table}}.{{.Operation}}"
