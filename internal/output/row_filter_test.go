@@ -306,3 +306,292 @@ func TestRowFilter_MatchLessThanOrEqual(t *testing.T) {
 		t.Error("amount=51 should not match 'amount <= 50'")
 	}
 }
+
+// TestRowFilter_PrefixedColumns exercises the before./after. column prefix
+// feature (G2-01) across insert, update, and delete operations.
+func TestRowFilter_PrefixedColumns(t *testing.T) {
+	tests := []struct {
+		name   string
+		expr   string
+		op     event.Operation
+		before string
+		after  string
+		want   bool
+	}{
+		// --- after. prefix ---
+		{
+			name:  "after.status on insert matches",
+			expr:  "after.status = 'active'",
+			op:    event.OpInsert,
+			after: `{"status":"active"}`,
+			want:  true,
+		},
+		{
+			name:  "after.status on insert no match",
+			expr:  "after.status = 'active'",
+			op:    event.OpInsert,
+			after: `{"status":"cancelled"}`,
+			want:  false,
+		},
+		{
+			name:   "after.status on update matches after side",
+			expr:   "after.status = 'active'",
+			op:     event.OpUpdate,
+			before: `{"status":"pending"}`,
+			after:  `{"status":"active"}`,
+			want:   true,
+		},
+		{
+			name:   "after.status on update does not look at before",
+			expr:   "after.status = 'pending'",
+			op:     event.OpUpdate,
+			before: `{"status":"pending"}`,
+			after:  `{"status":"active"}`,
+			want:   false,
+		},
+		{
+			name:   "after.x on delete (After is nil) → false",
+			expr:   "after.status = 'active'",
+			op:     event.OpDelete,
+			before: `{"status":"active"}`,
+			want:   false,
+		},
+
+		// --- before. prefix ---
+		{
+			name:   "before.total on update matches before side",
+			expr:   "before.total > 100",
+			op:     event.OpUpdate,
+			before: `{"total":200}`,
+			after:  `{"total":50}`,
+			want:   true,
+		},
+		{
+			name:   "before.total on update no match",
+			expr:   "before.total > 100",
+			op:     event.OpUpdate,
+			before: `{"total":50}`,
+			after:  `{"total":200}`,
+			want:   false,
+		},
+		{
+			name:   "before.status on delete matches",
+			expr:   "before.status = 'active'",
+			op:     event.OpDelete,
+			before: `{"status":"active"}`,
+			want:   true,
+		},
+		{
+			name:  "before.x on insert (Before is nil) → false",
+			expr:  "before.status = 'active'",
+			op:    event.OpInsert,
+			after: `{"status":"active"}`,
+			want:  false,
+		},
+
+		// --- IS NULL / IS NOT NULL with prefixes ---
+		{
+			name:   "after.embedding IS NOT NULL on delete → false (nil side)",
+			expr:   "after.embedding IS NOT NULL",
+			op:     event.OpDelete,
+			before: `{"embedding":"vec"}`,
+			want:   false,
+		},
+		{
+			name:   "after.embedding IS NULL on delete → true (nil side treated as null)",
+			expr:   "after.embedding IS NULL",
+			op:     event.OpDelete,
+			before: `{"embedding":"vec"}`,
+			want:   true,
+		},
+		{
+			name:  "before.x IS NOT NULL on insert → false (nil side)",
+			expr:  "before.col IS NOT NULL",
+			op:    event.OpInsert,
+			after: `{"col":"val"}`,
+			want:  false,
+		},
+		{
+			name:  "before.x IS NULL on insert → true (nil side)",
+			expr:  "before.col IS NULL",
+			op:    event.OpInsert,
+			after: `{"col":"val"}`,
+			want:  true,
+		},
+		{
+			name:   "after.col IS NOT NULL on update with value",
+			expr:   "after.col IS NOT NULL",
+			op:     event.OpUpdate,
+			before: `{"col":null}`,
+			after:  `{"col":"present"}`,
+			want:   true,
+		},
+		{
+			name:   "after.col IS NULL on update with null",
+			expr:   "after.col IS NULL",
+			op:     event.OpUpdate,
+			before: `{"col":"present"}`,
+			after:  `{"col":null}`,
+			want:   true,
+		},
+
+		// --- IN with prefix ---
+		{
+			name:   "after.status IN list on update",
+			expr:   "after.status IN ('active','pending')",
+			op:     event.OpUpdate,
+			before: `{"status":"cancelled"}`,
+			after:  `{"status":"active"}`,
+			want:   true,
+		},
+		{
+			name:   "before.status IN list on update no match",
+			expr:   "before.status IN ('active','pending')",
+			op:     event.OpUpdate,
+			before: `{"status":"cancelled"}`,
+			after:  `{"status":"active"}`,
+			want:   false,
+		},
+		{
+			name:   "after.x IN list on delete (nil side) → false",
+			expr:   "after.status IN ('active','pending')",
+			op:     event.OpDelete,
+			before: `{"status":"active"}`,
+			want:   false,
+		},
+
+		// --- Mixed: prefixed AND un-prefixed ---
+		{
+			name:   "mixed: after.status AND un-prefixed amount on update",
+			expr:   "after.status = 'active' AND amount > 50",
+			op:     event.OpUpdate,
+			before: `{"status":"pending","amount":25}`,
+			after:  `{"status":"active","amount":100}`,
+			want:   true,
+		},
+		{
+			name:   "mixed: before.status AND after.status on update",
+			expr:   "before.status = 'pending' AND after.status = 'active'",
+			op:     event.OpUpdate,
+			before: `{"status":"pending"}`,
+			after:  `{"status":"active"}`,
+			want:   true,
+		},
+		{
+			name:   "mixed: before.status AND after.status mismatch",
+			expr:   "before.status = 'active' AND after.status = 'active'",
+			op:     event.OpUpdate,
+			before: `{"status":"pending"}`,
+			after:  `{"status":"active"}`,
+			want:   false,
+		},
+
+		// --- Un-prefixed backward compatibility ---
+		{
+			name:  "un-prefixed on insert uses After",
+			expr:  "status = 'active'",
+			op:    event.OpInsert,
+			after: `{"status":"active"}`,
+			want:  true,
+		},
+		{
+			name:   "un-prefixed on delete falls back to Before",
+			expr:   "status = 'active'",
+			op:     event.OpDelete,
+			before: `{"status":"active"}`,
+			want:   true,
+		},
+		{
+			name:   "un-prefixed on update uses After",
+			expr:   "status = 'active'",
+			op:     event.OpUpdate,
+			before: `{"status":"pending"}`,
+			after:  `{"status":"active"}`,
+			want:   true,
+		},
+
+		// --- Numeric comparison with prefix ---
+		{
+			name:   "before.amount >= on update",
+			expr:   "before.amount >= 100",
+			op:     event.OpUpdate,
+			before: `{"amount":100}`,
+			after:  `{"amount":50}`,
+			want:   true,
+		},
+		{
+			name:   "after.amount < on update",
+			expr:   "after.amount < 100",
+			op:     event.OpUpdate,
+			before: `{"amount":200}`,
+			after:  `{"amount":50}`,
+			want:   true,
+		},
+
+		// --- NOT with prefix ---
+		{
+			name:   "NOT after.status on update",
+			expr:   "NOT after.status = 'cancelled'",
+			op:     event.OpUpdate,
+			before: `{"status":"cancelled"}`,
+			after:  `{"status":"active"}`,
+			want:   true,
+		},
+
+		// --- != with prefix ---
+		{
+			name:   "after.status != on update",
+			expr:   "after.status != 'cancelled'",
+			op:     event.OpUpdate,
+			before: `{"status":"cancelled"}`,
+			after:  `{"status":"active"}`,
+			want:   true,
+		},
+
+		// --- OR with prefix ---
+		{
+			name:   "after.status OR before.status",
+			expr:   "after.status = 'active' OR before.status = 'active'",
+			op:     event.OpUpdate,
+			before: `{"status":"active"}`,
+			after:  `{"status":"pending"}`,
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := output.ParseRowFilter(tt.expr)
+			if err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+			ev := makeEvent(tt.op, tt.before, tt.after)
+			got := f.Match(ev)
+			if got != tt.want {
+				t.Errorf("Match() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestParseRowFilter_PrefixedParsing verifies that prefixed column names
+// parse successfully.
+func TestParseRowFilter_PrefixedParsing(t *testing.T) {
+	cases := []string{
+		"before.status = 'active'",
+		"after.status != 'cancelled'",
+		"before.total > 100",
+		"after.col IS NULL",
+		"before.col IS NOT NULL",
+		"after.status IN ('a','b')",
+		"before.x = 'y' AND after.z = 'w'",
+		"after.a = 'x' OR before.b = 'y'",
+		"NOT after.status = 'deleted'",
+	}
+	for _, expr := range cases {
+		_, err := output.ParseRowFilter(expr)
+		if err != nil {
+			t.Errorf("expr %q: unexpected parse error: %v", expr, err)
+		}
+	}
+}
