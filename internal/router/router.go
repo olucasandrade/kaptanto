@@ -882,8 +882,23 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 			break // guard against consumers added between Phase 1 and Phase 3
 		}
 		cs := &r.consumers[i]
+		// RTR-07: a skipped (already-DLQ'd) seq must advance the cursor before
+		// the blocked-group follow-on path can re-queue it as a new retry.
+		if snap.skipped {
+			r.advanceCursorLocked(ctx, cs, partitionID, entry.Seq+1)
+			continue
+		}
 		r.dispatchUpdateCursor(ctx, cs, snap, entry, partitionID, groupKey, errs, i)
 	}
+}
+
+// advanceCursorLocked advances cs's in-memory and persisted cursor to at least
+// seq, capping at the RetryScheduler floor. Must be called under r.mu write lock.
+func (r *Router) advanceCursorLocked(ctx context.Context, cs *consumerState, partitionID uint32, seq uint64) {
+	if seq > cs.cursorByPartition[partitionID] {
+		cs.cursorByPartition[partitionID] = seq
+	}
+	r.persistCursor(ctx, cs, partitionID, cs.cursorByPartition[partitionID])
 }
 
 // dispatchUpdateCursor handles Phase 3 per-consumer cursor logic.
