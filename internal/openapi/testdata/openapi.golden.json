@@ -1,0 +1,195 @@
+{
+  "components": {
+    "schemas": {
+      "ChangeEvent": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "description": "Row state after the change; null for deletes"
+          },
+          "before": {
+            "description": "Row state before the change; null for inserts and reads"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "id": {
+            "type": "string",
+            "format": "ulid",
+            "description": "Time-ordered ULID identifier"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key for deduplication"
+          },
+          "key": {
+            "description": "Primary key column(s) as a JSON object"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Source-specific fields (e.g., LSN, checkpoint)",
+            "additionalProperties": {}
+          },
+          "operation": {
+            "type": "string",
+            "description": "Type of change: insert, update, delete, read, control"
+          },
+          "schema": {
+            "type": "string",
+            "description": "Schema/namespace"
+          },
+          "source": {
+            "type": "string",
+            "description": "Database connection identifier"
+          },
+          "table": {
+            "type": "string",
+            "description": "Table or collection name"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Wall-clock time when the change was captured"
+          }
+        },
+        "required": [
+          "id",
+          "idempotency_key",
+          "timestamp",
+          "source",
+          "operation",
+          "table",
+          "key",
+          "before",
+          "after",
+          "metadata"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "token",
+        "description": "Static bearer token (--auth-token or KAPTANTO_AUTH_TOKEN)"
+      }
+    }
+  },
+  "info": {
+    "title": "Kaptanto",
+    "description": "Universal database Change Data Capture (CDC)",
+    "version": "dev"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/events": {
+      "get": {
+        "summary": "Server-Sent Events stream",
+        "operationId": "events",
+        "parameters": [
+          {
+            "name": "consumer",
+            "in": "query",
+            "description": "Stable consumer ID for cursor tracking"
+          },
+          {
+            "name": "tables",
+            "in": "query",
+            "description": "Comma-separated table allow-list"
+          },
+          {
+            "name": "operations",
+            "in": "query",
+            "description": "Comma-separated operation allow-list"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE event stream of ChangeEvents",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeEvent"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "summary": "Health check",
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "description": "Healthy",
+            "content": {}
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Prometheus metrics",
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "description": "Prometheus metrics in text format",
+            "content": {}
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "OpenAPI specification",
+        "operationId": "openapi",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.0 specification",
+            "content": {}
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "x-kaptanto-actions": [
+    {
+      "name": "notify-slack",
+      "type": "slack",
+      "tables": [
+        "public.orders"
+      ],
+      "operations": [
+        "insert",
+        "update"
+      ],
+      "param_names": [
+        "channel",
+        "webhook_url"
+      ]
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/auth"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/openapi"
 	"github.com/olucasandrade/kaptanto/internal/output"
 	grpcoutput "github.com/olucasandrade/kaptanto/internal/output/grpc"
 	kafkasink "github.com/olucasandrade/kaptanto/internal/output/kafka"
@@ -148,6 +149,15 @@ func buildOutputServer(
 		)
 	}
 
+	// Generate the OpenAPI spec once at startup (OAS-01: deterministic, cached).
+	oaOpts := openapi.NewGenerateOptions(cfg)
+	oaDoc := openapi.Generate(oaOpts)
+	oaBytes, err := openapi.MarshalDocument(oaDoc)
+	if err != nil {
+		return nil, fmt.Errorf("openapi: marshal: %w", err)
+	}
+	oaHandler := openapi.NewHandler(oaBytes)
+
 	switch cfg.Output {
 	case "none":
 		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
@@ -157,9 +167,9 @@ func buildOutputServer(
 		rtr.Register(w)
 		return func(ctx context.Context) error { <-ctx.Done(); return nil }, nil
 	case "sse":
-		return buildSSEServer(cfg, rtr, metrics, healthHandler, rowFilters, colFilters)
+		return buildSSEServer(cfg, rtr, metrics, healthHandler, oaHandler, rowFilters, colFilters)
 	case "grpc":
-		return buildGRPCServer(cfg, rtr, cursorStore, metrics, healthHandler, rowFilters, colFilters)
+		return buildGRPCServer(cfg, rtr, cursorStore, metrics, healthHandler, oaHandler, rowFilters, colFilters)
 	case "nats":
 		if cfg.Sinks.NATS == nil {
 			return nil, fmt.Errorf("--output nats requires a sinks.nats block in config (url, subject-template)")
@@ -168,7 +178,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("nats sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "nats", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
+		return buildSinkServer(cfg.Port, "nats", sink, rtr, metrics, healthProbes, cfg.AuthToken, oaHandler), nil
 	case "sqs":
 		if cfg.Sinks.SQS == nil {
 			return nil, fmt.Errorf("--output sqs requires a sinks.sqs block in config (queue-url, region)")
@@ -177,7 +187,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("sqs sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "sqs", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
+		return buildSinkServer(cfg.Port, "sqs", sink, rtr, metrics, healthProbes, cfg.AuthToken, oaHandler), nil
 	case "kafka":
 		if cfg.Sinks.Kafka == nil {
 			return nil, fmt.Errorf("--output kafka requires a sinks.kafka block in config (bootstrap-servers, topic-template)")
@@ -186,7 +196,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("kafka sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "kafka", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
+		return buildSinkServer(cfg.Port, "kafka", sink, rtr, metrics, healthProbes, cfg.AuthToken, oaHandler), nil
 	case "pubsub":
 		if cfg.Sinks.PubSub == nil {
 			return nil, fmt.Errorf("--output pubsub requires a sinks.pubsub block in config (project-id, topic-id)")
@@ -195,7 +205,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("pubsub sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "pubsub", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
+		return buildSinkServer(cfg.Port, "pubsub", sink, rtr, metrics, healthProbes, cfg.AuthToken, oaHandler), nil
 	case "rabbitmq":
 		if cfg.Sinks.RabbitMQ == nil {
 			return nil, fmt.Errorf("--output rabbitmq requires a sinks.rabbitmq block in config (url, exchange)")
@@ -204,7 +214,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("rabbitmq sink: init: %w", err)
 		}
-		return buildSinkServer(cfg.Port, "rabbitmq", sink, rtr, metrics, healthProbes, cfg.AuthToken), nil
+		return buildSinkServer(cfg.Port, "rabbitmq", sink, rtr, metrics, healthProbes, cfg.AuthToken, oaHandler), nil
 	default:
 		return nil, fmt.Errorf("unknown output mode %q: valid modes are none, stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq", cfg.Output)
 	}
@@ -215,6 +225,7 @@ func buildSSEServer(
 	rtr *router.Router,
 	metrics *observability.KaptantoMetrics,
 	healthHandler http.Handler,
+	oaHandler http.Handler,
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
 ) (func(context.Context) error, error) {
@@ -231,10 +242,12 @@ func buildSSEServer(
 		mux.Handle("/events", auth.Middleware(cfg.AuthToken, sseServer))
 		mux.Handle("/metrics", auth.Middleware(cfg.AuthToken, metrics.Handler()))
 		mux.Handle("/healthz", auth.Middleware(cfg.AuthToken, healthHandler))
+		mux.Handle("/openapi.json", auth.Middleware(cfg.AuthToken, oaHandler))
 	} else {
 		mux.Handle("/events", sseServer)
 		mux.Handle("/metrics", metrics.Handler())
 		mux.Handle("/healthz", healthHandler)
+		mux.Handle("/openapi.json", oaHandler)
 	}
 	srv := newHTTPServer(fmt.Sprintf(":%d", cfg.Port), mux)
 	if tlsCfg != nil {
@@ -266,6 +279,7 @@ func buildGRPCServer(
 	cursorStore router.ConsumerCursorStore,
 	metrics *observability.KaptantoMetrics,
 	healthHandler http.Handler,
+	oaHandler http.Handler,
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
 ) (func(context.Context) error, error) {
@@ -294,9 +308,11 @@ func buildGRPCServer(
 	if cfg.AuthToken != "" {
 		obsMux.Handle("/metrics", auth.Middleware(cfg.AuthToken, metrics.Handler()))
 		obsMux.Handle("/healthz", auth.Middleware(cfg.AuthToken, healthHandler))
+		obsMux.Handle("/openapi.json", auth.Middleware(cfg.AuthToken, oaHandler))
 	} else {
 		obsMux.Handle("/metrics", metrics.Handler())
 		obsMux.Handle("/healthz", healthHandler)
+		obsMux.Handle("/openapi.json", oaHandler)
 	}
 	obsSrv := newHTTPServer(fmt.Sprintf(":%d", cfg.Port+1), obsMux)
 	return func(ctx context.Context) error {
@@ -329,20 +345,24 @@ func buildSinkServer(
 	metrics *observability.KaptantoMetrics,
 	healthProbes []observability.HealthProbe,
 	authToken string,
+	oaHandler http.Handler,
 ) func(context.Context) error {
 	sink.SetMetrics(metrics)
 	rtr.Register(sink)
 	probes := append(healthProbes, observability.HealthProbe{Name: name, Check: sink.Ping})
 	mux := http.NewServeMux()
-	var metricsH, healthH http.Handler
+	var metricsH, healthH, oaH http.Handler
 	metricsH = metrics.Handler()
 	healthH = observability.NewHealthHandler(probes)
+	oaH = oaHandler
 	if authToken != "" {
 		metricsH = auth.Middleware(authToken, metricsH)
 		healthH = auth.Middleware(authToken, healthH)
+		oaH = auth.Middleware(authToken, oaH)
 	}
 	mux.Handle("/metrics", metricsH)
 	mux.Handle("/healthz", healthH)
+	mux.Handle("/openapi.json", oaH)
 	srv := newHTTPServer(fmt.Sprintf(":%d", port), mux)
 	return func(ctx context.Context) error {
 		go func() {
