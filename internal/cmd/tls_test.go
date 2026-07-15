@@ -254,6 +254,7 @@ func TestRequireServerTLS_NeitherTLSNorInsecure(t *testing.T) {
 func TestBuildOutputServer_SSE_RequiresTLS(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Output = "sse"
+	cfg.AuthToken = "token"
 	// No ServerTLS set, Insecure = false (default)
 
 	_, err := buildOutputServer(cfg, nil, nil, nil, nil, nil, nil, nil)
@@ -268,6 +269,7 @@ func TestBuildOutputServer_SSE_RequiresTLS(t *testing.T) {
 func TestBuildOutputServer_gRPC_RequiresTLS(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Output = "grpc"
+	cfg.AuthToken = "token"
 	// No ServerTLS set, Insecure = false (default)
 
 	_, err := buildOutputServer(cfg, nil, nil, nil, nil, nil, nil, nil)
