@@ -760,6 +760,331 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dcard" onclick="go('docs-ha')"><h4>High Availability</h4><p>Leader election and multi-AZ failover.</p></div>
 </div>`},
 
+'docs-actions': {title:'Actions',sub:'Turn CDC events into side effects — Slack, Discord, email, HTTP, cache purges, vector upserts, and workflow triggers — without writing consumer code.',body:`
+<p class="dp">Actions are the simplest way to react to database changes. Each action declares a type, parameters, and an optional routing rule. Kaptanto compiles them at startup and delivers matching events through the internal webhook sink — no consumer code required. Set <code>output: none</code> to run kaptanto as a pure action processor.</p>
+
+<h2 class="dh2">Quick example</h2>
+<div class="dcode">source: postgres://localhost:5432/mydb
+output: none
+
+actions:
+  - name: order-alerts
+    type: slack
+    params:
+      webhook-url: \${SLACK_WEBHOOK_URL}
+    match:
+      tables: ["public.orders"]
+      operations: ["insert"]</div>
+<div class="dcall"><p><strong>Secret params</strong> must use <code>\${VAR}</code> env-var references (ACT-02). They are never logged, never included in the OpenAPI spec, and never embedded as literals in config.</p></div>
+
+<h2 class="dh2">Action types</h2>
+
+<h3 class="dh3">slack</h3>
+<p class="dp">Posts a plain-text summary to a Slack incoming webhook. Batching is pinned to 1 event per request.</p>
+<div class="dcode">- name: order-alerts
+  type: slack
+  params:
+    webhook-url: \${SLACK_WEBHOOK_URL}
+  match:
+    tables: ["public.orders"]
+    operations: ["insert"]</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>webhook-url</code></td><td>Yes</td><td>Yes</td><td>Slack incoming webhook URL</td></tr>
+</tbody></table>
+
+<h3 class="dh3">discord</h3>
+<p class="dp">Posts a plain-text summary to a Discord webhook. Batching is pinned to 1 event per request.</p>
+<div class="dcode">- name: discord-feed
+  type: discord
+  params:
+    webhook-url: \${DISCORD_WEBHOOK_URL}
+  match:
+    tables: ["public.orders"]</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>webhook-url</code></td><td>Yes</td><td>Yes</td><td>Discord webhook URL</td></tr>
+</tbody></table>
+
+<h3 class="dh3">http-request</h3>
+<p class="dp">Generic HTTP request — sends the raw event JSON to any URL.</p>
+<div class="dcode">- name: notify-backend
+  type: http-request
+  params:
+    url: \${WEBHOOK_ENDPOINT}
+    method: POST</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>url</code></td><td>Yes</td><td>Yes</td><td>Destination URL (may embed tokens)</td></tr>
+<tr><td><code>method</code></td><td>No</td><td>No</td><td>HTTP method (default POST)</td></tr>
+</tbody></table>
+
+<h3 class="dh3">custom</h3>
+<p class="dp">Escape hatch — supply a full <code>webhook:</code> block inline. Uses the webhook sink verbatim.</p>
+<div class="dcode">- name: my-custom-hook
+  type: custom
+  webhook:
+    url: \${CUSTOM_URL}
+    method: PUT
+    headers:
+      X-Custom: myvalue
+    batch:
+      max-events: 10
+      flush-interval: 5s</div>
+
+<h3 class="dh3">email</h3>
+<p class="dp">Sends CDC notifications via the SendGrid v3 API.</p>
+<div class="dcode">- name: order-email
+  type: email
+  params:
+    api-key: \${SENDGRID_API_KEY}
+    from: noreply@example.com
+    to: ops@example.com
+  match:
+    tables: ["public.orders"]
+    operations: ["insert"]</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>api-key</code></td><td>Yes</td><td>Yes</td><td>SendGrid API key</td></tr>
+<tr><td><code>from</code></td><td>Yes</td><td>No</td><td>Sender email address</td></tr>
+<tr><td><code>to</code></td><td>Yes</td><td>No</td><td>Recipient email address</td></tr>
+<tr><td><code>subject-template</code></td><td>No</td><td>No</td><td>Subject line Go template (default: <code>[kaptanto] {{.Operation}} on {{.Table}}</code>)</td></tr>
+</tbody></table>
+
+<h3 class="dh3">cache-invalidate</h3>
+<p class="dp">Purges a Cloudflare cache URL when a row changes. Batching is pinned to 1.</p>
+<div class="dcode">- name: purge-product-cache
+  type: cache-invalidate
+  params:
+    api-token: \${CF_API_TOKEN}
+    zone-id: abc123
+    url-template: "https://cdn.example.com/products/{{.After.id}}"
+  match:
+    tables: ["public.products"]
+    operations: ["update", "delete"]</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>api-token</code></td><td>Yes</td><td>Yes</td><td>Cloudflare API token</td></tr>
+<tr><td><code>zone-id</code></td><td>Yes</td><td>No</td><td>Cloudflare zone ID</td></tr>
+<tr><td><code>url-template</code></td><td>Yes</td><td>No</td><td>Go template rendering the purge URL from the event</td></tr>
+</tbody></table>
+
+<h3 class="dh3">vector-upsert</h3>
+<p class="dp">Upserts embedding vectors to Pinecone when rows are inserted or updated. Deletes emit no request (cursor advances).</p>
+<div class="dcode">- name: sync-embeddings
+  type: vector-upsert
+  params:
+    api-key: \${PINECONE_API_KEY}
+    index-host: my-index.svc.us-east1-gcp.pinecone.io
+    vector-field: embedding
+  match:
+    tables: ["public.products"]
+    operations: ["insert", "update"]</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>api-key</code></td><td>Yes</td><td>Yes</td><td>Pinecone API key</td></tr>
+<tr><td><code>index-host</code></td><td>Yes</td><td>No</td><td>Pinecone index host</td></tr>
+<tr><td><code>vector-field</code></td><td>Yes</td><td>No</td><td>Event field containing the embedding vector</td></tr>
+<tr><td><code>namespace</code></td><td>No</td><td>No</td><td>Pinecone namespace</td></tr>
+<tr><td><code>id-field</code></td><td>No</td><td>No</td><td>Event field to use as vector ID (default: <code>id</code>)</td></tr>
+</tbody></table>
+
+<h3 class="dh3">inngest</h3>
+<p class="dp">Sends CDC events to Inngest for durable function execution. Supports batching.</p>
+<div class="dcode">- name: trigger-workflow
+  type: inngest
+  params:
+    event-key: \${INNGEST_EVENT_KEY}
+  match:
+    tables: ["public.orders"]
+    operations: ["insert"]</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>event-key</code></td><td>Yes</td><td>Yes</td><td>Inngest event key</td></tr>
+<tr><td><code>event-name-template</code></td><td>No</td><td>No</td><td>Go template for event name (default: <code>kaptanto/{{.Table}}.{{.Operation}}</code>)</td></tr>
+</tbody></table>
+<p class="dp">See <a onclick="go('docs-inngest')">Inngest integration</a> for a full Docker Compose example.</p>
+
+<h3 class="dh3">triggerdev</h3>
+<p class="dp">Triggers Trigger.dev tasks from CDC events. Batching is pinned to 1.</p>
+<div class="dcode">- name: order-task
+  type: triggerdev
+  params:
+    api-key: \${TRIGGERDEV_API_KEY}
+  match:
+    tables: ["public.orders"]</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>api-key</code></td><td>Yes</td><td>Yes</td><td>Trigger.dev API key</td></tr>
+<tr><td><code>api-url</code></td><td>No</td><td>No</td><td>API base URL (default: <code>https://api.trigger.dev</code>)</td></tr>
+<tr><td><code>event-name-template</code></td><td>No</td><td>No</td><td>Go template for event name (default: <code>kaptanto/{{.Table}}.{{.Operation}}</code>)</td></tr>
+</tbody></table>
+<p class="dp">See <a onclick="go('docs-triggerdev')">Trigger.dev integration</a> for a project setup walkthrough.</p>
+
+<h2 class="dh2">Common options</h2>
+<p class="dp">Every action supports these optional fields:</p>
+<table class="dtbl"><thead><tr><th>Field</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>match</code></td><td>Routing rule — see <a onclick="go('docs-routing')">Routing Rules</a></td></tr>
+<tr><td><code>transform</code></td><td>Override the type's default transform (<code>language</code> + <code>expression</code>)</td></tr>
+<tr><td><code>headers</code></td><td>Extra HTTP headers (merged over type defaults)</td></tr>
+<tr><td><code>timeout</code></td><td>Override the default request timeout (Go duration, e.g. <code>10s</code>)</td></tr>
+<tr><td><code>batch</code></td><td>Override batching (<code>max-events</code> + <code>flush-interval</code>); rejected if the type pins batch</td></tr>
+</tbody></table>
+
+<div class="dcards">
+<div class="dcard" onclick="go('docs-routing')"><h4>Routing Rules</h4><p>Filter events by table, operation, and row conditions.</p></div>
+<div class="dcard" onclick="go('docs-openapi')"><h4>OpenAPI Discovery</h4><p>Machine-readable spec of configured actions.</p></div>
+</div>`},
+
+'docs-routing': {title:'Routing Rules',sub:'Filter which CDC events each action receives with table globs, operation lists, and WHERE conditions.',body:`
+<p class="dp">Each action has an optional <code>match:</code> block that controls which events it receives. All three conditions are AND-ed together; omitting any means "match all". Rules are compiled at startup (RTG-01) — any validation error aborts the process.</p>
+
+<h2 class="dh2">Table globs</h2>
+<p class="dp">The <code>tables</code> field accepts exact names or single-star globs:</p>
+<table class="dtbl"><thead><tr><th>Pattern</th><th>Matches</th></tr></thead><tbody>
+<tr><td><code>public.orders</code></td><td>Exact match</td></tr>
+<tr><td><code>public.*</code></td><td>All tables in the <code>public</code> schema</td></tr>
+<tr><td><code>*.orders</code></td><td><code>orders</code> in any schema</td></tr>
+<tr><td><code>*</code></td><td>Every table</td></tr>
+</tbody></table>
+<p class="dp">Multi-star patterns (e.g. <code>*.*</code>) are rejected at compile time.</p>
+
+<h2 class="dh2">Operations</h2>
+<p class="dp">The <code>operations</code> field accepts any combination of <code>insert</code>, <code>update</code>, <code>delete</code>, and <code>read</code>. Case-insensitive. <code>control</code> events are never matched by operation filters.</p>
+<div class="dcode">match:
+  operations: ["insert", "update"]</div>
+
+<h2 class="dh2">WHERE conditions</h2>
+<p class="dp">The <code>where</code> field applies a row-level filter using the same syntax as table <code>where:</code> filters. Use <code>before.</code> and <code>after.</code> prefixes to reference pre- and post-change values:</p>
+<div class="dcode">match:
+  where: "after.status = 'shipped'"</div>
+<div class="dcode"><span class="tc"># Only fire when status changed FROM active</span>
+match:
+  where: "before.status = 'active'"</div>
+<p class="dp">Unprefixed field names reference the <code>after</code> payload by default.</p>
+
+<h2 class="dh2">Full example</h2>
+<div class="dcode">actions:
+  - name: high-value-orders
+    type: slack
+    params:
+      webhook-url: \${SLACK_WEBHOOK_URL}
+    match:
+      tables: ["public.orders"]
+      operations: ["insert", "update"]
+      where: "after.amount > 1000"</div>
+
+<h2 class="dh2">Performance</h2>
+<p class="dp">Match evaluation is allocation-free on the miss path (RTG-02). Operations use a bitmask check; tables use compiled globs; WHERE uses the same row filter engine as table-level filtering. 50 compiled matchers evaluate in under 1ms.</p>
+<div class="dcall"><p><strong>Non-matching events</strong> are acknowledged and the cursor advances (ACT-03). They are not retried, queued, or dead-lettered.</p></div>`},
+
+'docs-openapi': {title:'OpenAPI Discovery',sub:'Machine-readable spec of your configured actions, served at /openapi.json.',body:`
+<p class="dp">When actions are configured, kaptanto serves an OpenAPI 3.1 specification at <code>/openapi.json</code> on the same port as <code>/metrics</code> and <code>/healthz</code>. The spec describes the configured actions, their parameters, and routing rules.</p>
+
+<h2 class="dh2">Usage</h2>
+<div class="dcode"><span class="tg">$</span> curl http://localhost:7654/openapi.json | jq .</div>
+<p class="dp">The response is a standard OpenAPI 3.1 document with one path per configured action. Import it into Postman, Swagger UI, or any OpenAPI-compatible tool.</p>
+
+<h2 class="dh2">Byte-stable output</h2>
+<p class="dp">The spec is deterministic — the same configuration always produces byte-identical JSON output (OAS-01). Ordered maps and stable marshaling ensure reproducibility across restarts.</p>
+
+<h2 class="dh2">Secret redaction</h2>
+<p class="dp">Parameters marked as <code>secret</code> in a type's <code>ParamSpec</code> are excluded from the spec (ACT-02). The spec only includes non-secret parameter metadata: name, description, required status, and default values.</p>`},
+
+'docs-n8n': {title:'n8n Integration',sub:'Use kaptanto as an n8n trigger node to start workflows on database changes.',body:`
+<p class="dp">The <code>n8n-nodes-kaptanto</code> package provides a community trigger node that connects to kaptanto's SSE endpoint. Each database change starts an n8n workflow execution.</p>
+
+<h2 class="dh2">Installation</h2>
+<div class="dcode"><span class="tc"># In your n8n instance</span>
+npm install n8n-nodes-kaptanto</div>
+<p class="dp">Or install from the n8n community nodes UI: search for "kaptanto".</p>
+
+<h2 class="dh2">Configuration</h2>
+<p class="dp">The trigger node needs three settings:</p>
+<table class="dtbl"><thead><tr><th>Field</th><th>Description</th></tr></thead><tbody>
+<tr><td>Base URL</td><td>Kaptanto SSE endpoint, e.g. <code>https://kaptanto.internal:7654</code></td></tr>
+<tr><td>Consumer ID</td><td>Unique consumer name for cursor tracking</td></tr>
+<tr><td>Tables</td><td>Comma-separated table names to subscribe to</td></tr>
+</tbody></table>
+
+<h2 class="dh2">Example workflow</h2>
+<p class="dp">A self-contained Docker Compose example lives in <code>examples/n8n-trigger/</code>:</p>
+<div class="dcode"><span class="tg">$</span> cd examples/n8n-trigger
+<span class="tg">$</span> docker compose up</div>
+<p class="dp">This starts Postgres, kaptanto (SSE mode), and n8n with the trigger node pre-installed. Insert a row into Postgres and watch the n8n workflow fire.</p>
+
+<h2 class="dh2">How it works</h2>
+<p class="dp">The trigger node opens an SSE connection to <code>/events</code> with the configured consumer ID. Each event arrives as a standard <code>ChangeEvent</code> JSON payload. The node emits one n8n item per event, which flows into the rest of your workflow.</p>
+<div class="dcall"><p><strong>Resumability:</strong> n8n reconnects with the same consumer ID on restart. Kaptanto resumes from the last acknowledged cursor position — no events are lost.</p></div>`},
+
+'docs-triggerdev': {title:'Trigger.dev Integration',sub:'Fire Trigger.dev tasks from CDC events with zero consumer code.',body:`
+<p class="dp">The <code>triggerdev</code> action type sends CDC events to the Trigger.dev event ingestion API. Each matching event triggers a task execution.</p>
+
+<h2 class="dh2">Kaptanto config</h2>
+<div class="dcode">actions:
+  - name: order-processor
+    type: triggerdev
+    params:
+      api-key: \${TRIGGERDEV_API_KEY}
+      event-name-template: "kaptanto/{{.Table}}.{{.Operation}}"
+    match:
+      tables: ["public.orders"]
+      operations: ["insert", "update"]</div>
+
+<h2 class="dh2">Trigger.dev task</h2>
+<div class="dcode"><span class="tc">// src/kaptanto-order-update.ts</span>
+import { task } from "@trigger.dev/sdk/v3";
+
+export const orderUpdate = task({
+  id: "kaptanto-order-update",
+  run: async (payload: any) => {
+    const { operation, table, after } = payload;
+    console.log(\`[\${operation}] \${table}: order #\${after.id}\`);
+    // ... process the event
+  },
+});</div>
+
+<h2 class="dh2">Full example</h2>
+<p class="dp">A project skeleton with the task definition, <code>trigger.config.ts</code>, and kaptanto config lives in <code>examples/trigger-dev/</code>.</p>
+<div class="dcall"><p><strong>Batching:</strong> Trigger.dev's event API does not accept arrays, so <code>triggerdev</code> pins batching to 1 event per request.</p></div>`},
+
+'docs-inngest': {title:'Inngest Integration',sub:'Run durable Inngest functions from CDC events with zero consumer code.',body:`
+<p class="dp">The <code>inngest</code> action type sends CDC events to Inngest's event ingestion API. Each matching event triggers one or more Inngest functions.</p>
+
+<h2 class="dh2">Kaptanto config</h2>
+<div class="dcode">actions:
+  - name: order-workflow
+    type: inngest
+    params:
+      event-key: \${INNGEST_EVENT_KEY}
+    match:
+      tables: ["public.orders"]
+      operations: ["insert"]</div>
+
+<h2 class="dh2">Inngest function</h2>
+<div class="dcode"><span class="tc">// inngest/src/functions.ts</span>
+import { inngest } from "./client";
+
+export const onNewOrder = inngest.createFunction(
+  { id: "on-new-order", name: "Handle New Order" },
+  { event: "kaptanto/orders.insert" },
+  async ({ event }) => {
+    const order = event.data.after;
+    // ... process the new order
+  }
+);</div>
+
+<h2 class="dh2">Full example</h2>
+<p class="dp">A Docker Compose example with Postgres, kaptanto, the Inngest dev server, and a function handler lives in <code>examples/inngest/</code>:</p>
+<div class="dcode"><span class="tg">$</span> cd examples/inngest
+<span class="tg">$</span> docker compose up</div>
+
+<h2 class="dh2">Event shape</h2>
+<p class="dp">Inngest receives events with the following structure:</p>
+<div class="dcode">{
+  "name": "kaptanto/orders.insert",
+  "data": {
+    "id": "01HX...",
+    "operation": "insert",
+    "table": "orders",
+    "after": { "id": 1, "status": "pending" }
+  }
+}</div>
+<p class="dp">The <code>name</code> field is derived from the <code>event-name-template</code> parameter (default: <code>kaptanto/{{.Table}}.{{.Operation}}</code>).</p>
+<div class="dcall"><p><strong>Batching:</strong> Inngest accepts JSON arrays, so the <code>inngest</code> type supports batching. Adjust <code>batch.max-events</code> and <code>batch.flush-interval</code> on the action to tune throughput.</p></div>`},
+
 'docs-benchmarks': {title:'Benchmarks',sub:'Throughput and latency results vs. Debezium, Sequin, and PeerDB across 5 scenarios.',body:`
 <p class="dp">Tested on GitHub Actions ubuntu-latest (4 vCPU, 16 GB RAM), Postgres 16, 5 CDC scenarios, 2026-07-04. Eight tools ran concurrently from the same database; all numbers reflect shared-CPU conditions.</p>
 <div class="dcall"><p><strong>Reproducing this run:</strong> the harness lives in <code>bench/</code> and is driven by <code>docker compose</code> plus <code>go run ./cmd/scenarios</code> — see the repo's <code>bench/README.md</code>. <code>bench/results/REPORT.md</code> in the repository tracks the most recent local run for development purposes and may show different numbers than the CI run summarized here; treat the table below as the current published result.</p></div>
@@ -856,9 +1181,11 @@ export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
   {label:'Get Started',items:[['docs-intro','Introduction'],['docs-quickstart','Quick Start'],['docs-install','Installation'],['docs-postgres','Connect Postgres'],['docs-mongo','Connect MongoDB']]},
   {label:'Core Concepts',items:[['docs-schema','Event Schema'],['docs-backfills','Backfills'],['docs-consistency','Consistency Model'],['docs-ordering','Ordering & Partitions']]},
   {label:'Output Modes',items:[['docs-stdout','stdout'],['docs-sse','Server-Sent Events'],['docs-grpc','gRPC'],['docs-queue-sinks','Queue Sinks']]},
+  {label:'Actions',items:[['docs-actions','Actions'],['docs-routing','Routing Rules'],['docs-openapi','OpenAPI Discovery']]},
+  {label:'Integrations',items:[['docs-n8n','n8n'],['docs-triggerdev','Trigger.dev'],['docs-inngest','Inngest']]},
   {label:'Configuration',items:[['docs-config','CLI & YAML'],['docs-filtering','Filtering'],['docs-grouping','Message Grouping']]},
   {label:'Production',items:[['docs-ha','High Availability'],['docs-cluster','Cluster Mode'],['docs-metrics','Metrics & Monitoring'],['docs-api','HTTP Endpoints'],['docs-troubleshooting','Troubleshooting']]},
   {label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
 ];
 
-export const DOC_FLOW = ['docs-intro','docs-quickstart','docs-install','docs-postgres','docs-mongo','docs-schema','docs-backfills','docs-consistency','docs-ordering','docs-stdout','docs-sse','docs-grpc','docs-queue-sinks','docs-config','docs-filtering','docs-grouping','docs-ha','docs-cluster','docs-metrics','docs-api','docs-troubleshooting','docs-aws-setup','docs-benchmarks'];
+export const DOC_FLOW = ['docs-intro','docs-quickstart','docs-install','docs-postgres','docs-mongo','docs-schema','docs-backfills','docs-consistency','docs-ordering','docs-stdout','docs-sse','docs-grpc','docs-queue-sinks','docs-actions','docs-routing','docs-openapi','docs-n8n','docs-triggerdev','docs-inngest','docs-config','docs-filtering','docs-grouping','docs-ha','docs-cluster','docs-metrics','docs-api','docs-troubleshooting','docs-aws-setup','docs-benchmarks'];
