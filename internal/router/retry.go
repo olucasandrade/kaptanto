@@ -573,8 +573,8 @@ func (rs *RetryScheduler) deadLetterHead(ctx context.Context, s *consumerRetrySt
 		}
 		slog.Error("router: dead-letter",
 			"consumer_id", rec.ConsumerID,
-			"event_id", rec.Entry.Event.ID.String(),
-			"table", rec.Entry.Event.Table,
+			"event_id", entry.EventID,
+			"table", entry.Table,
 			"partition", rec.Entry.PartitionID,
 			"seq", rec.Entry.Seq,
 			"attempts", rec.Attempts,
@@ -607,8 +607,8 @@ func (rs *RetryScheduler) deadLetterHead(ctx context.Context, s *consumerRetrySt
 		}
 		slog.Error("router: dead-letter DLQ write failed",
 			"consumer_id", rec.ConsumerID,
-			"event_id", rec.Entry.Event.ID.String(),
-			"table", rec.Entry.Event.Table,
+			"event_id", entry.EventID,
+			"table", entry.Table,
 			"partition", rec.Entry.PartitionID,
 			"seq", rec.Entry.Seq,
 			"attempts", rec.Attempts,
