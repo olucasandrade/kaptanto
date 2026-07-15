@@ -16,6 +16,12 @@ These examples include:
 - `docker-compose.yml`: the source database, Kaptanto, app API, and web app
 - `kaptanto.yaml`: example-specific Kaptanto configuration
 
+## Integration Examples
+
+- `inngest`: Postgres CDC events trigger Inngest functions with automatic deduplication via `idempotency_key → id` mapping.
+- `trigger-dev`: Trigger.dev v3 tasks react to CDC events with durable execution and `wait.forEvent`; covers cloud and self-hosted API URLs.
+- `n8n-trigger`: n8n workflows triggered by CDC events via the `n8n-nodes-kaptanto` community node and Kaptanto's SSE output.
+
 ## Supporting Examples
 
 - `entitlements-sync`: a billing API writes subscription and payment changes to Postgres, and a separate sync API consumes Kaptanto SSE to update an entitlements API automatically.

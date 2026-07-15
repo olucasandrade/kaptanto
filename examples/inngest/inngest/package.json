@@ -1,0 +1,17 @@
+{
+  "name": "kaptanto-inngest-example",
+  "private": true,
+  "scripts": {
+    "dev": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
+    "serve": "npx tsx src/serve.ts"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "inngest": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
