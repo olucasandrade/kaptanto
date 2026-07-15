@@ -1,12 +1,24 @@
 package transform
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/itchyny/gojq"
 	"github.com/olucasandrade/kaptanto/internal/event"
 )
+
+// defaultJQRuntimeTimeout bounds how long a single jq filter may execute.
+// A context with this timeout is passed to RunWithContext so recursive or
+// non-emitting programs cannot block the router indefinitely.
+const defaultJQRuntimeTimeout = 30 * time.Second
+
+// jqRuntimeTimeout is the mutable runtime bound so tests can exercise
+// cancellation without waiting 30s.
+var jqRuntimeTimeout = defaultJQRuntimeTimeout
 
 // jqEngine evaluates a compiled gojq expression against raw JSON.
 type jqEngine struct {
@@ -43,14 +55,19 @@ func (e *jqEngine) Language() string {
 // cannot hang. ev is unused (go-template path).
 func (e *jqEngine) Apply(raw []byte, _ *event.ChangeEvent) ([]byte, bool, error) {
 	var input any
-	if err := json.Unmarshal(raw, &input); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&input); err != nil {
 		return nil, false, &RuntimeError{
 			Language: LangJQ,
 			Cause:    fmt.Errorf("json unmarshal: %w", err),
 		}
 	}
 
-	iter := e.code.Run(input)
+	ctx, cancel := context.WithTimeout(context.Background(), jqRuntimeTimeout)
+	defer cancel()
+
+	iter := e.code.RunWithContext(ctx, input)
 	var (
 		first     any
 		haveFirst bool
