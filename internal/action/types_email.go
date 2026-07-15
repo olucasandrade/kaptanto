@@ -1,9 +1,11 @@
 package action
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
+	"text/template/parse"
 
 	"github.com/olucasandrade/kaptanto/internal/config"
 )
@@ -94,6 +96,10 @@ func (EmailType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.Trans
 // "[kaptanto] {{.Operation}} on {{.Table}}" into a jq string expression
 // like `("[kaptanto] " + .operation + " on " + .table)`.
 func subjectTemplateToJQ(tmpl string) (string, error) {
+	if err := validateSubjectTemplate(tmpl); err != nil {
+		return "", err
+	}
+
 	matches := templateFieldRe.FindAllStringSubmatchIndex(tmpl, -1)
 	if len(matches) == 0 {
 		return jqStringLiteral(tmpl), nil
@@ -125,11 +131,62 @@ func subjectTemplateToJQ(tmpl string) (string, error) {
 	return "(" + strings.Join(parts, " + ") + ")", nil
 }
 
-// jqStringLiteral wraps s in double quotes with jq-safe escaping.
+// jqStringLiteral returns a JSON-encoded string that is also a valid jq string
+// literal, escaping the full set of control characters.
 func jqStringLiteral(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return `"` + s + `"`
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// validateSubjectTemplate parses the template and rejects anything other than
+// literal text and the exact {{.Field}} placeholders listed in subjectFieldMap.
+func validateSubjectTemplate(tmpl string) error {
+	tree, err := parse.New("subject").Parse(tmpl, "{{", "}}", map[string]*parse.Tree{})
+	if err != nil {
+		return fmt.Errorf("invalid subject-template: %w", err)
+	}
+	return walkSubjectNodes(tree.Root)
+}
+
+func walkSubjectNodes(node parse.Node) error {
+	switch n := node.(type) {
+	case *parse.ListNode:
+		if n == nil {
+			return nil
+		}
+		for _, child := range n.Nodes {
+			if err := walkSubjectNodes(child); err != nil {
+				return err
+			}
+		}
+	case *parse.TextNode:
+		return nil
+	case *parse.ActionNode:
+		return walkSubjectNodes(n.Pipe)
+	case *parse.PipeNode:
+		if n == nil {
+			return nil
+		}
+		if len(n.Cmds) != 1 {
+			return fmt.Errorf("unsupported subject-template construct")
+		}
+		cmd := n.Cmds[0]
+		if len(cmd.Args) != 1 {
+			return fmt.Errorf("unsupported subject-template construct")
+		}
+		return walkSubjectNodes(cmd.Args[0])
+	case *parse.FieldNode:
+		if len(n.Ident) != 1 {
+			return fmt.Errorf("unsupported subject-template field %q", strings.Join(n.Ident, "."))
+		}
+		if _, ok := subjectFieldMap[n.Ident[0]]; !ok {
+			return fmt.Errorf("unsupported field %q", n.Ident[0])
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported subject-template construct %T", node)
+	}
+	return nil
 }
 
 func init() { DefaultRegistry.Register(EmailType{}) }
