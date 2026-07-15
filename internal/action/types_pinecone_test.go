@@ -88,8 +88,8 @@ func TestVectorUpsert_Build_DefaultTransform(t *testing.T) {
 	assert.Equal(t, "jq", tc.Language)
 	assert.Contains(t, tc.Expression, `"delete"`)
 	assert.Contains(t, tc.Expression, "null")
-	assert.Contains(t, tc.Expression, ".after.id")
-	assert.Contains(t, tc.Expression, ".after.embedding")
+	assert.Contains(t, tc.Expression, `.after["id"]`)
+	assert.Contains(t, tc.Expression, `.after["embedding"]`)
 	assert.Contains(t, tc.Expression, "tostring")
 }
 
@@ -119,7 +119,20 @@ func TestVectorUpsert_Build_CustomIDField(t *testing.T) {
 		"vector-field": "vec",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, tc.Expression, ".after.doc_id")
+	assert.Contains(t, tc.Expression, `.after["doc_id"]`)
+}
+
+func TestVectorUpsert_Build_HyphenField(t *testing.T) {
+	pt := action.DefaultRegistry.Lookup("vector-upsert")
+	require.NotNil(t, pt)
+
+	_, tc, err := pt.Build(action.ResolvedParams{
+		"api-key":      "key",
+		"index-host":   "host.pinecone.io",
+		"vector-field": "embedding-vector",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tc.Expression, `.after["embedding-vector"]`)
 }
 
 func TestVectorUpsert_MissingRequiredParams(t *testing.T) {

@@ -73,15 +73,18 @@ func (pineconeType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.Tr
 // buildPineconeJQ constructs the jq expression that transforms a ChangeEvent
 // into a Pinecone upsert payload, dropping delete operations.
 func buildPineconeJQ(idField, vectorField, namespace string) string {
+	idAccess := fieldAccess("after", idField)
+	vectorAccess := fieldAccess("after", vectorField)
+
 	vectorObj := fmt.Sprintf(
-		`{vectors: [{id: (.after.%s | tostring), values: .after.%s}]}`,
-		idField, vectorField,
+		`{vectors: [{id: (%s | tostring), values: %s}]}`,
+		idAccess, vectorAccess,
 	)
 
 	if namespace != "" {
 		vectorObj = fmt.Sprintf(
-			`{vectors: [{id: (.after.%s | tostring), values: .after.%s}], namespace: %q}`,
-			idField, vectorField, namespace,
+			`{vectors: [{id: (%s | tostring), values: %s}], namespace: %q}`,
+			idAccess, vectorAccess, namespace,
 		)
 	}
 
@@ -89,4 +92,9 @@ func buildPineconeJQ(idField, vectorField, namespace string) string {
 		`if .operation == "delete" then null else %s end`,
 		vectorObj,
 	)
+}
+
+// fieldAccess returns a safe jq field access like `.after["embedding-vector"]`.
+func fieldAccess(side, field string) string {
+	return fmt.Sprintf(".%s[%s]", side, jqStringLiteral(field))
 }
