@@ -70,6 +70,19 @@ func BenchmarkMatch50Matchers_Hit(b *testing.B) {
 	}
 }
 
+// TestBenchmarkLatencyGate fails the build if the miss-path benchmark regresses
+// past 1 ms per 50 matchers (RTG-02 latency budget).
+func TestBenchmarkLatencyGate(t *testing.T) {
+	result := testing.Benchmark(BenchmarkMatch50Matchers_Miss)
+	if result.N == 0 {
+		t.Fatal("benchmark did not run")
+	}
+	const budget = 1 * 1000 * 1000 // 1 ms in ns
+	if result.NsPerOp() > budget {
+		t.Fatalf("RTG-02 latency budget exceeded: %d ns/op, budget %d ns/op", result.NsPerOp(), budget)
+	}
+}
+
 // TestAllocsPerRun_MissPath asserts zero allocations on the miss path (RTG-02).
 func TestAllocsPerRun_MissPath(t *testing.T) {
 	matchers := make([]*Matcher, 50)
