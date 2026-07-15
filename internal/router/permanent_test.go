@@ -8,35 +8,59 @@ import (
 	"testing"
 )
 
-func TestIsPermanentErrorRecognizesPermanentDeliveryError(t *testing.T) {
+func TestIsPermanentError(t *testing.T) {
 	t.Parallel()
 
-	plain := errors.New("transient")
-	if isPermanentError(plain) {
-		t.Fatal("plain error must not be permanent")
-	}
-	if isPermanentError(nil) {
-		t.Fatal("nil must not be permanent")
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "plain error is not permanent",
+			err:  errors.New("transient"),
+			want: false,
+		},
+		{
+			name: "nil is not permanent",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "PermanentFlushError is permanent",
+			err:  &PermanentFlushError{Seq: 42, Cause: errors.New("poison")},
+			want: true,
+		},
+		{
+			name: "wrapped PermanentFlushError is permanent",
+			err:  fmt.Errorf("flush failed: %w", &PermanentFlushError{Seq: 42, Cause: errors.New("poison")}),
+			want: true,
+		},
+		{
+			name: "io.ErrClosedPipe is permanent",
+			err:  io.ErrClosedPipe,
+			want: true,
+		},
+		{
+			name: "os.ErrDeadlineExceeded is permanent",
+			err:  os.ErrDeadlineExceeded,
+			want: true,
+		},
+		{
+			name: "wrapped io.ErrClosedPipe is permanent",
+			err:  fmt.Errorf("wrap: %w", io.ErrClosedPipe),
+			want: true,
+		},
 	}
 
-	perm := &PermanentFlushError{Seq: 42, Cause: errors.New("poison")}
-	if !isPermanentError(perm) {
-		t.Fatal("PermanentFlushError must be permanent")
-	}
-
-	wrapped := fmt.Errorf("flush failed: %w", perm)
-	if !isPermanentError(wrapped) {
-		t.Fatal("wrapped PermanentFlushError must be permanent via unwrap chain")
-	}
-
-	if !isPermanentError(io.ErrClosedPipe) {
-		t.Fatal("io.ErrClosedPipe must remain permanent")
-	}
-	if !isPermanentError(os.ErrDeadlineExceeded) {
-		t.Fatal("os.ErrDeadlineExceeded must remain permanent")
-	}
-	if !isPermanentError(fmt.Errorf("wrap: %w", io.ErrClosedPipe)) {
-		t.Fatal("wrapped io.ErrClosedPipe must remain permanent")
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isPermanentError(tt.err); got != tt.want {
+				t.Fatalf("isPermanentError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 
