@@ -971,11 +971,11 @@ match:
 <div class="dcall"><p><strong>Non-matching events</strong> are acknowledged and the cursor advances (ACT-03). They are not retried, queued, or dead-lettered.</p></div>`},
 
 'docs-openapi': {title:'OpenAPI Discovery',sub:'Machine-readable spec of your configured actions, served at /openapi.json.',body:`
-<p class="dp">When actions are configured, kaptanto serves an OpenAPI 3.1 specification at <code>/openapi.json</code> on the same port as <code>/metrics</code> and <code>/healthz</code>. The spec describes the configured actions, their parameters, and routing rules.</p>
+<p class="dp">When actions are configured, kaptanto serves an OpenAPI 3.0 specification at <code>/openapi.json</code> on the same port as <code>/metrics</code> and <code>/healthz</code>. The spec describes the configured actions, their parameters, and routing rules.</p>
 
 <h2 class="dh2">Usage</h2>
 <div class="dcode"><span class="tg">$</span> curl http://localhost:7654/openapi.json | jq .</div>
-<p class="dp">The response is a standard OpenAPI 3.1 document with one path per configured action. Import it into Postman, Swagger UI, or any OpenAPI-compatible tool.</p>
+<p class="dp">The response is a standard OpenAPI 3.0 document with one path per configured action. Import it into Postman, Swagger UI, or any OpenAPI-compatible tool.</p>
 
 <h2 class="dh2">Byte-stable output</h2>
 <p class="dp">The spec is deterministic — the same configuration always produces byte-identical JSON output (OAS-01). Ordered maps and stable marshaling ensure reproducibility across restarts.</p>
@@ -997,6 +997,7 @@ npm install n8n-nodes-kaptanto</div>
 <tr><td>Base URL</td><td>Kaptanto SSE endpoint, e.g. <code>https://kaptanto.internal:7654</code></td></tr>
 <tr><td>Consumer ID</td><td>Unique consumer name for cursor tracking</td></tr>
 <tr><td>Tables</td><td>Comma-separated table names to subscribe to</td></tr>
+<tr><td>Operations</td><td>Operation types to subscribe to (insert, update, delete, read); leave empty for all</td></tr>
 </tbody></table>
 
 <h2 class="dh2">Example workflow</h2>

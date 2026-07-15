@@ -99,5 +99,6 @@ type ActionMeta struct {
 	Type       string   `json:"type"`
 	Tables     []string `json:"tables,omitempty"`
 	Operations []string `json:"operations,omitempty"`
+	Where      string   `json:"where,omitempty"`
 	ParamNames []string `json:"param_names"`
 }

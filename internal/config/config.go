@@ -179,10 +179,12 @@ type ActionConfig struct {
 }
 
 // MatchConfig declares which events an action should receive.
-// Empty Tables means "match all tables"; empty Operations means "match all operations".
+// Empty Tables means "match all tables"; empty Operations means "match all operations";
+// empty Where means "match all rows".
 type MatchConfig struct {
 	Tables     []string `yaml:"tables"`
 	Operations []string `yaml:"operations"`
+	Where      string   `yaml:"where"`
 }
 
 // SinksConfig holds connection settings for all supported queue sinks.

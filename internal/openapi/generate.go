@@ -27,6 +27,7 @@ func NewGenerateOptions(cfg *config.Config) GenerateOptions {
 			Type:       a.Type,
 			Tables:     a.Match.Tables,
 			Operations: a.Match.Operations,
+			Where:      a.Match.Where,
 		}
 		for k := range a.Params {
 			am.ParamNames = append(am.ParamNames, k)
