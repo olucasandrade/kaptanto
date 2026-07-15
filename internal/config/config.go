@@ -175,6 +175,7 @@ type ActionConfig struct {
 	Transform *TransformConfig  `yaml:"transform"` // replaces (not merges) the type's default transform
 	Headers   map[string]string `yaml:"headers"`   // merge over type defaults; must not collide with computed auth
 	Batch     *WebhookBatch     `yaml:"batch"`     // override type's batching; rejected if type pins batch
+	Webhook   *WebhookSinkConfig `yaml:"webhook"`  // verbatim webhook config for type "custom" (escape hatch)
 }
 
 // MatchConfig declares which events an action should receive.

@@ -69,9 +69,22 @@ func BuildConsumersWithRegistry(cfg *config.Config, m *observability.KaptantoMet
 		}
 
 		// Step 4: build webhook config from type
-		whCfg, defaultTransform, err := t.Build(resolved)
-		if err != nil {
-			return nil, fmt.Errorf("action %q: type build: %w", a.Name, err)
+		var whCfg config.WebhookSinkConfig
+		var defaultTransform config.TransformConfig
+
+		if a.Type == "custom" {
+			// Custom type: verbatim webhook config from ActionConfig.Webhook
+			if a.Webhook == nil {
+				return nil, fmt.Errorf("action %q: type \"custom\" requires a webhook: block", a.Name)
+			}
+			whCfg = *a.Webhook
+			// For custom, the webhook's own Transform is the default
+			defaultTransform = whCfg.Transform
+		} else {
+			whCfg, defaultTransform, err = t.Build(resolved)
+			if err != nil {
+				return nil, fmt.Errorf("action %q: type build: %w", a.Name, err)
+			}
 		}
 
 		// Apply user overrides
