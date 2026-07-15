@@ -394,6 +394,31 @@ func TestEmailType_SubjectTemplate_UnsupportedField(t *testing.T) {
 	assert.Contains(t, err.Error(), "Bogus")
 }
 
+func TestEmailType_SubjectTemplate_PipelineRejected(t *testing.T) {
+	params := action.ResolvedParams{
+		"api-key":          "SG.key",
+		"from":             "a@b.com",
+		"to":               "c@d.com",
+		"subject-template": "{{.Table | upper}} event",
+	}
+
+	_, _, err := action.EmailType{}.Build(params)
+	require.Error(t, err)
+}
+
+func TestEmailType_SubjectTemplate_NewlineEscaped(t *testing.T) {
+	params := action.ResolvedParams{
+		"api-key":          "SG.key",
+		"from":             "a@b.com",
+		"to":               "c@d.com",
+		"subject-template": "line1\nline2",
+	}
+
+	_, tc, err := action.EmailType{}.Build(params)
+	require.NoError(t, err)
+	assert.Contains(t, tc.Expression, `\n`)
+}
+
 // --- End-to-end BuildConsumers success ---
 
 func TestEmailType_BuildConsumers_Success(t *testing.T) {
