@@ -69,9 +69,12 @@ func ParseRowFilter(expr string) (*RowFilter, error) {
 
 // Match evaluates the filter expression against the event.
 //
-// Semantic: the expression is evaluated against After. When After is nil
-// (delete events), Before is used instead. If both are nil, Match returns
-// true (no data to filter on).
+// Semantic: un-prefixed columns are evaluated against After. When After is nil
+// (delete events), Before is used instead. Columns prefixed with "before." or
+// "after." resolve against the corresponding row side explicitly; a prefixed
+// lookup on a nil side evaluates the comparison to false.
+//
+// If both Before and After are nil, Match returns true (no data to filter on).
 //
 // A no-op RowFilter (from ParseRowFilter("")) always returns true.
 func (f *RowFilter) Match(ev *event.ChangeEvent) bool {
@@ -79,22 +82,68 @@ func (f *RowFilter) Match(ev *event.ChangeEvent) bool {
 		return true
 	}
 
-	// Use After; fall back to Before for delete events (After is nil).
-	raw := ev.After
-	if raw == nil {
-		raw = ev.Before
-	}
-	if raw == nil {
+	if ev.Before == nil && ev.After == nil {
 		return true
 	}
 
-	var row map[string]any
-	if err := json.Unmarshal(raw, &row); err != nil {
-		// Malformed JSON — let it through; this is not a filter error.
-		return true
+	var before, after map[string]any
+	if ev.Before != nil {
+		if err := json.Unmarshal(ev.Before, &before); err != nil {
+			return true
+		}
+	}
+	if ev.After != nil {
+		if err := json.Unmarshal(ev.After, &after); err != nil {
+			return true
+		}
 	}
 
-	return f.root.test(row)
+	defaultRow := after
+	if defaultRow == nil {
+		defaultRow = before
+	}
+
+	ctx := rowContext{before: before, after: after, defaultRow: defaultRow}
+	return f.root.test(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// Row context & column resolution
+// ---------------------------------------------------------------------------
+
+// rowContext carries both row sides so that prefixed column lookups
+// ("before.X", "after.X") resolve against the correct map.
+type rowContext struct {
+	before     map[string]any
+	after      map[string]any
+	defaultRow map[string]any // After, falling back to Before for deletes
+}
+
+// resolveColumn returns the column value, whether the key exists in the
+// resolved map, and whether the target side itself is nil.
+// Columns prefixed with "before." or "after." resolve against the
+// corresponding row side; a prefix targeting a nil side returns sideNil=true.
+// Un-prefixed columns resolve against defaultRow (backward-compatible).
+func (rc rowContext) resolveColumn(column string) (val any, exists bool, sideNil bool) {
+	if rest, ok := strings.CutPrefix(column, "before."); ok {
+		if rc.before == nil {
+			return nil, false, true
+		}
+		v, ok := rc.before[rest]
+		return v, ok, false
+	}
+	if rest, ok := strings.CutPrefix(column, "after."); ok {
+		if rc.after == nil {
+			return nil, false, true
+		}
+		v, ok := rc.after[rest]
+		return v, ok, false
+	}
+	if rc.defaultRow == nil {
+		return nil, false, true
+	}
+	v, ok := rc.defaultRow[column]
+	return v, ok, false
 }
 
 // ---------------------------------------------------------------------------
@@ -102,30 +151,30 @@ func (f *RowFilter) Match(ev *event.ChangeEvent) bool {
 // ---------------------------------------------------------------------------
 
 // exprNode is the common interface for all AST nodes.
-// test() evaluates the node against a JSON row map.
+// test() evaluates the node against a rowContext.
 type exprNode interface {
-	test(row map[string]any) bool
+	test(ctx rowContext) bool
 }
 
 // orNode evaluates left OR right.
 type orNode struct{ left, right exprNode }
 
-func (n *orNode) test(row map[string]any) bool {
-	return n.left.test(row) || n.right.test(row)
+func (n *orNode) test(ctx rowContext) bool {
+	return n.left.test(ctx) || n.right.test(ctx)
 }
 
 // andNode evaluates left AND right.
 type andNode struct{ left, right exprNode }
 
-func (n *andNode) test(row map[string]any) bool {
-	return n.left.test(row) && n.right.test(row)
+func (n *andNode) test(ctx rowContext) bool {
+	return n.left.test(ctx) && n.right.test(ctx)
 }
 
 // notNode evaluates NOT child.
 type notNode struct{ child exprNode }
 
-func (n *notNode) test(row map[string]any) bool {
-	return !n.child.test(row)
+func (n *notNode) test(ctx rowContext) bool {
+	return !n.child.test(ctx)
 }
 
 // compareNode evaluates column op value.
@@ -135,8 +184,11 @@ type compareNode struct {
 	value  any // string or float64
 }
 
-func (n *compareNode) test(row map[string]any) bool {
-	colVal := row[n.column]
+func (n *compareNode) test(ctx rowContext) bool {
+	colVal, _, sideNil := ctx.resolveColumn(n.column)
+	if sideNil {
+		return false
+	}
 	return compareValues(colVal, n.op, n.value)
 }
 
@@ -146,9 +198,9 @@ type isNullNode struct {
 	notNull bool // true = IS NOT NULL
 }
 
-func (n *isNullNode) test(row map[string]any) bool {
-	val, exists := row[n.column]
-	isNull := !exists || val == nil
+func (n *isNullNode) test(ctx rowContext) bool {
+	val, exists, sideNil := ctx.resolveColumn(n.column)
+	isNull := sideNil || !exists || val == nil
 	if n.notNull {
 		return !isNull
 	}
@@ -161,8 +213,11 @@ type inNode struct {
 	values []any // string or float64
 }
 
-func (n *inNode) test(row map[string]any) bool {
-	colVal := row[n.column]
+func (n *inNode) test(ctx rowContext) bool {
+	colVal, _, sideNil := ctx.resolveColumn(n.column)
+	if sideNil {
+		return false
+	}
 	for _, v := range n.values {
 		if compareValues(colVal, "=", v) {
 			return true
@@ -350,9 +405,10 @@ func tokenize(s string) ([]wToken, error) {
 			i = j
 
 		case unicode.IsLetter(rune(s[i])) || s[i] == '_':
-			// Identifier or keyword.
+			// Identifier or keyword. Dots are accepted to support
+			// before.column / after.column prefixes (G2-01).
 			j := i
-			for j < len(s) && (unicode.IsLetter(rune(s[j])) || unicode.IsDigit(rune(s[j])) || s[j] == '_') {
+			for j < len(s) && (unicode.IsLetter(rune(s[j])) || unicode.IsDigit(rune(s[j])) || s[j] == '_' || s[j] == '.') {
 				j++
 			}
 			tokens = append(tokens, wToken{tokIdent, s[i:j]})
