@@ -86,7 +86,14 @@ func (c *GRPCConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) err
 	// Events not matching the WHERE expression are silently dropped.
 	// The Router advances the cursor on nil return.
 	if rf, ok := c.rowFilters[entry.Event.Table]; ok && rf != nil {
-		if !rf.Match(entry.Event) {
+		matched, err := rf.Match(entry.Event)
+		if err != nil {
+			if c.m != nil {
+				c.m.ErrorsTotal.WithLabelValues(c.id, "filter").Inc()
+			}
+			return fmt.Errorf("grpc consumer: row filter: %w", err)
+		}
+		if !matched {
 			return nil
 		}
 	}

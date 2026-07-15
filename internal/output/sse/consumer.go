@@ -116,7 +116,14 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 	// If a filter is configured for this table and the event does not match,
 	// return nil so the Router advances the cursor.
 	if rf, ok := c.rowFilters[entry.Event.Table]; ok && rf != nil {
-		if !rf.Match(entry.Event) {
+		matched, err := rf.Match(entry.Event)
+		if err != nil {
+			if c.m != nil {
+				c.m.ErrorsTotal.WithLabelValues(c.id, "filter").Inc()
+			}
+			return fmt.Errorf("sse: row filter: %w", err)
+		}
+		if !matched {
 			return nil
 		}
 	}

@@ -34,7 +34,7 @@ func BenchmarkMatch50Matchers_Miss(b *testing.B) {
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		for _, m := range matchers {
-			m.Match(ev)
+			_, _ = m.Match(ev)
 		}
 	}
 }
@@ -65,7 +65,7 @@ func BenchmarkMatch50Matchers_Hit(b *testing.B) {
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		for _, m := range matchers {
-			m.Match(ev)
+			_, _ = m.Match(ev)
 		}
 	}
 }
@@ -106,7 +106,7 @@ func TestAllocsPerRun_MissPath(t *testing.T) {
 
 	allocs := testing.AllocsPerRun(100, func() {
 		for _, m := range matchers {
-			m.Match(ev)
+			_, _ = m.Match(ev)
 		}
 	})
 	if allocs != 0 {

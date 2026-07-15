@@ -446,6 +446,45 @@ func TestMatchConsumer_WhereFilter_MatchesAndSkips(t *testing.T) {
 	assert.Len(t, inner.delivered, 1) // still 1
 }
 
+func TestMatchConsumer_MalformedRowJSON_ReturnsPermanentError(t *testing.T) {
+	inner := &fakeConsumer{id: "test"}
+	matcher, err := routing.Compile(routing.MatchConfig{
+		Tables:     []string{"public.orders"},
+		Operations: []string{"insert", "update"},
+		Where:      "status = 'active'",
+	})
+	require.NoError(t, err)
+	mc := action.NewMatchConsumer(inner, matcher, nil, "action:test:poison")
+
+	// Malformed After JSON on an insert: filter cannot decide.
+	err = mc.Deliver(context.Background(), eventlog.LogEntry{
+		Event: &event.ChangeEvent{
+			Schema:    "public",
+			Table:     "orders",
+			Operation: event.OpInsert,
+			After:     json.RawMessage(`{"status":}`),
+		},
+	})
+	require.Error(t, err)
+	assert.Empty(t, inner.delivered, "malformed event must not be delivered")
+	var permanent *router.PermanentError
+	require.ErrorAs(t, err, &permanent, "malformed row JSON must be classified as a permanent delivery error")
+
+	// Malformed Before JSON on an update: filter cannot decide.
+	err = mc.Deliver(context.Background(), eventlog.LogEntry{
+		Event: &event.ChangeEvent{
+			Schema:    "public",
+			Table:     "orders",
+			Operation: event.OpUpdate,
+			Before:    json.RawMessage(`{"status":}`),
+			After:     json.RawMessage(`{"status":"active"}`),
+		},
+	})
+	require.Error(t, err)
+	assert.Empty(t, inner.delivered, "malformed event must not be delivered")
+	require.ErrorAs(t, err, &permanent, "malformed row JSON must be classified as a permanent delivery error")
+}
+
 func TestMatchConsumer_Metrics_Increment(t *testing.T) {
 	m := observability.NewKaptantoMetrics()
 	inner := &fakeConsumer{id: "test"}

@@ -9,6 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// mustMatch evaluates m against ev and fails the test on error.
+func mustMatch(t *testing.T, m *Matcher, ev *event.ChangeEvent) bool {
+	t.Helper()
+	got, err := m.Match(ev)
+	if err != nil {
+		t.Fatalf("Match error: %v", err)
+	}
+	return got
+}
+
 func TestCompile_EmptyConfig_MatchesAll(t *testing.T) {
 	m, err := Compile(MatchConfig{})
 	require.NoError(t, err)
@@ -19,7 +29,7 @@ func TestCompile_EmptyConfig_MatchesAll(t *testing.T) {
 		Operation: event.OpInsert,
 		After:     json.RawMessage(`{"id":1}`),
 	}
-	assert.True(t, m.Match(ev))
+	assert.True(t, mustMatch(t, m, ev))
 }
 
 // --- Table glob tests ---
@@ -28,10 +38,10 @@ func TestCompile_Tables_ExactMatch(t *testing.T) {
 	m, err := Compile(MatchConfig{Tables: []string{"public.orders"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "users", Operation: event.OpInsert,
 	}))
 }
@@ -40,13 +50,13 @@ func TestCompile_Tables_SchemaWildcard(t *testing.T) {
 	m, err := Compile(MatchConfig{Tables: []string{"public.*"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "users", Operation: event.OpInsert,
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "private", Table: "secrets", Operation: event.OpInsert,
 	}))
 }
@@ -55,10 +65,10 @@ func TestCompile_Tables_BareWildcard(t *testing.T) {
 	m, err := Compile(MatchConfig{Tables: []string{"*"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "other", Table: "anything", Operation: event.OpDelete,
 	}))
 }
@@ -67,13 +77,13 @@ func TestCompile_Tables_SuffixWildcard(t *testing.T) {
 	m, err := Compile(MatchConfig{Tables: []string{"*.orders"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "warehouse", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "users", Operation: event.OpInsert,
 	}))
 }
@@ -82,13 +92,13 @@ func TestCompile_Tables_MultiplePatterns(t *testing.T) {
 	m, err := Compile(MatchConfig{Tables: []string{"public.orders", "public.users"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "users", Operation: event.OpInsert,
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "products", Operation: event.OpInsert,
 	}))
 }
@@ -110,10 +120,10 @@ func TestCompile_Tables_NoSchemaEvent(t *testing.T) {
 	m, err := Compile(MatchConfig{Tables: []string{"orders"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
 }
@@ -124,13 +134,13 @@ func TestCompile_Operations_SingleOp(t *testing.T) {
 	m, err := Compile(MatchConfig{Operations: []string{"insert"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpUpdate,
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpDelete,
 	}))
 }
@@ -139,13 +149,13 @@ func TestCompile_Operations_MultipleOps(t *testing.T) {
 	m, err := Compile(MatchConfig{Operations: []string{"insert", "update"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpUpdate,
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpDelete,
 	}))
 }
@@ -155,7 +165,7 @@ func TestCompile_Operations_AllOps(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, op := range []event.Operation{event.OpInsert, event.OpUpdate, event.OpDelete, event.OpRead} {
-		assert.True(t, m.Match(&event.ChangeEvent{
+		assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 			Schema: "public", Table: "orders", Operation: op,
 		}))
 	}
@@ -166,7 +176,7 @@ func TestCompile_Operations_EmptyMatchesAll(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, op := range []event.Operation{event.OpInsert, event.OpUpdate, event.OpDelete, event.OpRead} {
-		assert.True(t, m.Match(&event.ChangeEvent{
+		assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 			Schema: "public", Table: "orders", Operation: op,
 		}))
 	}
@@ -183,10 +193,10 @@ func TestCompile_Operations_CaseInsensitive(t *testing.T) {
 	m, err := Compile(MatchConfig{Operations: []string{"INSERT", "Delete"}})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpDelete,
 	}))
 }
@@ -195,7 +205,7 @@ func TestCompile_Operations_ControlOpNotMatched(t *testing.T) {
 	m, err := Compile(MatchConfig{})
 	require.NoError(t, err)
 
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpControl,
 	}))
 }
@@ -206,11 +216,11 @@ func TestCompile_Where_SimpleFilter(t *testing.T) {
 	m, err := Compile(MatchConfig{Where: "status = 'active'"})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 		After: json.RawMessage(`{"status":"active"}`),
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 		After: json.RawMessage(`{"status":"archived"}`),
 	}))
@@ -220,12 +230,12 @@ func TestCompile_Where_BeforePrefix(t *testing.T) {
 	m, err := Compile(MatchConfig{Where: "before.status = 'active'"})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpUpdate,
 		Before: json.RawMessage(`{"status":"active"}`),
 		After:  json.RawMessage(`{"status":"archived"}`),
 	}))
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpUpdate,
 		Before: json.RawMessage(`{"status":"archived"}`),
 		After:  json.RawMessage(`{"status":"active"}`),
@@ -242,7 +252,7 @@ func TestCompile_Where_EmptyAlwaysTrue(t *testing.T) {
 	m, err := Compile(MatchConfig{Where: ""})
 	require.NoError(t, err)
 
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 	}))
 }
@@ -258,25 +268,25 @@ func TestMatch_AllPartsANDTogether(t *testing.T) {
 	require.NoError(t, err)
 
 	// All match
-	assert.True(t, m.Match(&event.ChangeEvent{
+	assert.True(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 		After: json.RawMessage(`{"status":"active"}`),
 	}))
 
 	// Wrong table
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "users", Operation: event.OpInsert,
 		After: json.RawMessage(`{"status":"active"}`),
 	}))
 
 	// Wrong operation
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpUpdate,
 		After: json.RawMessage(`{"status":"active"}`),
 	}))
 
 	// WHERE fails
-	assert.False(t, m.Match(&event.ChangeEvent{
+	assert.False(t, mustMatch(t, m, &event.ChangeEvent{
 		Schema: "public", Table: "orders", Operation: event.OpInsert,
 		After: json.RawMessage(`{"status":"archived"}`),
 	}))

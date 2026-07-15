@@ -77,24 +77,29 @@ func ParseRowFilter(expr string) (*RowFilter, error) {
 // If both Before and After are nil, Match returns true (no data to filter on).
 //
 // A no-op RowFilter (from ParseRowFilter("")) always returns true.
-func (f *RowFilter) Match(ev *event.ChangeEvent) bool {
+//
+// Match returns an error when either Before or After contains malformed JSON.
+// Callers must treat that error as a permanent/poison delivery failure: the
+// filter cannot make a deterministic decision, and retrying the same event
+// will produce the same error.
+func (f *RowFilter) Match(ev *event.ChangeEvent) (bool, error) {
 	if f.root == nil {
-		return true
+		return true, nil
 	}
 
 	if ev.Before == nil && ev.After == nil {
-		return true
+		return true, nil
 	}
 
 	var before, after map[string]any
 	if ev.Before != nil {
 		if err := json.Unmarshal(ev.Before, &before); err != nil {
-			return true
+			return false, fmt.Errorf("row filter: malformed Before JSON: %w", err)
 		}
 	}
 	if ev.After != nil {
 		if err := json.Unmarshal(ev.After, &after); err != nil {
-			return true
+			return false, fmt.Errorf("row filter: malformed After JSON: %w", err)
 		}
 	}
 
@@ -104,7 +109,7 @@ func (f *RowFilter) Match(ev *event.ChangeEvent) bool {
 	}
 
 	ctx := rowContext{before: before, after: after, defaultRow: defaultRow}
-	return f.root.test(ctx)
+	return f.root.test(ctx), nil
 }
 
 // ---------------------------------------------------------------------------

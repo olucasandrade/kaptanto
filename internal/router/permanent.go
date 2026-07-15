@@ -8,6 +8,24 @@ import "fmt"
 // os.ErrDeadlineExceeded checks.
 type PermanentDeliveryError interface{ PermanentDelivery() }
 
+// PermanentError is a generic non-retryable delivery error. Consumers may
+// return it when an event is structurally invalid and every retry would fail
+// the same way (e.g. malformed row JSON that cannot be filtered).
+type PermanentError struct {
+	Cause string
+}
+
+// Error implements the error interface.
+func (e *PermanentError) Error() string {
+	if e == nil {
+		return "permanent delivery error"
+	}
+	return "permanent delivery error: " + e.Cause
+}
+
+// PermanentDelivery marks this error as a PermanentDeliveryError.
+func (e *PermanentError) PermanentDelivery() {}
+
 // PermanentFlushError reports that FlushBatch failed permanently for exactly
 // one buffered event. The router dead-letters that event and re-delivers the
 // rest of the window. Sinks return it INSTEAD of a plain error only when
