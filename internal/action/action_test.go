@@ -2,6 +2,7 @@ package action_test
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/router"
+	"github.com/olucasandrade/kaptanto/internal/routing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -407,6 +409,41 @@ func TestMatchConsumer_Close_Delegates(t *testing.T) {
 
 	mc.Close()
 	assert.True(t, inner.closed)
+}
+
+func TestMatchConsumer_WhereFilter_MatchesAndSkips(t *testing.T) {
+	inner := &fakeConsumer{id: "test"}
+	matcher, err := routing.Compile(routing.MatchConfig{
+		Tables:     []string{"public.orders"},
+		Operations: []string{"insert"},
+		Where:      "after.status = 'shipped'",
+	})
+	require.NoError(t, err)
+	mc := action.NewMatchConsumer(inner, matcher, nil, "action:test:where")
+
+	// Matching table/op/where
+	err = mc.Deliver(context.Background(), eventlog.LogEntry{
+		Event: &event.ChangeEvent{
+			Schema:    "public",
+			Table:     "orders",
+			Operation: event.OpInsert,
+			After:     json.RawMessage(`{"status":"shipped"}`),
+		},
+	})
+	require.NoError(t, err)
+	assert.Len(t, inner.delivered, 1)
+
+	// Matching table/op but where fails
+	err = mc.Deliver(context.Background(), eventlog.LogEntry{
+		Event: &event.ChangeEvent{
+			Schema:    "public",
+			Table:     "orders",
+			Operation: event.OpInsert,
+			After:     json.RawMessage(`{"status":"pending"}`),
+		},
+	})
+	require.NoError(t, err)
+	assert.Len(t, inner.delivered, 1) // still 1
 }
 
 func TestMatchConsumer_Metrics_Increment(t *testing.T) {

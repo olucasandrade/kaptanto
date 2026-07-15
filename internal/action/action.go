@@ -63,6 +63,7 @@ func BuildConsumersWithRegistry(cfg *config.Config, m *observability.KaptantoMet
 		matcher, err := routing.Compile(routing.MatchConfig{
 			Tables:     a.Match.Tables,
 			Operations: a.Match.Operations,
+			Where:      a.Match.Where,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("action %q: %w", a.Name, err)
