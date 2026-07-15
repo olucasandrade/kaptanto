@@ -14,9 +14,7 @@ func MarshalDocument(doc *Document) ([]byte, error) {
 	m["openapi"] = doc.OpenAPI
 	m["info"] = doc.Info
 
-	if doc.Paths.Len() > 0 {
-		m["paths"] = doc.Paths
-	}
+	m["paths"] = doc.Paths
 	if doc.Components != nil {
 		m["components"] = doc.Components
 	}

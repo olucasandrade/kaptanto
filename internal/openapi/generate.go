@@ -2,6 +2,7 @@ package openapi
 
 import (
 	"reflect"
+	"sort"
 
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/event"
@@ -32,6 +33,7 @@ func NewGenerateOptions(cfg *config.Config) GenerateOptions {
 		for k := range a.Params {
 			am.ParamNames = append(am.ParamNames, k)
 		}
+		sort.Strings(am.ParamNames)
 		opts.Actions = append(opts.Actions, am)
 	}
 	return opts
@@ -56,9 +58,11 @@ func Generate(opts GenerateOptions) *Document {
 
 	// ChangeEvent schema from reflection
 	ceSchema := ReflectChangeEventSchema(reflect.TypeOf(event.ChangeEvent{}))
+	doc.Components.Schemas = &orderedMap[Schema]{}
 	doc.Components.Schemas.Set("ChangeEvent", ceSchema)
 
 	if opts.AuthToken {
+		doc.Components.SecuritySchemes = &orderedMap[SecurityScheme]{}
 		doc.Components.SecuritySchemes.Set("bearerAuth", SecurityScheme{
 			Type:         "http",
 			Scheme:       "bearer",
@@ -102,12 +106,12 @@ func addPaths(doc *Document, opts GenerateOptions, security []SecurityReq) {
 	// /events only for SSE output
 	if opts.Output == "sse" {
 		params := []Parameter{
-			{Name: "consumer", In: "query", Description: "Stable consumer ID for cursor tracking"},
-			{Name: "tables", In: "query", Description: "Comma-separated table allow-list"},
-			{Name: "operations", In: "query", Description: "Comma-separated operation allow-list"},
+			{Name: "consumer", In: "query", Description: "Stable consumer ID for cursor tracking", Schema: &Schema{Type: "string"}},
+			{Name: "tables", In: "query", Description: "Comma-separated table allow-list", Schema: &Schema{Type: "string"}},
+			{Name: "operations", In: "query", Description: "Comma-separated operation allow-list", Schema: &Schema{Type: "string"}},
 		}
 		var responses orderedMap[Response]
-		var content orderedMap[MediaType]
+		content := &orderedMap[MediaType]{}
 		content.Set("text/event-stream", MediaType{
 			Schema: &SchemaRef{Ref: "#/components/schemas/ChangeEvent"},
 		})

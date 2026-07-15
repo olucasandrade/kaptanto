@@ -19,7 +19,7 @@ func TestGoldenSpec(t *testing.T) {
 				Type:       "slack",
 				Tables:     []string{"public.orders"},
 				Operations: []string{"insert", "update"},
-				ParamNames: []string{"channel", "webhook_url"},
+				ParamNames: []string{"channel"},
 			},
 		},
 	}

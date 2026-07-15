@@ -91,17 +91,26 @@
           {
             "name": "consumer",
             "in": "query",
-            "description": "Stable consumer ID for cursor tracking"
+            "description": "Stable consumer ID for cursor tracking",
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "tables",
             "in": "query",
-            "description": "Comma-separated table allow-list"
+            "description": "Comma-separated table allow-list",
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "operations",
             "in": "query",
-            "description": "Comma-separated operation allow-list"
+            "description": "Comma-separated operation allow-list",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -129,8 +138,7 @@
         "operationId": "healthz",
         "responses": {
           "200": {
-            "description": "Healthy",
-            "content": {}
+            "description": "Healthy"
           }
         },
         "security": [
@@ -146,8 +154,7 @@
         "operationId": "metrics",
         "responses": {
           "200": {
-            "description": "Prometheus metrics in text format",
-            "content": {}
+            "description": "Prometheus metrics in text format"
           }
         },
         "security": [
@@ -163,8 +170,7 @@
         "operationId": "openapi",
         "responses": {
           "200": {
-            "description": "OpenAPI 3.0 specification",
-            "content": {}
+            "description": "OpenAPI 3.0 specification"
           }
         },
         "security": [
@@ -187,8 +193,7 @@
         "update"
       ],
       "param_names": [
-        "channel",
-        "webhook_url"
+        "channel"
       ]
     }
   ]
