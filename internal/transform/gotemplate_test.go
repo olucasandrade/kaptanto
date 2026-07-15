@@ -95,6 +95,20 @@ func TestGoTemplateGolden(t *testing.T) {
 	}
 }
 
+func TestGoTemplateMissingKeyError(t *testing.T) {
+	t.Parallel()
+
+	eng, err := Compile(LangGoTemplate, `{{.Metadata.lsnx}}`)
+	require.NoError(t, err)
+
+	ev := sampleEvent()
+	_, _, err = eng.Apply(nil, ev)
+	require.Error(t, err)
+	var re *RuntimeError
+	require.ErrorAs(t, err, &re)
+	require.Equal(t, LangGoTemplate, re.Language)
+}
+
 func TestGoTemplateParseError(t *testing.T) {
 	t.Parallel()
 

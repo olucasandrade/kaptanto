@@ -16,7 +16,7 @@ type goTemplateEngine struct {
 
 // compileGoTemplate parses expression with text/template (TRF-01).
 func compileGoTemplate(expression string) (Engine, error) {
-	tmpl, err := template.New("transform").Parse(expression)
+	tmpl, err := template.New("transform").Option("missingkey=error").Parse(expression)
 	if err != nil {
 		return nil, fmt.Errorf("go-template parse: %w", err)
 	}
