@@ -70,9 +70,10 @@ func TestCacheInvalidate_Build_DefaultTransform(t *testing.T) {
 		"url-template": `https://cdn.example.com/{{.Schema}}/{{.Table}}`,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "go-template", tc.Language)
-	assert.Contains(t, tc.Expression, `{"files":["`)
-	assert.Contains(t, tc.Expression, `{{.Schema}}`)
+	assert.Equal(t, "jq", tc.Language)
+	assert.Contains(t, tc.Expression, `{"files":[`)
+	assert.Contains(t, tc.Expression, ".schema")
+	assert.Contains(t, tc.Expression, ".table")
 }
 
 func TestCacheInvalidate_MissingRequiredParams(t *testing.T) {
@@ -164,6 +165,22 @@ func TestCacheInvalidate_BatchOverrideRejected(t *testing.T) {
 	_, err := action.BuildConsumersWithRegistry(cfg, m, reg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pins batch.max-events")
+}
+
+func TestCacheInvalidate_Build_QuotesAndBackslashes(t *testing.T) {
+	ct := action.DefaultRegistry.Lookup("cache-invalidate")
+	require.NotNil(t, ct)
+
+	_, tc, err := ct.Build(action.ResolvedParams{
+		"api-token":    "tok",
+		"zone-id":      "z1",
+		"url-template": `https://cdn.example.com/path?x="quoted"&y=back\slash`,
+	})
+	require.NoError(t, err)
+
+	// The literal portion must be JSON-escaped inside the jq string literal.
+	assert.Contains(t, tc.Expression, `\"quoted\"`)
+	assert.Contains(t, tc.Expression, `back\\slash`)
 }
 
 func TestCacheInvalidate_GoldenRequest(t *testing.T) {

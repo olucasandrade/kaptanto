@@ -2,14 +2,16 @@ package action
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/olucasandrade/kaptanto/internal/config"
 )
 
 // cloudflareType implements Type for the "cache-invalidate" action (Cloudflare
 // cache purge). It constructs a POST to the Cloudflare purge_cache API with
-// Bearer auth, a go-template body rendering the purge URL into the files array,
-// and pinned batching (exactly one event per request).
+// Bearer auth, a jq transform body that safely JSON-encodes the rendered purge
+// URL into the files array, and pinned batching (exactly one event per request).
 type cloudflareType struct{}
 
 func init() { DefaultRegistry.Register(&cloudflareType{}) }
@@ -24,8 +26,19 @@ func (cloudflareType) ParamSpec() map[string]ParamSpec {
 	}
 }
 
-func (cloudflareType) PinsBatch() bool          { return true }
+func (cloudflareType) PinsBatch() bool             { return true }
 func (cloudflareType) ComputedAuthHeaders() []string { return []string{"Authorization"} }
+
+// urlFieldMap maps Go-template field names to jq JSON paths on the ChangeEvent.
+var urlFieldMap = map[string]string{
+	"Operation":      ".operation",
+	"Table":          ".table",
+	"Schema":         ".schema",
+	"Database":       ".database",
+	"Source":         ".source",
+	"ID":             ".id",
+	"IdempotencyKey": ".idempotency_key",
+}
 
 func (cloudflareType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.TransformConfig, error) {
 	zoneID := p["zone-id"]
@@ -40,6 +53,12 @@ func (cloudflareType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.
 			fmt.Errorf("url-template must not be empty")
 	}
 
+	urlExpr, err := urlTemplateToJQ(urlTmpl)
+	if err != nil {
+		return config.WebhookSinkConfig{}, config.TransformConfig{},
+			fmt.Errorf("url-template: %w", err)
+	}
+
 	whCfg := config.WebhookSinkConfig{
 		URL:    fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/purge_cache", zoneID),
 		Method: "POST",
@@ -52,12 +71,56 @@ func (cloudflareType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.
 		Batch: config.WebhookBatch{MaxEvents: 1},
 	}
 
-	transformExpr := `{"files":["` + urlTmpl + `"]}`
+	transformExpr := fmt.Sprintf(`{"files":[%s]}`, urlExpr)
 
 	tc := config.TransformConfig{
-		Language:   "go-template",
+		Language:   "jq",
 		Expression: transformExpr,
 	}
 
 	return whCfg, tc, nil
+}
+
+// urlTemplateToJQ converts a simple Go-template URL string like
+// "https://cdn.example.com/{{.Table}}" into a jq string expression that safely
+// JSON-encodes the rendered URL. Unsupported Go-template constructs are
+// rejected so they cannot silently produce malformed JSON.
+func urlTemplateToJQ(tmpl string) (string, error) {
+	matches := templateFieldRe.FindAllStringSubmatchIndex(tmpl, -1)
+	if len(matches) == 0 {
+		return jqStringLiteral(tmpl), nil
+	}
+
+	var parts []string
+	lastEnd := 0
+
+	for _, loc := range matches {
+		if loc[0] > lastEnd {
+			parts = append(parts, jqStringLiteral(tmpl[lastEnd:loc[0]]))
+		}
+
+		fieldName := tmpl[loc[2]:loc[3]]
+		jqField, ok := urlFieldMap[fieldName]
+		if !ok {
+			return "", fmt.Errorf("unsupported field %q; supported: %s",
+				fieldName, strings.Join(sortedKeys(urlFieldMap), ", "))
+		}
+		parts = append(parts, fmt.Sprintf("(%s | tostring)", jqField))
+		lastEnd = loc[1]
+	}
+
+	if lastEnd < len(tmpl) {
+		parts = append(parts, jqStringLiteral(tmpl[lastEnd:]))
+	}
+
+	return "(" + strings.Join(parts, " + ") + ")", nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
