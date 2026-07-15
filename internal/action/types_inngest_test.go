@@ -1,11 +1,16 @@
 package action_test
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/olucasandrade/kaptanto/internal/action"
 	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	tform "github.com/olucasandrade/kaptanto/internal/transform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,18 +53,56 @@ func TestInngest_Build_DefaultTemplate(t *testing.T) {
 		"event-name-template": "kaptanto/{{.Table}}.{{.Operation}}",
 	}
 
-	whCfg, transform, err := it.Build(params)
+	whCfg, tc, err := it.Build(params)
 	require.NoError(t, err)
 
 	assert.Equal(t, "https://inn.gs/e/test-key-123", whCfg.URL)
 	assert.Equal(t, "POST", whCfg.Method)
 	assert.Equal(t, "application/json", whCfg.Headers["Content-Type"])
 
-	assert.Equal(t, "jq", transform.Language)
-	assert.Contains(t, transform.Expression, ".idempotency_key")
-	assert.Contains(t, transform.Expression, ".table")
-	assert.Contains(t, transform.Expression, ".operation")
-	assert.Contains(t, transform.Expression, "now*1000")
+	assert.Equal(t, "jq", tc.Language)
+	assert.Contains(t, tc.Expression, ".idempotency_key")
+	assert.Contains(t, tc.Expression, ".table")
+	assert.Contains(t, tc.Expression, ".operation")
+	assert.Contains(t, tc.Expression, "now*1000")
+
+	// Compile and execute the transform against a real event to catch invalid
+	// jq runtime behavior such as applying floor to a serialized timestamp.
+	eng, err := tform.Compile(tc.Language, tc.Expression)
+	require.NoError(t, err)
+
+	ev := &event.ChangeEvent{
+		ID:             ulid.MustParse("01J0000000000000000000000A"),
+		IdempotencyKey: "pg:public.orders:1:insert:0/1",
+		Timestamp:      time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC),
+		Source:         "postgres",
+		Operation:      event.OpInsert,
+		Database:       "app",
+		Schema:         "public",
+		Table:          "orders",
+		Key:            json.RawMessage(`{"id":1}`),
+		After:          json.RawMessage(`{"id":1,"status":"new"}`),
+		Metadata:       map[string]any{"lsn": "0/1"},
+	}
+	raw, err := json.Marshal(ev)
+	require.NoError(t, err)
+
+	out, drop, err := eng.Apply(raw, ev)
+	require.NoError(t, err)
+	require.False(t, drop)
+	require.NotNil(t, out)
+
+	var envelope struct {
+		Name string                 `json:"name"`
+		ID   string                 `json:"id"`
+		TS   float64                `json:"ts"`
+		Data map[string]interface{} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(out, &envelope))
+	assert.Equal(t, "kaptanto/orders.insert", envelope.Name)
+	assert.Equal(t, ev.IdempotencyKey, envelope.ID)
+	assert.Greater(t, envelope.TS, float64(0))
+	assert.Equal(t, "orders", envelope.Data["table"])
 }
 
 func TestInngest_Build_CustomTemplate(t *testing.T) {
@@ -145,6 +188,24 @@ func TestInngest_Golden_LiteralSecret_Rejected(t *testing.T) {
 	_, err := action.BuildConsumersWithRegistry(cfg, observability.NewKaptantoMetrics(), reg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "secret")
+}
+
+func TestInngest_Build_UnsupportedTemplateSyntax(t *testing.T) {
+	it := lookupType(t, "inngest")
+
+	unsupported := []string{
+		`myapp/{{.Table | upper}}`,
+		`{{if .Table}}x{{end}}`,
+		`{{.UnknownField}}`,
+	}
+
+	for _, tmpl := range unsupported {
+		_, _, err := it.Build(action.ResolvedParams{
+			"event-key":           "key",
+			"event-name-template": tmpl,
+		})
+		require.Error(t, err, "template %q must be rejected", tmpl)
+	}
 }
 
 func TestInngest_Golden_BatchMode_Valid(t *testing.T) {
