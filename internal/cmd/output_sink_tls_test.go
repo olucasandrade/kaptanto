@@ -345,7 +345,9 @@ func TestBuildGRPCServer_ObservabilityTLS(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.Output = "grpc"
-	cfg.Port, _ = newLocalListener(t)
+	grpcPort, grpcLis := newLocalListener(t)
+	_ = grpcLis.Close()
+	cfg.Port = grpcPort
 	_, obsLis := newLocalListener(t)
 	cfg.AuthToken = token
 	cfg.ServerTLS = config.ServerTLSConfig{CertFile: certFile, KeyFile: keyFile}
