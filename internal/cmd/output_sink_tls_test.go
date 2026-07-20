@@ -39,14 +39,14 @@ func (f *fakeObsSink) Close()                                     {}
 
 var _ messageSink = (*fakeObsSink)(nil)
 
-func freePort(t *testing.T) int {
+func newLocalListener(t *testing.T) (int, net.Listener) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen for free port: %v", err)
 	}
-	defer lis.Close()
-	return lis.Addr().(*net.TCPAddr).Port
+	t.Cleanup(func() { _ = lis.Close() })
+	return lis.Addr().(*net.TCPAddr).Port, lis
 }
 
 func waitForObsServer(t *testing.T, addr string, client *http.Client) {
@@ -195,13 +195,14 @@ func TestBuildSinkServer_TLSObservability(t *testing.T) {
 	certFile, keyFile := generateSelfSignedCert(t, dir)
 
 	cfg := config.Defaults()
-	cfg.Port = freePort(t)
+	port, lis := newLocalListener(t)
+	cfg.Port = port
 	cfg.AuthToken = token
 	cfg.ServerTLS = config.ServerTLSConfig{CertFile: certFile, KeyFile: keyFile}
 
 	metrics := observability.NewKaptantoMetrics()
 	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
-	fn, err := buildSinkServer(cfg, "fake", &fakeObsSink{}, rtr, metrics, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	fn, err := buildSinkServer(cfg, "fake", &fakeObsSink{}, rtr, metrics, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), lis)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -237,10 +238,10 @@ func TestBuildSinkServer_TLSObservability(t *testing.T) {
 func TestBuildSinkServer_mTLSObservability(t *testing.T) {
 	const token = "mtls-token"
 	dir := t.TempDir()
-	caFile := generateCACert(t, dir)
+	var caFile string
 
-	// We need the CA private key to sign server and client certs. Re-read the CA
-	// cert and synthesise a matching key by generating a fresh CA pair.
+	// Generate a fresh CA pair and write the cert to disk so server/client certs
+	// can be signed and verified against it.
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	caCertDER, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
@@ -273,7 +274,8 @@ func TestBuildSinkServer_mTLSObservability(t *testing.T) {
 	clientCert, clientKey := generateClientCertSignedByCA(t, dir, caFile, caKey)
 
 	cfg := config.Defaults()
-	cfg.Port = freePort(t)
+	port, lis := newLocalListener(t)
+	cfg.Port = port
 	cfg.AuthToken = token
 	cfg.ServerTLS = config.ServerTLSConfig{
 		CertFile:     serverCert,
@@ -283,7 +285,7 @@ func TestBuildSinkServer_mTLSObservability(t *testing.T) {
 
 	metrics := observability.NewKaptantoMetrics()
 	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
-	fn, err := buildSinkServer(cfg, "fake", &fakeObsSink{}, rtr, metrics, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	fn, err := buildSinkServer(cfg, "fake", &fakeObsSink{}, rtr, metrics, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), lis)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -336,21 +338,22 @@ func TestBuildSinkServer_mTLSObservability(t *testing.T) {
 	cancel()
 }
 
-func TestBuildOutputServer_GRPCObservabilityTLS(t *testing.T) {
+func TestBuildGRPCServer_ObservabilityTLS(t *testing.T) {
 	const token = "grpc-obs-token"
 	dir := t.TempDir()
 	certFile, keyFile := generateSelfSignedCert(t, dir)
 
 	cfg := config.Defaults()
 	cfg.Output = "grpc"
-	cfg.Port = freePort(t)
+	cfg.Port, _ = newLocalListener(t)
+	_, obsLis := newLocalListener(t)
 	cfg.AuthToken = token
 	cfg.ServerTLS = config.ServerTLSConfig{CertFile: certFile, KeyFile: keyFile}
 
 	metrics := observability.NewKaptantoMetrics()
 	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
 
-	fn, err := buildOutputServer(cfg, rtr, router.NewNoopCursorStore(), metrics, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), nil, nil, nil)
+	fn, err := buildGRPCServer(cfg, rtr, router.NewNoopCursorStore(), metrics, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), nil, nil, obsLis)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -362,7 +365,7 @@ func TestBuildOutputServer_GRPCObservabilityTLS(t *testing.T) {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
-	addr := fmt.Sprintf("https://127.0.0.1:%d", cfg.Port+1)
+	addr := fmt.Sprintf("https://%s", obsLis.Addr().String())
 	waitForObsServer(t, addr, client)
 
 	// Without token → 401.

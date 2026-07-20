@@ -175,7 +175,7 @@ func buildOutputServer(
 	case "sse":
 		return buildSSEServer(cfg, rtr, metrics, healthHandler, oaHandler, rowFilters, colFilters)
 	case "grpc":
-		return buildGRPCServer(cfg, rtr, cursorStore, metrics, healthHandler, oaHandler, rowFilters, colFilters)
+		return buildGRPCServer(cfg, rtr, cursorStore, metrics, healthHandler, oaHandler, rowFilters, colFilters, nil)
 	case "nats":
 		if cfg.Sinks.NATS == nil {
 			return nil, fmt.Errorf("--output nats requires a sinks.nats block in config (url, subject-template)")
@@ -184,7 +184,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("nats sink: init: %w", err)
 		}
-		return buildSinkServer(cfg, "nats", sink, rtr, metrics, healthProbes, oaHandler)
+		return buildSinkServer(cfg, "nats", sink, rtr, metrics, healthProbes, oaHandler, nil)
 	case "sqs":
 		if cfg.Sinks.SQS == nil {
 			return nil, fmt.Errorf("--output sqs requires a sinks.sqs block in config (queue-url, region)")
@@ -193,7 +193,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("sqs sink: init: %w", err)
 		}
-		return buildSinkServer(cfg, "sqs", sink, rtr, metrics, healthProbes, oaHandler)
+		return buildSinkServer(cfg, "sqs", sink, rtr, metrics, healthProbes, oaHandler, nil)
 	case "kafka":
 		if cfg.Sinks.Kafka == nil {
 			return nil, fmt.Errorf("--output kafka requires a sinks.kafka block in config (bootstrap-servers, topic-template)")
@@ -202,7 +202,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("kafka sink: init: %w", err)
 		}
-		return buildSinkServer(cfg, "kafka", sink, rtr, metrics, healthProbes, oaHandler)
+		return buildSinkServer(cfg, "kafka", sink, rtr, metrics, healthProbes, oaHandler, nil)
 	case "pubsub":
 		if cfg.Sinks.PubSub == nil {
 			return nil, fmt.Errorf("--output pubsub requires a sinks.pubsub block in config (project-id, topic-id)")
@@ -211,7 +211,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("pubsub sink: init: %w", err)
 		}
-		return buildSinkServer(cfg, "pubsub", sink, rtr, metrics, healthProbes, oaHandler)
+		return buildSinkServer(cfg, "pubsub", sink, rtr, metrics, healthProbes, oaHandler, nil)
 	case "rabbitmq":
 		if cfg.Sinks.RabbitMQ == nil {
 			return nil, fmt.Errorf("--output rabbitmq requires a sinks.rabbitmq block in config (url, exchange)")
@@ -220,7 +220,7 @@ func buildOutputServer(
 		if err != nil {
 			return nil, fmt.Errorf("rabbitmq sink: init: %w", err)
 		}
-		return buildSinkServer(cfg, "rabbitmq", sink, rtr, metrics, healthProbes, oaHandler)
+		return buildSinkServer(cfg, "rabbitmq", sink, rtr, metrics, healthProbes, oaHandler, nil)
 	default:
 		return nil, fmt.Errorf("unknown output mode %q: valid modes are none, stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq", cfg.Output)
 	}
@@ -288,6 +288,7 @@ func buildGRPCServer(
 	oaHandler http.Handler,
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
+	obsLis net.Listener,
 ) (func(context.Context) error, error) {
 	tlsCfg, err := buildServerTLSConfig(cfg.ServerTLS)
 	if err != nil {
@@ -333,12 +334,19 @@ func buildGRPCServer(
 			_ = obsSrv.Shutdown(shutdownCtx)
 		}()
 		go func() {
+			if obsLis == nil {
+				var err error
+				obsLis, err = net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port+1))
+				if err != nil {
+					return
+				}
+			}
 			if tlsCfg != nil {
-				if err := obsSrv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				if err := obsSrv.ServeTLS(obsLis, "", ""); err != nil && err != http.ErrServerClosed {
 					_ = err // non-fatal — main gRPC server will surface real errors
 				}
 			} else {
-				if err := obsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				if err := obsSrv.Serve(obsLis); err != nil && err != http.ErrServerClosed {
 					_ = err // non-fatal — main gRPC server will surface real errors
 				}
 			}
@@ -362,6 +370,7 @@ func buildSinkServer(
 	metrics *observability.KaptantoMetrics,
 	healthProbes []observability.HealthProbe,
 	oaHandler http.Handler,
+	lis net.Listener,
 ) (func(context.Context) error, error) {
 	tlsCfg, err := buildServerTLSConfig(cfg.ServerTLS)
 	if err != nil {
@@ -399,12 +408,19 @@ func buildSinkServer(
 			_ = srv.Shutdown(shutdownCtx)
 		}()
 		defer sink.Close()
+		if lis == nil {
+			var err error
+			lis, err = net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+			if err != nil {
+				return fmt.Errorf("%s obs server: listen: %w", name, err)
+			}
+		}
 		if tlsCfg != nil {
-			if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			if err := srv.ServeTLS(lis, "", ""); err != nil && err != http.ErrServerClosed {
 				return fmt.Errorf("%s obs server: %w", name, err)
 			}
 		} else {
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := srv.Serve(lis); err != nil && err != http.ErrServerClosed {
 				return fmt.Errorf("%s obs server: %w", name, err)
 			}
 		}
