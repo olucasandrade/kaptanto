@@ -88,6 +88,9 @@ func (cloudflareType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.
 func urlTemplateToJQ(tmpl string) (string, error) {
 	matches := templateFieldRe.FindAllStringSubmatchIndex(tmpl, -1)
 	if len(matches) == 0 {
+		if strings.Contains(tmpl, "{{") || strings.Contains(tmpl, "}}") {
+			return "", fmt.Errorf("unsupported template syntax in %q; only {{.Field}} placeholders are allowed", tmpl)
+		}
 		return jqStringLiteral(tmpl), nil
 	}
 
@@ -96,7 +99,11 @@ func urlTemplateToJQ(tmpl string) (string, error) {
 
 	for _, loc := range matches {
 		if loc[0] > lastEnd {
-			parts = append(parts, jqStringLiteral(tmpl[lastEnd:loc[0]]))
+			literal := tmpl[lastEnd:loc[0]]
+			if strings.Contains(literal, "{{") || strings.Contains(literal, "}}") {
+				return "", fmt.Errorf("unsupported template syntax in %q; only {{.Field}} placeholders are allowed", tmpl)
+			}
+			parts = append(parts, jqStringLiteral(literal))
 		}
 
 		fieldName := tmpl[loc[2]:loc[3]]
@@ -110,7 +117,11 @@ func urlTemplateToJQ(tmpl string) (string, error) {
 	}
 
 	if lastEnd < len(tmpl) {
-		parts = append(parts, jqStringLiteral(tmpl[lastEnd:]))
+		literal := tmpl[lastEnd:]
+		if strings.Contains(literal, "{{") || strings.Contains(literal, "}}") {
+			return "", fmt.Errorf("unsupported template syntax in %q; only {{.Field}} placeholders are allowed", tmpl)
+		}
+		parts = append(parts, jqStringLiteral(literal))
 	}
 
 	return "(" + strings.Join(parts, " + ") + ")", nil
