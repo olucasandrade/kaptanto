@@ -338,16 +338,17 @@ func buildGRPCServer(
 				var err error
 				obsLis, err = net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port+1))
 				if err != nil {
+					slog.Error("grpc observability server: listen failed", "port", cfg.Port+1, "error", err)
 					return
 				}
 			}
 			if tlsCfg != nil {
 				if err := obsSrv.ServeTLS(obsLis, "", ""); err != nil && err != http.ErrServerClosed {
-					_ = err // non-fatal — main gRPC server will surface real errors
+					slog.Error("grpc observability server: serve TLS failed", "error", err)
 				}
 			} else {
 				if err := obsSrv.Serve(obsLis); err != nil && err != http.ErrServerClosed {
-					_ = err // non-fatal — main gRPC server will surface real errors
+					slog.Error("grpc observability server: serve failed", "error", err)
 				}
 			}
 		}()

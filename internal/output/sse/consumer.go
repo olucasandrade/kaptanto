@@ -121,7 +121,7 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 			if c.m != nil {
 				c.m.ErrorsTotal.WithLabelValues(c.id, "filter").Inc()
 			}
-			return fmt.Errorf("sse: row filter: %w", err)
+			return &router.PermanentError{Cause: fmt.Sprintf("sse: row filter: %v", err)}
 		}
 		if !matched {
 			return nil

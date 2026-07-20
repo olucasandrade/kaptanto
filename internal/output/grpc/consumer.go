@@ -91,7 +91,7 @@ func (c *GRPCConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) err
 			if c.m != nil {
 				c.m.ErrorsTotal.WithLabelValues(c.id, "filter").Inc()
 			}
-			return fmt.Errorf("grpc consumer: row filter: %w", err)
+			return &router.PermanentError{Cause: fmt.Sprintf("grpc consumer: row filter: %v", err)}
 		}
 		if !matched {
 			return nil
