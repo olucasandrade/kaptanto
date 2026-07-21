@@ -64,3 +64,16 @@ vendor/
 # Local data directory (kaptanto runtime state)
 data/
 !landing/src/data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+*.egg
