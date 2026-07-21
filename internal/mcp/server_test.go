@@ -119,7 +119,7 @@ func TestServer_AuthUnknown401AndAudit(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer wrong-key")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	require.Eventually(t, func() bool {
@@ -168,7 +168,7 @@ func TestServer_ValidAuthReachesHandler(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer good-key-value-xyz")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.NotEqual(t, http.StatusUnauthorized, resp.StatusCode)
 
 	cancel()
@@ -234,7 +234,7 @@ func TestServer_RunWithTLS(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer wrong")
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	cancel()
 	<-errCh

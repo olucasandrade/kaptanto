@@ -139,6 +139,11 @@ type PostgresConnector struct {
 	epochGetter func() (uint64, bool)
 }
 
+// Parser returns the pgoutput parser (for MCP schema tools / RelationCache).
+func (c *PostgresConnector) Parser() *pgoutput.Parser {
+	return c.parser
+}
+
 // New creates a PostgresConnector without an EventLog. Call Run(ctx) to start
 // streaming. When eventLog is nil the connector skips Append (backward-compatible
 // for callers that do not need the event log yet).

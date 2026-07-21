@@ -295,6 +295,12 @@ func (p *Parser) ClearRelationCache() {
 	p.inStream = false
 }
 
+// RelationCache returns the live relation metadata cache. Callers must not
+// retain the pointer across ClearRelationCache — always re-fetch.
+func (p *Parser) RelationCache() *RelationCache {
+	return p.relations
+}
+
 // marshalPK JSON-marshals the primary key map into a compact string.
 // Returns "{}" on marshal failure (should not happen with string/nil values).
 func marshalPK(pkMap map[string]any) string {

@@ -27,6 +27,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/ha"
 	"github.com/olucasandrade/kaptanto/internal/logging"
+	"github.com/olucasandrade/kaptanto/internal/mcp"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/router"
 	postgres "github.com/olucasandrade/kaptanto/internal/source/postgres"
@@ -478,6 +479,9 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	connector.SetMetrics(metrics)
 	if walElector != nil {
 		connector.SetEpochGetter(walElector.EpochGetter)
+	}
+	if mcpServer != nil {
+		mcpServer.SetSchemaProvider(&mcp.ParserSchemaProvider{Parser: connector.Parser()})
 	}
 
 	var bkStore backfill.BackfillStore

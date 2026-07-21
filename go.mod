@@ -26,6 +26,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.24
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.44.0
 	github.com/itchyny/gojq v0.12.19
+	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/rabbitmq/amqp091-go v1.12.0
 	github.com/spf13/pflag v1.0.10
 	github.com/twmb/franz-go v1.21.3
@@ -77,7 +78,6 @@ require (
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
-	github.com/modelcontextprotocol/go-sdk v1.6.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nats-io/jwt/v2 v2.8.2 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
