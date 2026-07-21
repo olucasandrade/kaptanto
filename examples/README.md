@@ -16,6 +16,13 @@ These examples include:
 - `docker-compose.yml`: the source database, Kaptanto, app API, and web app
 - `kaptanto.yaml`: example-specific Kaptanto configuration
 
+## AI-Native Examples
+
+- `mcp-agent`: Postgres + `mcp.enabled` with a Claude Desktop / agent config JSON. Agent flow: `list_tables` → `subscribe_to_changes` → `get_recent_events` (drain).
+- `rag-pgvector`: Postgres + pgvector + local Ollama + `output: vector` — zero-cloud RAG. Run `./similarity.sh` after seed/backfill.
+- `langchain`: Python reactive SSE agent via `pip install 'kaptanto[langchain]'` (`KaptantoStream` → `agent.ainvoke`).
+- `lambda`: Minimal Lambda Function URL (SAM or terraform-lite) invoked with the `lambda` action (`invocation: async`) and SigV4 credentials.
+
 ## Integration Examples
 
 - `inngest`: Postgres CDC events trigger Inngest functions with automatic deduplication via `idempotency_key → id` mapping.

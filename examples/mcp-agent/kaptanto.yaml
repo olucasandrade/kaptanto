@@ -1,0 +1,20 @@
+source: postgres://postgres:postgres@postgres:5432/app?sslmode=disable
+output: none
+port: 7654
+data-dir: /data
+source-id: mcp_agent_demo
+insecure: true
+
+tables:
+  public.orders: {}
+
+mcp:
+  enabled: true
+  port: 7655
+  api-keys:
+    - name: claude-desktop
+      key: ${MCP_API_KEY}
+      tables: ["public.orders"]
+      redact:
+        - tables: ["public.orders"]
+          columns: ["customer"]
