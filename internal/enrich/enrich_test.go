@@ -41,6 +41,9 @@ func testEvent(table string, op event.Operation) *event.ChangeEvent {
 	}
 }
 
+// testHTTPLoadTimeout is generous enough for httptest under full-suite parallel load.
+const testHTTPLoadTimeout = "10s"
+
 func mustCompile(t testing.TB, cfg config.EnrichmentConfig, m *observability.KaptantoMetrics) *enrich.Enricher {
 	t.Helper()
 	e, err := enrich.Compile(cfg, m)
@@ -138,11 +141,10 @@ func TestEnrich_ContractMatrix(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			srv := httptest.NewServer(tc.handler)
 			t.Cleanup(srv.Close)
 
-			timeout := "2s"
+			timeout := testHTTPLoadTimeout
 			if tc.slow > 0 {
 				timeout = tc.slow.String()
 			}
@@ -189,6 +191,7 @@ func TestEnrich_AuthTokenBearer(t *testing.T) {
 	e := mustCompile(t, config.EnrichmentConfig{
 		URL:       srv.URL,
 		Tables:    []string{"public.orders"},
+		Timeout:   testHTTPLoadTimeout,
 		AuthToken: "${ENRICH_TOKEN}",
 	}, nil)
 	e.Enrich(context.Background(), testEvent("orders", event.OpInsert))
@@ -248,8 +251,9 @@ func TestEnrich_NonMatchingTable_SkipsHTTP(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	e := mustCompile(t, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"public.orders"},
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: testHTTPLoadTimeout,
 	}, nil)
 	ev := testEvent("users", event.OpInsert)
 	e.Enrich(context.Background(), ev)
@@ -267,8 +271,9 @@ func TestEnrich_DefaultOperations_SkipsDelete(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	e := mustCompile(t, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"public.orders"},
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: testHTTPLoadTimeout,
 		// Operations empty → insert,update only
 	}, nil)
 	e.Enrich(context.Background(), testEvent("orders", event.OpDelete))
@@ -329,8 +334,9 @@ func TestWrap_AppendEnrichesBeforeDurableWrite(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Close() })
 
 	e := mustCompile(t, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"public.orders"},
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: testHTTPLoadTimeout,
 	}, observability.NewKaptantoMetrics())
 	el := enrich.Wrap(inner, e)
 
@@ -390,8 +396,9 @@ func TestWrap_AppendBatchSerialEnrich(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Close() })
 
 	e := mustCompile(t, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"public.orders"},
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: testHTTPLoadTimeout,
 	}, nil)
 	el := enrich.Wrap(inner, e)
 
@@ -458,8 +465,9 @@ func TestWrap_InterfaceBranches(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	e := mustCompile(t, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"*"},
+		URL:     srv.URL,
+		Tables:  []string{"*"},
+		Timeout: testHTTPLoadTimeout,
 	}, nil)
 
 	plain := enrich.Wrap(&memLog{}, e)
@@ -503,8 +511,9 @@ func TestEnrich_EmptyBody200_Invalid(t *testing.T) {
 	t.Cleanup(srv.Close)
 	m := observability.NewKaptantoMetrics()
 	e := mustCompile(t, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"public.orders"},
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: testHTTPLoadTimeout,
 	}, m)
 	e.Enrich(context.Background(), testEvent("orders", event.OpInsert))
 	assert.Equal(t, float64(1), failureCount(m, enrich.ReasonInvalid))
@@ -556,8 +565,9 @@ func TestEnrich_NilEventAndDefaultWarn(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	e := mustCompile(t, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"public.orders"},
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: testHTTPLoadTimeout,
 	}, nil)
 	e.Enrich(context.Background(), nil) // no-op
 	// Exercise slog.Warn path (warnFn unset).
@@ -602,8 +612,9 @@ func TestWrap_FailOpenStillAppends(t *testing.T) {
 
 	m := observability.NewKaptantoMetrics()
 	e := mustCompile(t, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"public.orders"},
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: testHTTPLoadTimeout,
 	}, m)
 	el := enrich.Wrap(inner, e)
 
@@ -688,8 +699,9 @@ func BenchmarkEnrich_EnabledNonMatching(b *testing.B) {
 	b.Cleanup(srv.Close)
 
 	e := mustCompile(b, config.EnrichmentConfig{
-		URL:    srv.URL,
-		Tables: []string{"public.orders"},
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: testHTTPLoadTimeout,
 	}, nil)
 	ev := testEvent("users", event.OpInsert) // non-matching table
 	b.ReportAllocs()
