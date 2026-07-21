@@ -708,3 +708,80 @@ func BenchmarkFlushBatch(b *testing.B) {
 		})
 	}
 }
+
+func TestNewWebhookSinkConsumer_RejectBadScheme(t *testing.T) {
+	_, err := webhooksink.NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
+		URL: "file:///etc/passwd",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "http or https")
+}
+
+func TestNewResolvedWebhookSinkConsumer_SkipsReExpansion(t *testing.T) {
+	// A config whose values are already resolved (no ${...} refs left).
+	cfg := config.WebhookSinkConfig{
+		URL: "http://example.com",
+		Auth: config.WebhookAuthConfig{
+			BearerToken: "abc$def",
+		},
+	}
+
+	c, err := webhooksink.NewResolvedWebhookSinkConsumer("w", cfg)
+	require.NoError(t, err)
+	defer c.Close()
+	_ = c
+}
+
+func TestDeliver_URLTemplateBadScheme_IsPermanent(t *testing.T) {
+	c := newConsumer(t, config.WebhookSinkConfig{
+		URLTemplate: "{{.Table}}",
+	})
+	c.SetMetrics(observability.NewKaptantoMetrics())
+
+	err := c.Deliver(context.Background(), makeEntry(0, "public", "orders", "x", nil))
+	require.Error(t, err)
+	var permanent *router.PermanentError
+	require.ErrorAs(t, err, &permanent)
+}
+
+func TestFlushBatch_URLRedactedInError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("nope"))
+	}))
+	t.Cleanup(srv.Close)
+
+	secretPath := "/services/T0123/B0456/xXxSecretToken"
+	c, err := webhooksink.NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
+		URL: srv.URL + secretPath,
+	})
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	err = c.Deliver(context.Background(), makeEntry(0, "public", "orders", "i1", []byte(`{}`)))
+	require.NoError(t, err)
+	err = c.FlushBatch(context.Background(), 0)
+	require.Error(t, err)
+
+	assert.NotContains(t, err.Error(), secretPath, "error must not leak secret URL path")
+	assert.Contains(t, err.Error(), "webhook sink:")
+}
+
+func TestDeliver_TransformError_IncrementsMetric(t *testing.T) {
+	m := observability.NewKaptantoMetrics()
+	c, err := webhooksink.NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
+		URL: "http://example.com",
+		Transform: config.TransformConfig{
+			Language:   "go-template",
+			Expression: "{{.NonExistent}}",
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+	c.SetMetrics(m)
+
+	err = c.Deliver(context.Background(), makeEntry(0, "public", "orders", "i1", []byte(`{}`)))
+	require.Error(t, err)
+	val := testutil.ToFloat64(m.TransformErrorsTotal.WithLabelValues("w"))
+	assert.Equal(t, 1.0, val)
+}
