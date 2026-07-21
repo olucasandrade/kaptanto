@@ -11,8 +11,8 @@
 //     key material. Audit write failure → slog.Error + the call proceeds.
 //   - MCP-04 — Bounded impact: MCP disabled ⇒ zero pipeline cost.
 //
-// Tools land in follow-up packages; this foundation owns lifecycle, auth,
-// ACL, audit, and metrics only.
+// Schema tools (list_tables, get_table_schema) live in tools.go; subscription
+// tools land in follow-ups.
 //
 // SDK: github.com/modelcontextprotocol/go-sdk (v1.6.1) — streamable-HTTP via
 // mcp.NewStreamableHTTPHandler. Pure Go (no CGO). As of v1.6.1 there is no
@@ -63,26 +63,34 @@ type ResolvedKey struct {
 
 // Options configures the MCP HTTP listener.
 type Options struct {
-	Config   config.MCPConfig
-	DataDir  string
-	TLS      *tls.Config // ServerTLS reuse; nil = plaintext
-	Metrics  *observability.KaptantoMetrics
-	Logger   *slog.Logger
-	Auditor  *Auditor // optional override (tests); nil → built from config
-	Listener net.Listener // optional; when set, Port is ignored (tests)
+	Config           config.MCPConfig
+	DataDir          string
+	TLS              *tls.Config // ServerTLS reuse; nil = plaintext
+	Metrics          *observability.KaptantoMetrics
+	Logger           *slog.Logger
+	Auditor          *Auditor     // optional override (tests); nil → built from config
+	Listener         net.Listener // optional; when set, Port is ignored (tests)
+	SourceType       string       // "postgres" | "mongodb"; default postgres
+	ConfiguredTables []string     // from config.Tables keys
+	Schema           SchemaProvider
 }
 
 // Server is the MCP streamable-HTTP listener lifecycle.
 type Server struct {
-	opts     Options
-	keys     []*ResolvedKey
-	auditor  *Auditor
-	ownAudit bool
-	metrics  *observability.KaptantoMetrics
-	log      *slog.Logger
-	sdk      *sdk.Server
-	httpSrv  *http.Server
-	ln       net.Listener
+	opts             Options
+	keys             []*ResolvedKey
+	auditor          *Auditor
+	ownAudit         bool
+	metrics          *observability.KaptantoMetrics
+	log              *slog.Logger
+	sdk              *sdk.Server
+	httpSrv          *http.Server
+	ln               net.Listener
+	sourceType       string
+	configuredTables []string
+
+	schemaMu sync.RWMutex
+	schema   SchemaProvider
 
 	mu     sync.Mutex
 	closed bool
@@ -194,20 +202,37 @@ func New(opts Options) (*Server, error) {
 
 	impl := &sdk.Implementation{Name: "kaptanto", Version: "0.0.0"}
 	mcpServer := sdk.NewServer(impl, &sdk.ServerOptions{
-		Logger:       log,
-		Capabilities: &sdk.ServerCapabilities{}, // no tools yet; follow-ups register them
+		Logger: log,
 	})
 
-	s := &Server{
-		opts:     opts,
-		keys:     keys,
-		auditor:  auditor,
-		ownAudit: ownAudit,
-		metrics:  opts.Metrics,
-		log:      log,
-		sdk:      mcpServer,
+	src := opts.SourceType
+	if src == "" {
+		src = SourcePostgres
 	}
+	configured := append([]string(nil), opts.ConfiguredTables...)
+
+	s := &Server{
+		opts:             opts,
+		keys:             keys,
+		auditor:          auditor,
+		ownAudit:         ownAudit,
+		metrics:          opts.Metrics,
+		log:              log,
+		sdk:              mcpServer,
+		sourceType:       src,
+		configuredTables: configured,
+		schema:           opts.Schema,
+	}
+	s.registerSchemaTools()
 	return s, nil
+}
+
+// SetSchemaProvider installs (or replaces) the live schema provider. Safe to
+// call after New once the Postgres parser is available.
+func (s *Server) SetSchemaProvider(p SchemaProvider) {
+	s.schemaMu.Lock()
+	defer s.schemaMu.Unlock()
+	s.schema = p
 }
 
 // SDK exposes the underlying MCP SDK server so follow-ups can register tools.

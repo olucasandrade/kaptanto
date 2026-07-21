@@ -21,10 +21,16 @@ func openMCPServer(cfg *config.Config, metrics *observability.KaptantoMetrics) (
 	if err := requireServerTLS("mcp", mcpTLS, cfg.Insecure); err != nil {
 		return nil, err
 	}
+	tables := make([]string, 0, len(cfg.Tables))
+	for t := range cfg.Tables {
+		tables = append(tables, t)
+	}
 	return mcp.New(mcp.Options{
-		Config:  cfg.MCP,
-		DataDir: cfg.DataDir,
-		TLS:     mcpTLS,
-		Metrics: metrics,
+		Config:           cfg.MCP,
+		DataDir:          cfg.DataDir,
+		TLS:              mcpTLS,
+		Metrics:          metrics,
+		SourceType:       cfg.SourceType(),
+		ConfiguredTables: tables,
 	})
 }
