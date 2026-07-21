@@ -1,7 +1,7 @@
 # Makefile for kaptanto — builds a single static binary with no CGO dependency.
 
 .PHONY: build test test-race verify-no-cgo clean build-rust test-rust \
-        lint cover test-integration test-e2e mutation
+        lint cover test-integration test-e2e mutation fixtures
 
 # Version injection — reads from git tag if available, falls back to "dev".
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -105,6 +105,24 @@ test-integration:
 # Requires POSTGRES_TEST_DSN (logical replication).
 test-e2e:
 	CGO_ENABLED=0 go test -tags e2e ./test/e2e/... -count=1 -timeout 300s -v
+
+# fixtures copies the canonical ChangeEvent NDJSON golden file into the
+# TypeScript and Python SDK test trees. CI runs this target and then
+# `git diff --exit-code` so uncommitted copies fail the build.
+FIXTURE_SRC := internal/event/testdata/changeevent_fixtures.ndjson
+FIXTURE_TS  := packages/kaptanto-events/test/fixtures/changeevent_fixtures.ndjson
+FIXTURE_PY  := packages/kaptanto-python/tests/fixtures/changeevent_fixtures.ndjson
+
+fixtures:
+	@mkdir -p $(dir $(FIXTURE_TS)) $(dir $(FIXTURE_PY))
+	cp $(FIXTURE_SRC) $(FIXTURE_TS)
+	cp $(FIXTURE_SRC) $(FIXTURE_PY)
+	@echo "Copied $(FIXTURE_SRC) → TS + Python test fixtures."
+	@git diff --exit-code -- $(FIXTURE_TS) $(FIXTURE_PY) || { \
+		echo "ERROR: fixture copies drifted from canonical NDJSON." >&2; \
+		echo "       Commit the updated files under packages/*/test(s)/fixtures/." >&2; \
+		exit 1; \
+	}
 
 # mutation runs gremlins over the core correctness packages. Base config in
 # .gremlins.yaml; per-package --threshold-efficacy values below ratchet above

@@ -163,6 +163,8 @@ func fieldComment(name string) string {
 		return "Row state after the change; null for deletes"
 	case "metadata":
 		return "Source-specific fields (e.g., LSN, checkpoint)"
+	case "ai_context":
+		return "Optional opaque AI-generated metadata attached by enrichment. Documented shape: {intent?: string, entities?: [{type, value, field?}], suggested_actions?: [string], embedding?: {model: string, vector: [float...]}, custom?: object}"
 	default:
 		return ""
 	}

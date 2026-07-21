@@ -93,6 +93,23 @@ func fixtureEvents() []event.ChangeEvent {
 			After:          json.RawMessage(`{"type":"heartbeat","node_id":"node-1"}`),
 			Metadata:       map[string]any{"lsn": "0/1A000004", "signal": "heartbeat"},
 		},
+		{
+			ID:             ulid.MustParse("01J5Z0000000000000000000A6"),
+			IdempotencyKey: "pg:public.orders:1:update:0/1A000005",
+			Timestamp:      ts.Add(5 * time.Second),
+			Source:         "postgres://cdc@localhost:5432/shop",
+			Operation:      event.OpUpdate,
+			Database:       "shop",
+			Schema:         "public",
+			Table:          "orders",
+			Key:            json.RawMessage(`{"id":1}`),
+			Before:         json.RawMessage(`{"id":1,"customer":"Alice","total":99.95,"status":"shipped"}`),
+			After:          json.RawMessage(`{"id":1,"customer":"Alice","total":99.95,"status":"delivered"}`),
+			Metadata:       map[string]any{"lsn": "0/1A000005", "tx_id": float64(503)},
+			AIContext: json.RawMessage(
+				`{"intent":"fulfill_order","entities":[{"type":"customer","value":"Alice","field":"customer"}],"suggested_actions":["notify_shipping"],"embedding":{"model":"text-embedding-3-small","vector":[0.1,0.2,0.3]},"custom":{"priority":"high"}}`,
+			),
+		},
 	}
 }
 
@@ -136,7 +153,7 @@ func TestFixtures_RoundTrip(t *testing.T) {
 	require.NoError(t, err, "fixture file missing — run: go test ./internal/event -run TestFixtures_Generate -update")
 
 	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
-	require.Len(t, lines, 5, "expected 5 fixture events (one per operation)")
+	require.Len(t, lines, 6, "expected 6 fixture events (5 ops + 1 enriched)")
 
 	expectedOps := []event.Operation{
 		event.OpInsert,
@@ -144,6 +161,7 @@ func TestFixtures_RoundTrip(t *testing.T) {
 		event.OpDelete,
 		event.OpRead,
 		event.OpControl,
+		event.OpUpdate, // enriched event
 	}
 
 	for i, line := range lines {
@@ -158,6 +176,19 @@ func TestFixtures_RoundTrip(t *testing.T) {
 		assert.NotEmpty(t, evt.Table, "line %d: table must be populated", i+1)
 		assert.NotNil(t, evt.Key, "line %d: key must be populated", i+1)
 		assert.NotNil(t, evt.Metadata, "line %d: metadata must be populated", i+1)
+
+		var raw map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(line, &raw))
+		if i < 5 {
+			_, hasAI := raw["ai_context"]
+			assert.False(t, hasAI, "line %d: ai_context must be omitted when empty", i+1)
+			assert.Nil(t, evt.AIContext, "line %d: AIContext must be nil when omitted", i+1)
+		} else {
+			require.Contains(t, raw, "ai_context", "line %d: enriched fixture must include ai_context", i+1)
+			require.NotNil(t, evt.AIContext, "line %d: AIContext must be populated", i+1)
+			assert.JSONEq(t, string(raw["ai_context"]), string(evt.AIContext),
+				"line %d: AIContext must round-trip unchanged", i+1)
+		}
 
 		// Re-marshal and compare to verify lossless round-trip.
 		remarshaled, err := json.Marshal(evt)
