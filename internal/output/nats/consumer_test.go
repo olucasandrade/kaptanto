@@ -133,6 +133,9 @@ func TestNATSSinkConsumer_Deliver_Header(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = sub.Unsubscribe() }()
 
+	// Flush ensures the server has registered the subscription before we publish.
+	require.NoError(t, nc.Flush())
+
 	cfg := config.NATSSinkConfig{
 		URL:             serverURL,
 		SubjectTemplate: "cdc.{{.Table}}",
