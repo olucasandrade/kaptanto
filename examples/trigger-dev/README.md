@@ -31,14 +31,20 @@ npm install
 
 **2. Configure Kaptanto:**
 
-Edit `kaptanto.yaml` and set your `api-key`:
+Export your Trigger.dev secret key (get it from the dashboard under **Project → API Keys**):
+
+```bash
+export TRIGGERDEV_API_KEY="tr_dev_YOUR_SECRET_KEY"
+```
+
+The `kaptanto.yaml` references it via an environment variable (secret params must never be literal values in the YAML):
 
 ```yaml
 actions:
   - name: send-to-triggerdev
     type: triggerdev
     params:
-      api-key: "tr_dev_YOUR_SECRET_KEY"
+      api-key: "${TRIGGERDEV_API_KEY}"
       api-url: "https://api.trigger.dev"  # See "Self-Hosted" below
 ```
 
@@ -71,11 +77,11 @@ No additional setup needed. The default `api-url` points to `https://api.trigger
 
 ```yaml
 params:
-  api-key: "tr_dev_YOUR_SECRET_KEY"
+  api-key: "${TRIGGERDEV_API_KEY}"
   # api-url defaults to https://api.trigger.dev
 ```
 
-Get your secret key from the Trigger.dev dashboard under **Project → API Keys**.
+Get your secret key from the Trigger.dev dashboard under **Project → API Keys** and export it as `TRIGGERDEV_API_KEY`.
 
 ### Self-Hosted
 
