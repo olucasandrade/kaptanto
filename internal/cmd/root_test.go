@@ -522,6 +522,35 @@ func TestOutputMode_RabbitMQ_InvalidMode(t *testing.T) {
 		"error must include 'rabbitmq' in valid output modes list")
 }
 
+// TestOutputMode_Vector_MissingConfig verifies that --output vector without a
+// sinks.vector block returns a descriptive error.
+func TestOutputMode_Vector_MissingConfig(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "vector",
+		"--all-tables",
+		"--insecure",
+	}, &buf)
+	require.Error(t, err, "--output vector without sinks.vector must return an error")
+	assert.Contains(t, err.Error(), "sinks.vector",
+		"error must mention the required sinks.vector config block")
+}
+
+// TestOutputMode_Vector_InvalidMode verifies that --output with an unknown mode
+// returns an error message that includes "vector" in the list of valid modes.
+func TestOutputMode_Vector_InvalidMode(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--output", "invalid-vector-mode",
+		"--all-tables",
+	}, &buf)
+	require.Error(t, err, "--output invalid-vector-mode must return an error")
+	assert.Contains(t, err.Error(), "vector",
+		"error must include 'vector' in valid output modes list")
+}
+
 // TestAllTables_FailClosedWithNoTables verifies that a Postgres source with no
 // tables configured and no --all-tables flag returns a descriptive error and does
 // NOT proceed to attempt a database connection.

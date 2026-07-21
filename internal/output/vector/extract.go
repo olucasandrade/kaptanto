@@ -17,6 +17,10 @@ import (
 // vector_skipped_total{reason="empty"}.
 const SkipReasonEmpty = "empty"
 
+// SkipReasonUnchanged is the metric label reason when VEC-01 hash cache skips
+// an event whose extracted text is unchanged.
+const SkipReasonUnchanged = "unchanged"
+
 // Extractor turns a ChangeEvent into embeddable text using either a column
 // list or a compiled go-template (compiled at NewExtractor / Validate).
 type Extractor struct {
