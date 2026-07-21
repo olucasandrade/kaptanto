@@ -242,6 +242,17 @@ type VectorSinkConfig struct {
 	Batch    VectorBatchConfig    `yaml:"batch"`
 }
 
+// EnrichmentConfig configures the optional fail-open HTTP enricher stage (AIC-01/02).
+// Empty URL disables enrichment. Empty Tables disables enrichment for every event
+// (explicit table opt-in is required). Empty Operations defaults to insert,update.
+type EnrichmentConfig struct {
+	URL        string   `yaml:"url"`        // enricher endpoint; empty = disabled
+	Tables     []string `yaml:"tables"`     // routing globs; empty = none (explicit opt-in)
+	Operations []string `yaml:"operations"` // default insert,update
+	Timeout    string   `yaml:"timeout"`    // Go duration; default 150ms
+	AuthToken  string   `yaml:"auth-token"` // ${VAR}, optional Bearer token
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
 type SinksConfig struct {
@@ -294,6 +305,7 @@ type Config struct {
 	DLQ             DLQConfig              `yaml:"dlq"`               // router-level dead-letter queue (enabled by default when Enabled is nil)
 	Actions         []ActionConfig         `yaml:"actions"`           // configured action instances
 	MCP             MCPConfig              `yaml:"mcp"`               // MCP server (disabled by default; MCP-04)
+	Enrichment      EnrichmentConfig       `yaml:"enrichment"`        // optional fail-open HTTP AI enricher (AIC-01/02)
 }
 
 // MCPConfig holds settings for the optional Model Context Protocol server.
