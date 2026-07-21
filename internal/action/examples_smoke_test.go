@@ -37,9 +37,6 @@ func TestExamplesConfigsLoad(t *testing.T) {
 			}
 
 			_, err = BuildConsumers(cfg, observability.NewKaptantoMetrics())
-			if err != nil && name == "inngest" && strings.Contains(err.Error(), "api-url") {
-				t.Skipf("inngest api-url param not yet present on this base commit; re-enable after fix/pr38-d-action-types merges: %v", err)
-			}
 			require.NoError(t, err, "build consumers for %s", path)
 		})
 	}
