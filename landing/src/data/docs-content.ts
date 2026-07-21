@@ -32,6 +32,8 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 <li><strong>High availability</strong> — Leader election via Postgres advisory locks. Automatic primary detection and failover.</li>
 <li><strong>Cluster mode</strong> — Active-active delivery across nodes with embedded NATS JetStream and shared partition ownership.</li>
 <li><strong>Queue sinks</strong> — Push CDC events to NATS JetStream, AWS SQS, Apache Kafka, Google Cloud Pub/Sub, or RabbitMQ with per-table routing and TLS/mTLS support.</li>
+<li><strong>Vector / RAG</strong> — Embed row text and upsert into pgvector, Pinecone, or Qdrant (<a onclick="go('docs-vector')">Vector Streaming</a>).</li>
+<li><strong>AI-native</strong> — MCP server for agents, fail-open <code>ai_context</code> enrichment, and TypeScript / Python / Mastra SDKs.</li>
 <li><strong>Named sources</strong> — One database per process today; <code>--source-id</code> namespaces the replication slot and publication so you can run several kaptanto instances against the same or different databases without collisions.</li>
 <li><strong>Filtering</strong> — Table, operation, column, and SQL WHERE condition filters.</li>
 </ul>`,
@@ -171,9 +173,10 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
   "metadata": {
     "lsn": "0/1A2B3C4",
     "snapshot": false
-  }
+  },
+  "ai_context": { "intent": "refund_request" }
 }</div>
-<p class="dp">Postgres sources populate <code>schema</code>; MongoDB sources populate <code>database</code> instead (the database name), since MongoDB has no schema concept. Both fields are omitted when empty.</p>
+<p class="dp">Postgres sources populate <code>schema</code>; MongoDB sources populate <code>database</code> instead (the database name), since MongoDB has no schema concept. Both fields are omitted when empty. Optional <code>ai_context</code> is omitted when empty — see <a onclick="go('docs-ai-context')">AI Event Contract</a>.</p>
 
 <h2 class="dh2">Operations</h2>
 <table class="dtbl"><thead><tr><th>Operation</th><th>Source</th><th>Description</th></tr></thead><tbody>
@@ -1085,7 +1088,218 @@ actions:
 <tr><td>Worker / Vercel</td><td><strong>2xx</strong></td><td>Handler-defined success</td></tr>
 </tbody></table>
 
-<div class="dcall"><p><strong>Also see:</strong> <a onclick="go('docs-actions')">Actions reference</a> for full param tables, and <code>docs/serverless.md</code> in the repo.</p></div>`,
+<div class="dcall"><p><strong>Also see:</strong> <a onclick="go('docs-actions')">Actions reference</a> for full param tables, and <code>docs/serverless.md</code> in the repo. Runnable demo: <code>examples/lambda/</code>.</p></div>`,
+  },
+
+  "docs-mcp": {
+    title: "MCP Server",
+    sub: "Expose live CDC to Claude Desktop and other agents over the Model Context Protocol.",
+    body: `
+<p class="dp">Kaptanto can run an optional MCP server on its own listener. Agents list tables, inspect schemas, subscribe to changes, and drain buffered events — every result is ACL-filtered and column-redacted.</p>
+
+<h2 class="dh2">Enable</h2>
+<div class="dcode">output: none
+mcp:
+  enabled: true
+  port: 7655
+  api-keys:
+    - name: claude-desktop
+      key: \${MCP_API_KEY}
+      tables: ["public.orders"]
+      redact:
+        - tables: ["public.orders"]
+          columns: ["customer"]</div>
+<p class="dp">MCP is disabled by default. When <code>enabled: false</code>, the pipeline pays zero MCP cost (MCP-04).</p>
+
+<h2 class="dh2">Agent config</h2>
+<p class="dp">Merge into Claude Desktop's MCP config (macOS: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>):</p>
+<div class="dcode">{
+  "mcpServers": {
+    "kaptanto": {
+      "type": "http",
+      "url": "http://localhost:7655",
+      "headers": {
+        "Authorization": "Bearer mcp-demo-key"
+      }
+    }
+  }
+}</div>
+
+<h2 class="dh2">Tools</h2>
+<table class="dtbl"><thead><tr><th>Tool</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>list_tables</code></td><td>Tables visible to this API key</td></tr>
+<tr><td><code>get_table_schema</code></td><td>Column schema; redacted columns flagged</td></tr>
+<tr><td><code>subscribe_to_changes</code></td><td>Ring-buffer subscription; returns <code>subscription_id</code></td></tr>
+<tr><td><code>get_recent_events</code></td><td>Drain buffered events for a subscription</td></tr>
+<tr><td><code>unsubscribe</code></td><td>Drop a subscription</td></tr>
+<tr><td><code>get_event_by_id</code></td><td>Lookup by ULID in the bounded recent-event index</td></tr>
+</tbody></table>
+
+<h2 class="dh2">Invariants</h2>
+<ul class="dul">
+<li><strong>MCP-01</strong> — ACL + redaction on every tool path</li>
+<li><strong>MCP-02</strong> — session-scoped subscriptions; disconnect frees rings</li>
+<li><strong>MCP-03</strong> — every call audited (no row data / key material in audit lines)</li>
+<li><strong>MCP-04</strong> — disabled ⇒ zero cost; enabled ⇒ non-blocking ring consumers</li>
+</ul>
+<div class="dcall"><p><strong>Demo:</strong> <code>examples/mcp-agent/</code> — Docker Compose + Claude Desktop config.</p></div>`,
+  },
+
+  "docs-vector": {
+    title: "Vector Streaming & RAG",
+    sub: "Embed CDC row text and upsert into pgvector, Pinecone, or Qdrant for retrieval-augmented generation.",
+    body: `
+<p class="dp">Set <code>output: vector</code> to extract text from each event, call an embedder, and upsert/delete vectors. Deletes remove the stable vector ID; unchanged text is skipped via a SHA-256 hash cache.</p>
+
+<h2 class="dh2">Local RAG (Ollama + pgvector)</h2>
+<div class="dcode">output: vector
+tables:
+  public.documents: {}
+sinks:
+  vector:
+    source:
+      columns: [title, body]
+    embedder:
+      provider: openai
+      base-url: http://localhost:11434/v1
+      model: nomic-embed-text
+      dimensions: 768
+    store:
+      provider: pgvector
+      dsn: \${VECTOR_DSN}
+      table: kaptanto_vectors
+    metadata: [category]
+    batch:
+      max-events: 16</div>
+<p class="dp">Leave <code>api-key</code> empty for local Ollama. For cloud OpenAI/Cohere, set <code>api-key: \${OPENAI_API_KEY}</code> (or Cohere) with <code>provider: openai | cohere</code>.</p>
+
+<h2 class="dh2">Stores</h2>
+<table class="dtbl"><thead><tr><th>Provider</th><th>Required fields</th></tr></thead><tbody>
+<tr><td><code>pgvector</code></td><td><code>dsn</code> (<code>\${VAR}</code>), optional <code>table</code> (default <code>kaptanto_vectors</code>)</td></tr>
+<tr><td><code>pinecone</code></td><td><code>api-key</code>, <code>index-host</code>, optional <code>namespace</code></td></tr>
+<tr><td><code>qdrant</code></td><td><code>url</code>, <code>collection</code>, optional <code>api-key</code></td></tr>
+</tbody></table>
+
+<h2 class="dh2">Text extraction</h2>
+<p class="dp">Exactly one of <code>source.columns</code> or <code>source.template</code> must be set. Columns are joined as <code>col: value</code> lines from <code>after</code>. Templates are Go <code>text/template</code> over the ChangeEvent.</p>
+
+<h2 class="dh2">Invariants</h2>
+<ul class="dul">
+<li><strong>VEC-01</strong> — unchanged text skips re-embed (best-effort SQLite hash cache)</li>
+<li><strong>VEC-02</strong> — embedders return one ordered vector per input text</li>
+<li><strong>VEC-03</strong> — stable ID <code>schema.table:&lt;canonical-key-JSON&gt;</code></li>
+</ul>
+<div class="dcall"><p><strong>Demo:</strong> <code>examples/rag-pgvector/</code> — Postgres+pgvector, Ollama <code>nomic-embed-text</code>, and a cosine similarity script.</p></div>`,
+  },
+
+  "docs-ai-context": {
+    title: "AI Event Contract",
+    sub: "Optional ai_context enrichment attached before the durable Event Log write.",
+    body: `
+<p class="dp">The enricher stage POSTs matching ChangeEvents to an HTTP endpoint and attaches the JSON response as <code>ai_context</code> before <code>EventLog.Append</code>. Empty <code>url</code> or empty <code>tables</code> disables enrichment.</p>
+
+<h2 class="dh2">Config</h2>
+<div class="dcode">enrichment:
+  url: http://localhost:8080/enrich
+  tables: ["public.orders"]
+  operations: [insert, update]
+  timeout: 150ms
+  auth-token: \${ENRICH_TOKEN}</div>
+<p class="dp">Default operations are <code>insert</code>, <code>update</code>. Auth is an optional Bearer token (<code>\${VAR}</code>).</p>
+
+<h2 class="dh2">Contract</h2>
+<ul class="dul">
+<li><strong>AIC-01 — Fail-open:</strong> timeouts, non-2xx, invalid JSON, and network errors never block Append — the unenriched event is still durable. Enrichers must tolerate duplicate POSTs (checkpoint advances only after Append).</li>
+<li><strong>AIC-02 — Bound:</strong> response body must be a JSON object ≤ <strong>16 KiB</strong>. Oversize / non-object / empty bodies fail open without attaching <code>ai_context</code>.</li>
+</ul>
+
+<h2 class="dh2">Documented shape</h2>
+<p class="dp">Kaptanto treats <code>ai_context</code> as opaque. The documented shape:</p>
+<div class="dcode">{
+  "intent": "refund_request",
+  "entities": [{"type": "order_id", "value": "1234", "field": "id"}],
+  "suggested_actions": ["notify_support"],
+  "embedding": {"model": "nomic-embed-text", "vector": [0.1, 0.2]},
+  "custom": {}
+}</div>
+<p class="dp"><code>ai_context</code> is omitted from JSON when empty and never participates in <code>idempotency_key</code>. SDKs expose it as an optional field on <code>ChangeEvent</code>.</p>
+<div class="dcall"><p><strong>Also see:</strong> <a onclick="go('docs-schema')">Event Schema</a>, <a onclick="go('docs-python-sdk')">Python SDK</a>, <a onclick="go('docs-mastra')">Mastra</a>.</p></div>`,
+  },
+
+  "docs-python-sdk": {
+    title: "Python SDK",
+    sub: "pydantic ChangeEvent models and an httpx SSE client — pip install kaptanto.",
+    body: `
+<h2 class="dh2">Install</h2>
+<div class="dcode"><span class="tg">$</span> pip install kaptanto
+
+<span class="tc"># Optional LangChain StructuredTool helper:</span>
+<span class="tg">$</span> pip install 'kaptanto[langchain]'</div>
+
+<h2 class="dh2">Models</h2>
+<div class="dcode"><span class="tc">from kaptanto import ChangeEvent, Operation</span>
+
+ev = ChangeEvent.model_validate(raw)
+assert ev.operation is Operation.INSERT
+assert ev.ai_context is None  <span class="tc"># optional enrichment</span></div>
+<p class="dp">Field names match the Go <code>event.ChangeEvent</code> JSON tags. Optional <code>ai_context</code> carries opaque AI enrichment when present.</p>
+
+<h2 class="dh2">Streaming</h2>
+<div class="dcode"><span class="tc">import asyncio
+from kaptanto import KaptantoStream</span>
+
+async def main():
+    stream = KaptantoStream(
+        "http://localhost:7654/events",
+        consumer="my-svc",
+        token="...",
+        tables=["orders"],
+        operations=["insert", "update"],
+    )
+    try:
+        async for ev in stream:
+            print(ev.operation, ev.table, ev.after)
+    finally:
+        await stream.aclose()
+
+asyncio.run(main())</div>
+<p class="dp">The client reconnects with exponential backoff, ignores SSE comment pings, and resumes via the stable <code>consumer</code> ID. Sync iteration: <code>stream.iter_events()</code>.</p>
+
+<h2 class="dh2">LangChain</h2>
+<p class="dp">LangChain is an optional extra — core <code>pip install kaptanto</code> never imports it. See <code>packages/kaptanto-python/README.md</code> and <code>examples/langchain/</code>.</p>
+<div class="dcall"><p><strong>Also:</strong> <code>npm i @kaptanto/events</code> for TypeScript types, <code>npm i @kaptanto/mastra</code> for Mastra workflows.</p></div>`,
+  },
+
+  "docs-mastra": {
+    title: "Mastra Integration",
+    sub: "Trigger Mastra workflows from real-time database changes with @kaptanto/mastra.",
+    body: `
+<h2 class="dh2">Install</h2>
+<div class="dcode"><span class="tg">$</span> npm i @kaptanto/mastra @kaptanto/events mastra</div>
+<p class="dp"><code>@kaptanto/events</code> and <code>mastra</code> are peer dependencies.</p>
+
+<h2 class="dh2">Trigger a workflow</h2>
+<div class="dcode"><span class="tc">import { kaptantoTrigger, toAgentContext } from "@kaptanto/mastra";</span>
+
+const handle = kaptantoTrigger({
+  url: "http://localhost:7654/events",
+  consumer: "mastra-orders",
+  tables: ["public.orders"],
+  workflow: orderWorkflow,
+});
+
+<span class="tc">// later</span>
+handle.close();
+await handle.done;</div>
+
+<h2 class="dh2">API</h2>
+<table class="dtbl"><thead><tr><th>Export</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>createKaptantoStream(opts)</code></td><td>Factory for a <code>KaptantoStream</code> SSE client</td></tr>
+<tr><td><code>kaptantoTrigger(opts)</code></td><td>Consumes SSE and starts Mastra runs</td></tr>
+<tr><td><code>toAgentContext(ev)</code></td><td>Compact JSON string of a ChangeEvent (+ <code>ai_context</code> when present)</td></tr>
+</tbody></table>
+<p class="dp">Default <code>inputData</code> shape: <code>{ context: toAgentContext(ev), event: ev }</code>. Override with <code>mapEvent</code>.</p>
+<div class="dcall"><p><strong>Demo:</strong> <code>examples/mastra/</code>. See also <a onclick="go('docs-ai-context')">AI Event Contract</a>.</p></div>`,
   },
 
   "docs-routing": {
@@ -1389,6 +1603,7 @@ export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
       ["docs-sse", "Server-Sent Events"],
       ["docs-grpc", "gRPC"],
       ["docs-queue-sinks", "Queue Sinks"],
+      ["docs-vector", "Vector / RAG"],
     ],
   },
   {
@@ -1398,6 +1613,15 @@ export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
       ["docs-serverless", "Serverless"],
       ["docs-routing", "Routing Rules"],
       ["docs-openapi", "OpenAPI Discovery"],
+    ],
+  },
+  {
+    label: "AI & SDKs",
+    items: [
+      ["docs-mcp", "MCP Server"],
+      ["docs-ai-context", "AI Event Contract"],
+      ["docs-python-sdk", "Python SDK"],
+      ["docs-mastra", "Mastra"],
     ],
   },
   {
@@ -1449,10 +1673,15 @@ export const DOC_FLOW = [
   "docs-sse",
   "docs-grpc",
   "docs-queue-sinks",
+  "docs-vector",
   "docs-actions",
   "docs-serverless",
   "docs-routing",
   "docs-openapi",
+  "docs-mcp",
+  "docs-ai-context",
+  "docs-python-sdk",
+  "docs-mastra",
   "docs-n8n",
   "docs-triggerdev",
   "docs-inngest",
