@@ -84,17 +84,19 @@ actions:
   - name: send-to-inngest
     type: inngest
     params:
-      event-key: "local"           # Use your real key in production
+      event-key: "${INNGEST_EVENT_KEY}"  # Use your real key in production
+      api-url: "http://inngest:8288"     # Local Inngest dev server
       event-name-template: "kaptanto/{{.Table}}.{{.Operation}}"
-    routing:
+    match:
       tables: ["public.orders"]
 ```
 
-- `event-key`: Your Inngest event key (use `"local"` for the dev server).
+- `event-key`: Your Inngest event key, passed via the `INNGEST_EVENT_KEY` environment variable (the compose file defaults it to `"local"` for the dev server; secrets must never be literal values in the YAML).
+- `api-url`: The Inngest event API base URL. The example points at the local dev server; omit it in production to use the default `https://inn.gs`.
 - `event-name-template`: Controls the event name. Supports `{{.Table}}`, `{{.Operation}}`, and `{{.Schema}}`.
 
 ## Production Notes
 
-- Replace `event-key: "local"` with your real Inngest event key.
-- The Inngest action posts to `https://inn.gs/e/<event-key>` in production (no dev server needed).
-- Consider filtering to specific operations (e.g., only `update`) via the `routing.operations` field.
+- Set `INNGEST_EVENT_KEY` to your real Inngest event key.
+- Remove the `api-url` param (or set it to `https://inn.gs`) so the action posts to `https://inn.gs/e/<event-key>` in production (no dev server needed).
+- Consider filtering to specific operations (e.g., only `update`) via the `match.operations` field.
