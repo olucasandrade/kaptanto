@@ -253,6 +253,12 @@ func (r *Router) SetDLQ(store dlq.Store) {
 	r.dlq = store
 }
 
+// RetryScheduler returns the Router's internal retry scheduler. Exposed so
+// production wiring can inject DLQ and metrics stores before Run.
+func (r *Router) RetryScheduler() *RetryScheduler {
+	return r.rs
+}
+
 // SetOwnedPartitions configures which partitions this Router instance reads.
 // Must be called before Run. Passing nil (default) restores "all partitions"
 // behavior — non-cluster mode is byte-for-byte identical to pre-Phase-16.
@@ -506,7 +512,6 @@ func (r *Router) flushBatchConsumers(ctx context.Context, partitionID uint32, ba
 	return backoffUntil
 }
 
-
 // handlePoisonFlush implements RTR-07 for a PermanentFlushError from FlushBatch.
 // On success it dead-letters the poisoned seq, records it in the skip-set,
 // discards the provisional cursor, and resets flusher backoff. Returns true
@@ -683,7 +688,6 @@ func (r *Router) resetPoisonStreak(idx int, partitionID uint32) {
 		delete(cs.poisonStreakLogged, partitionID)
 	}
 }
-
 
 // promoteProvisional promotes consumer index idx's provisional cursor advance
 // for partitionID into its durable cursor and persists it via cursorStore.
