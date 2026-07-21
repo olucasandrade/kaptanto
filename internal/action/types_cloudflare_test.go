@@ -244,6 +244,20 @@ func TestCacheInvalidate_GoldenRequest(t *testing.T) {
 	assert.Equal(t, "https://cdn.example.com/public/products", body["files"][0])
 }
 
+func TestCacheInvalidate_Build_AfterColumn(t *testing.T) {
+	ct := action.DefaultRegistry.Lookup("cache-invalidate")
+	require.NotNil(t, ct)
+
+	_, tc, err := ct.Build(action.ResolvedParams{
+		"api-token":    "tok",
+		"zone-id":      "z1",
+		"url-template": `https://cdn.example.com/products/{{.After.id}}`,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tc.Expression, `.after["id"]`)
+	assert.Contains(t, tc.Expression, `| tostring`)
+}
+
 func TestCacheInvalidate_GoldenRequest_DatabaseSource(t *testing.T) {
 	var gotBody []byte
 

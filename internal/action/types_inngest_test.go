@@ -64,7 +64,7 @@ func TestInngest_Build_DefaultTemplate(t *testing.T) {
 	assert.Contains(t, tc.Expression, ".idempotency_key")
 	assert.Contains(t, tc.Expression, ".table")
 	assert.Contains(t, tc.Expression, ".operation")
-	assert.Contains(t, tc.Expression, "now*1000")
+	assert.Contains(t, tc.Expression, "fromdateiso8601")
 
 	// Compile and execute the transform against a real event to catch invalid
 	// jq runtime behavior such as applying floor to a serialized timestamp.
@@ -101,8 +101,11 @@ func TestInngest_Build_DefaultTemplate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out, &envelope))
 	assert.Equal(t, "kaptanto/orders.insert", envelope.Name)
 	assert.Equal(t, ev.IdempotencyKey, envelope.ID)
-	assert.Greater(t, envelope.TS, float64(0))
 	assert.Equal(t, "orders", envelope.Data["table"])
+
+	// ts must be derived from the event's RFC3339 timestamp, not from "now".
+	wantTS := float64(ev.Timestamp.UnixMilli())
+	assert.InDelta(t, wantTS, envelope.TS, 1.0, "ts should be event time in milliseconds")
 }
 
 func TestInngest_Build_CustomTemplate(t *testing.T) {
@@ -206,6 +209,32 @@ func TestInngest_Build_UnsupportedTemplateSyntax(t *testing.T) {
 		})
 		require.Error(t, err, "template %q must be rejected", tmpl)
 	}
+}
+
+func TestInngest_Build_WhitespaceTemplate(t *testing.T) {
+	it := lookupType(t, "inngest")
+	params := action.ResolvedParams{
+		"event-key":           "key",
+		"event-name-template": "kaptanto/{{ .Table }}.{{ .Operation }}",
+	}
+
+	_, tc, err := it.Build(params)
+	require.NoError(t, err)
+	assert.Contains(t, tc.Expression, ".table")
+	assert.Contains(t, tc.Expression, ".operation")
+	assert.NotContains(t, tc.Expression, "{{")
+}
+
+func TestInngest_Build_APIURLHonored(t *testing.T) {
+	it := lookupType(t, "inngest")
+	params := action.ResolvedParams{
+		"event-key": "key",
+		"api-url":   "http://inngest:8288",
+	}
+
+	whCfg, _, err := it.Build(params)
+	require.NoError(t, err)
+	assert.Equal(t, "http://inngest:8288/e/key", whCfg.URL)
 }
 
 func TestInngest_Golden_BatchMode_Valid(t *testing.T) {
