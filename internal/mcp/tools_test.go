@@ -271,7 +271,7 @@ func TestSchemaTools_UnauthenticatedErrors(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
-func connectInProcess(t *testing.T, ctx context.Context, s *mcp.Server) *sdk.ClientSession {
+func connectInProcess(t testing.TB, ctx context.Context, s *mcp.Server) *sdk.ClientSession {
 	t.Helper()
 	t1, t2 := sdk.NewInMemoryTransports()
 	_, err := s.SDK().Connect(ctx, t1, nil)
