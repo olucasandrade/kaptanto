@@ -1,24 +1,24 @@
 // Package mcp implements the Model Context Protocol server foundation for
 // Kaptanto: streamable-HTTP listener, API-key auth, per-key ACL/redaction,
-// and NDJSON audit logging.
+// NDJSON audit logging, and ring-buffer CDC subscriptions.
 //
 // Invariants:
 //
 //   - MCP-01 — ACL everywhere: every tool result is filtered through the
 //     calling key's ACL + redaction; there is no unfiltered code path.
+//   - MCP-02 — Subscription hygiene: subscriptions are session-scoped;
+//     transport disconnect unregisters consumers and frees rings.
 //   - MCP-03 — Audit completeness: every tool call (including failures and
 //     ACL denials) writes one audit line; lines never contain row data or
 //     key material. Audit write failure → slog.Error + the call proceeds.
-//   - MCP-04 — Bounded impact: MCP disabled ⇒ zero pipeline cost.
+//   - MCP-04 — Bounded impact: MCP disabled ⇒ zero pipeline cost; enabled ⇒
+//     ring-buffer consumers with non-blocking Deliver and capped counts.
 //
-// Schema tools (list_tables, get_table_schema) live in tools.go; subscription
-// tools land in follow-ups.
+// Schema tools live in tools.go; subscription tools in subscription.go.
 //
 // SDK: github.com/modelcontextprotocol/go-sdk (v1.6.1) — streamable-HTTP via
-// mcp.NewStreamableHTTPHandler. Pure Go (no CGO). As of v1.6.1 there is no
-// public ServerOptions session-close callback; follow-ups that need MCP-02
-// cleanup can track sessions via InitializedHandler + ServerSession.Wait, or
-// EventStore.SessionClosed.
+// mcp.NewStreamableHTTPHandler. Pure Go (no CGO). Session cleanup uses
+// InitializedHandler + ServerSession.Wait (MCP-02).
 package mcp
 
 import (
@@ -91,6 +91,12 @@ type Server struct {
 
 	schemaMu sync.RWMutex
 	schema   SchemaProvider
+
+	subsMu      sync.RWMutex
+	registry    ConsumerRegistry
+	subs        map[string]*subscription // id → sub
+	sessionSubs map[string][]string      // sessionID → subscription ids
+	clockFn     Clock
 
 	mu     sync.Mutex
 	closed bool
@@ -201,9 +207,6 @@ func New(opts Options) (*Server, error) {
 	}
 
 	impl := &sdk.Implementation{Name: "kaptanto", Version: "0.0.0"}
-	mcpServer := sdk.NewServer(impl, &sdk.ServerOptions{
-		Logger: log,
-	})
 
 	src := opts.SourceType
 	if src == "" {
@@ -218,12 +221,24 @@ func New(opts Options) (*Server, error) {
 		ownAudit:         ownAudit,
 		metrics:          opts.Metrics,
 		log:              log,
-		sdk:              mcpServer,
 		sourceType:       src,
 		configuredTables: configured,
 		schema:           opts.Schema,
+		subs:             make(map[string]*subscription),
+		sessionSubs:      make(map[string][]string),
 	}
+
+	mcpServer := sdk.NewServer(impl, &sdk.ServerOptions{
+		Logger: log,
+		InitializedHandler: func(ctx context.Context, req *sdk.InitializedRequest) {
+			s.onSessionInitialized(ctx, req)
+		},
+		SubscribeHandler:   s.allowResourceSubscribe,
+		UnsubscribeHandler: s.allowResourceUnsubscribe,
+	})
+	s.sdk = mcpServer
 	s.registerSchemaTools()
+	s.registerSubscriptionTools()
 	return s, nil
 }
 
@@ -304,7 +319,9 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("mcp: listen %s: %w", addr, err)
 		}
 	}
+	s.mu.Lock()
 	s.ln = ln
+	s.mu.Unlock()
 	s.log.Info("mcp: listening", "addr", ln.Addr().String(), "tls", s.opts.TLS != nil)
 
 	errCh := make(chan error, 1)
@@ -334,7 +351,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-// Close releases the auditor when owned by this server.
+// Close releases subscriptions (MCP-02) and the auditor when owned by this server.
 func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -342,6 +359,7 @@ func (s *Server) Close() error {
 		return nil
 	}
 	s.closed = true
+	s.cleanupAllSubscriptions()
 	if s.ownAudit && s.auditor != nil {
 		return s.auditor.Close()
 	}
@@ -350,10 +368,13 @@ func (s *Server) Close() error {
 
 // Addr returns the listener address once Run has started, or nil.
 func (s *Server) Addr() net.Addr {
-	if s.ln == nil {
+	s.mu.Lock()
+	ln := s.ln
+	s.mu.Unlock()
+	if ln == nil {
 		return nil
 	}
-	return s.ln.Addr()
+	return ln.Addr()
 }
 
 type ctxKey int
