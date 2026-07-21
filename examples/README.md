@@ -22,6 +22,7 @@ These examples include:
 - `trigger-dev`: Trigger.dev v3 tasks react to CDC events with durable execution and `wait.forEvent`; covers cloud and self-hosted API URLs.
 - `n8n-trigger`: n8n workflows triggered by CDC events via the `n8n-nodes-kaptanto` community node and Kaptanto's SSE output.
 - `mastra`: Mastra workflows react to `public.orders` CDC via `@kaptanto/mastra` (`kaptantoTrigger` + `toAgentContext`) over SSE.
+- `enricher-spacy`: FastAPI + spaCy reference sidecar that stamps matching CDC events with `ai_context` (entities + naive intent) via Kaptanto's fail-open enrichment HTTP contract.
 
 ## Supporting Examples
 
