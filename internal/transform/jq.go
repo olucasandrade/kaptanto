@@ -15,7 +15,11 @@ import (
 // defaultJQRuntimeTimeout bounds how long a single jq filter may execute.
 // A context with this timeout is passed to RunWithContext so recursive or
 // non-emitting programs cannot block the router indefinitely.
-const defaultJQRuntimeTimeout = 30 * time.Second
+//
+// NOTE: transforms are trusted code. gojq exposes env/$ENV, so a malicious or
+// careless expression can read process environment (including action secrets).
+// Keep expressions simple and source them from a protected config store.
+const defaultJQRuntimeTimeout = 5 * time.Second
 
 // jqRuntimeTimeoutNs is the mutable runtime bound so tests can exercise
 // cancellation without waiting 30s. Stored as an atomic int64 of nanoseconds
