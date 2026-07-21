@@ -377,14 +377,23 @@ func TestConsumeStream_BatchesBufferedEvents_SingleAppendBatchCall(t *testing.T)
 	c, err := mongodb.NewWithWatchFn(cfg, store, idGen, el, watchFn)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Run blocks until ctx expires (the change-stream loop retries watchFn
-	// indefinitely once the fake iter is exhausted); by the time it returns,
-	// the single expected batch has already been flushed synchronously in
-	// this same call stack, so reading el/store afterward is race-free.
-	_ = c.Run(ctx)
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- c.Run(ctx)
+	}()
+
+	// Run consumes the fake iter in a background goroutine, then spins
+	// retrying watchFn until ctx is cancelled. Wait for the expected batch
+	// flush before cancelling so the test stays deterministic under CI load.
+	require.Eventually(t, func() bool {
+		return el.batchCalls == 1 && len(el.batchSizes) == 1 && el.batchSizes[0] == 3
+	}, 5*time.Second, 5*time.Millisecond, "expected one AppendBatch flush covering all 3 buffered events")
+
+	cancel()
+	<-runDone
 
 	// Exactly one AppendBatch call, covering all 3 buffered events.
 	assert.Equal(t, 1, el.batchCalls, "3 buffered events must flush as exactly one AppendBatch call")
@@ -407,8 +416,6 @@ func TestConsumeStream_BatchesBufferedEvents_SingleAppendBatchCall(t *testing.T)
 	assert.Contains(t, string(first.After), "one")
 	assert.Contains(t, string(second.After), "two")
 	assert.Contains(t, string(third.After), "three")
-
-	cancel()
 }
 
 // readTestEvent reads the next event off ch, failing the test on timeout.
@@ -447,18 +454,26 @@ func TestConsumeStream_NoLookahead_BehavesLikePerEventPath(t *testing.T) {
 	c, err := mongodb.NewWithWatchFn(cfg, store, idGen, el, watchFn)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	_ = c.Run(ctx)
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- c.Run(ctx)
+	}()
+
+	require.Eventually(t, func() bool {
+		return el.batchCalls == 2 && len(el.batchSizes) == 2
+	}, 5*time.Second, 5*time.Millisecond, "expected two size-1 AppendBatch flushes when TryNext never reports lookahead")
+
+	cancel()
+	<-runDone
 
 	assert.Equal(t, 2, el.batchCalls, "with no lookahead, each event must flush its own AppendBatch call")
 	for _, sz := range el.batchSizes {
 		assert.Equal(t, 1, sz, "each batch must contain exactly 1 event when TryNext never reports lookahead")
 	}
 	assert.GreaterOrEqual(t, store.saveCalls, 2, "token must be saved once per event when batches are size 1")
-
-	cancel()
 }
 
 // TestAppendAndQueueBatch_CHK01_AppendBatchFailPreventsTokenSave extends the
