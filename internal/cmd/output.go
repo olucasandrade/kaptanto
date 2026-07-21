@@ -129,9 +129,9 @@ func buildOutputServer(
 ) (func(context.Context) error, error) {
 	// Startup auth policy: refuse network outputs without an auth token unless
 	// --insecure is explicitly set. This covers both data-plane outputs (sse,
-	// grpc) and broker sink outputs (nats, sqs, kafka, pubsub, rabbitmq) whose
-	// observability endpoints (/metrics, /healthz) would otherwise leak topology
-	// information to unauthenticated callers.
+	// grpc, webhook) and broker sink outputs (nats, sqs, kafka, pubsub, rabbitmq)
+	// whose observability endpoints (/metrics, /healthz) would otherwise leak
+	// topology information to unauthenticated callers.
 	networkOutputs := map[string]bool{
 		"sse": true, "grpc": true, "webhook": true,
 		"nats": true, "sqs": true, "kafka": true, "pubsub": true, "rabbitmq": true,
@@ -175,6 +175,23 @@ func buildOutputServer(
 		return buildSSEServer(cfg, rtr, metrics, healthHandler, oaHandler, rowFilters, colFilters)
 	case "grpc":
 		return buildGRPCServer(cfg, rtr, cursorStore, metrics, healthHandler, oaHandler, rowFilters, colFilters, nil)
+	case "nats", "sqs", "kafka", "pubsub", "rabbitmq", "webhook":
+		return buildBrokerOutputServer(cfg, rtr, metrics, healthProbes, oaHandler)
+	default:
+		return nil, fmt.Errorf("unknown output mode %q: valid modes are none, stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq, webhook", cfg.Output)
+	}
+}
+
+// buildBrokerOutputServer constructs the external-broker sinks (nats, sqs,
+// kafka, pubsub, rabbitmq, webhook) and their shared observability server.
+func buildBrokerOutputServer(
+	cfg *config.Config,
+	rtr *router.Router,
+	metrics *observability.KaptantoMetrics,
+	healthProbes []observability.HealthProbe,
+	oaHandler http.Handler,
+) (func(context.Context) error, error) {
+	switch cfg.Output {
 	case "nats":
 		if cfg.Sinks.NATS == nil {
 			return nil, fmt.Errorf("--output nats requires a sinks.nats block in config (url, subject-template)")
@@ -230,7 +247,7 @@ func buildOutputServer(
 		}
 		return buildSinkServer(cfg, "webhook", sink, rtr, metrics, healthProbes, oaHandler, nil)
 	default:
-		return nil, fmt.Errorf("unknown output mode %q: valid modes are none, stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq, webhook", cfg.Output)
+		return nil, fmt.Errorf("unknown broker output mode %q", cfg.Output)
 	}
 }
 

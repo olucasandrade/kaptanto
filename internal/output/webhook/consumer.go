@@ -255,103 +255,33 @@ func expandWebhookConfig(cfg config.WebhookSinkConfig) (config.WebhookSinkConfig
 func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 	var zero webhookNorm
 
-	// 1. url or url-template required.
-	if cfg.URL == "" && cfg.URLTemplate == "" {
-		return zero, fmt.Errorf("webhook sink: url or url-template is required")
+	method, err := validateURLAndMethod(cfg)
+	if err != nil {
+		return zero, err
 	}
 
-	// 2. Method allowlist; empty → POST.
-	method := cfg.Method
-	if method == "" {
-		method = http.MethodPost
-	}
-	switch method {
-	case http.MethodPost, http.MethodPut, http.MethodPatch:
-	default:
-		return zero, fmt.Errorf("webhook sink: method %q not allowed — must be one of POST, PUT, PATCH", cfg.Method)
+	hasBearer, hasBasic, err := validateAuth(cfg)
+	if err != nil {
+		return zero, err
 	}
 
-	// 2a. Scheme allowlist. Only http/https are supported; other schemes surface
-	// as transient transport errors and would retry forever (F6).
-	if cfg.URL != "" {
-		if err := requireHTTPScheme(cfg.URL); err != nil {
-			return zero, err
-		}
-	}
-	if cfg.URLTemplate != "" {
-		trimmed := strings.TrimSpace(cfg.URLTemplate)
-		// Templates whose first token is a placeholder cannot be validated until
-		// render time; anything with a literal scheme prefix must be http/https.
-		if trimmed != "" && !strings.HasPrefix(trimmed, "{{") {
-			if err := requireHTTPScheme(trimmed); err != nil {
-				return zero, err
-			}
-		}
+	if err := validateBatchAndPayload(cfg); err != nil {
+		return zero, err
 	}
 
-	// 3. Bearer XOR basic.
-	hasBearer := cfg.Auth.BearerToken != ""
-	hasBasic := cfg.Auth.Basic.Username != ""
-	if hasBearer && hasBasic {
-		return zero, fmt.Errorf("webhook sink: auth.bearer-token and auth.basic are mutually exclusive")
+	timeout, err := parseTimeout(cfg)
+	if err != nil {
+		return zero, err
 	}
 
-	// 8. batch.max-events < 0 → error.
-	if cfg.Batch.MaxEvents < 0 {
-		return zero, fmt.Errorf("webhook sink: batch.max-events must be >= 0")
-	}
-
-	// 4. payload-template requires batch.max-events == 1 (0/1 both mean single-event).
-	if cfg.PayloadTemplate != "" && cfg.Batch.MaxEvents > 1 {
-		return zero, fmt.Errorf("webhook sink: payload-template requires batch.max-events=1")
-	}
-
-	// 5. Authorization header conflict with auth.*.
-	if hasBearer || hasBasic {
-		for k := range cfg.Headers {
-			if strings.EqualFold(k, "Authorization") {
-				return zero, fmt.Errorf("webhook sink: headers must not set Authorization when auth is configured")
-			}
-		}
-	}
-
-	// 6. Timeout: empty → 30s; unparsable or ≤0 → error.
-	timeout := 30 * time.Second
-	if cfg.Timeout != "" {
-		d, err := time.ParseDuration(cfg.Timeout)
-		if err != nil {
-			return zero, fmt.Errorf("webhook sink: timeout: %w", err)
-		}
-		if d <= 0 {
-			return zero, fmt.Errorf("webhook sink: timeout must be > 0")
-		}
-		timeout = d
-	}
-
-	// 7. Parse url-template at construction.
-	var urlT *template.Template
-	if cfg.URLTemplate != "" {
-		t, err := template.New("url").Parse(cfg.URLTemplate)
-		if err != nil {
-			return zero, fmt.Errorf("webhook sink: url-template parse error: %w", err)
-		}
-		urlT = t
+	urlT, err := parseURLTemplate(cfg)
+	if err != nil {
+		return zero, err
 	}
 
 	engine, err := compileWebhookEngine(cfg)
 	if err != nil {
 		return zero, err
-	}
-
-	var authHdr string
-	switch {
-	case hasBearer:
-		authHdr = "Bearer " + cfg.Auth.BearerToken
-	case hasBasic:
-		cred := base64.StdEncoding.EncodeToString(
-			[]byte(cfg.Auth.Basic.Username + ":" + cfg.Auth.Basic.Password),
-		)
-		authHdr = "Basic " + cred
 	}
 
 	batchMax := cfg.Batch.MaxEvents
@@ -366,13 +296,120 @@ func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 
 	return webhookNorm{
 		method:   method,
-		authHdr:  authHdr,
+		authHdr:  buildAuthHeader(cfg, hasBearer, hasBasic),
 		secret:   secret,
 		batchMax: batchMax,
 		timeout:  timeout,
 		urlT:     urlT,
 		engine:   engine,
 	}, nil
+}
+
+// validateURLAndMethod enforces rules 1, 2 and 2a: a URL or URL template is
+// required, the method is allow-listed, and literal scheme prefixes are http(s).
+func validateURLAndMethod(cfg config.WebhookSinkConfig) (string, error) {
+	if cfg.URL == "" && cfg.URLTemplate == "" {
+		return "", fmt.Errorf("webhook sink: url or url-template is required")
+	}
+
+	method := cfg.Method
+	if method == "" {
+		method = http.MethodPost
+	}
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+	default:
+		return "", fmt.Errorf("webhook sink: method %q not allowed — must be one of POST, PUT, PATCH", cfg.Method)
+	}
+
+	if cfg.URL != "" {
+		if err := requireHTTPScheme(cfg.URL); err != nil {
+			return "", err
+		}
+	}
+	if cfg.URLTemplate != "" {
+		trimmed := strings.TrimSpace(cfg.URLTemplate)
+		// Templates whose first token is a placeholder cannot be validated until
+		// render time; anything with a literal scheme prefix must be http/https.
+		if trimmed != "" && !strings.HasPrefix(trimmed, "{{") {
+			if err := requireHTTPScheme(trimmed); err != nil {
+				return "", err
+			}
+		}
+	}
+	return method, nil
+}
+
+// validateAuth enforces rules 3 and 5: bearer/basic are mutually exclusive and
+// must not conflict with an Authorization header.
+func validateAuth(cfg config.WebhookSinkConfig) (bool, bool, error) {
+	hasBearer := cfg.Auth.BearerToken != ""
+	hasBasic := cfg.Auth.Basic.Username != ""
+	if hasBearer && hasBasic {
+		return false, false, fmt.Errorf("webhook sink: auth.bearer-token and auth.basic are mutually exclusive")
+	}
+	if hasBearer || hasBasic {
+		for k := range cfg.Headers {
+			if strings.EqualFold(k, "Authorization") {
+				return false, false, fmt.Errorf("webhook sink: headers must not set Authorization when auth is configured")
+			}
+		}
+	}
+	return hasBearer, hasBasic, nil
+}
+
+// validateBatchAndPayload enforces rules 4 and 8: batch.max-events is non-negative
+// and payload-template requires single-event mode.
+func validateBatchAndPayload(cfg config.WebhookSinkConfig) error {
+	if cfg.Batch.MaxEvents < 0 {
+		return fmt.Errorf("webhook sink: batch.max-events must be >= 0")
+	}
+	if cfg.PayloadTemplate != "" && cfg.Batch.MaxEvents > 1 {
+		return fmt.Errorf("webhook sink: payload-template requires batch.max-events=1")
+	}
+	return nil
+}
+
+// parseTimeout enforces rule 6: empty → 30s; unparsable or ≤0 → error.
+func parseTimeout(cfg config.WebhookSinkConfig) (time.Duration, error) {
+	timeout := 30 * time.Second
+	if cfg.Timeout == "" {
+		return timeout, nil
+	}
+	d, err := time.ParseDuration(cfg.Timeout)
+	if err != nil {
+		return 0, fmt.Errorf("webhook sink: timeout: %w", err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("webhook sink: timeout must be > 0")
+	}
+	return d, nil
+}
+
+// parseURLTemplate enforces rule 7 by parsing url-template at construction.
+func parseURLTemplate(cfg config.WebhookSinkConfig) (*template.Template, error) {
+	if cfg.URLTemplate == "" {
+		return nil, nil
+	}
+	t, err := template.New("url").Parse(cfg.URLTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("webhook sink: url-template parse error: %w", err)
+	}
+	return t, nil
+}
+
+// buildAuthHeader materializes the Authorization header for bearer or basic auth.
+func buildAuthHeader(cfg config.WebhookSinkConfig, hasBearer, hasBasic bool) string {
+	switch {
+	case hasBearer:
+		return "Bearer " + cfg.Auth.BearerToken
+	case hasBasic:
+		cred := base64.StdEncoding.EncodeToString(
+			[]byte(cfg.Auth.Basic.Username + ":" + cfg.Auth.Basic.Password),
+		)
+		return "Basic " + cred
+	}
+	return ""
 }
 
 // compileWebhookEngine enforces validations 9–13 and compiles the transform
