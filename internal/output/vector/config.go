@@ -1,7 +1,8 @@
 // Package vector implements the vector store sink foundation: config
-// validation, text extraction, and the VEC-01 SHA-256 hash cache.
+// validation, text extraction, the VEC-01 SHA-256 hash cache, and
+// OpenAI-compatible / Cohere embedders (VEC-02).
 //
-// Embedders, stores, and the consumer are follow-up packages/files.
+// Stores and the consumer are follow-up files.
 package vector
 
 import (
