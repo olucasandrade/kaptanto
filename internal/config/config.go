@@ -111,10 +111,10 @@ type RabbitMQSinkConfig struct {
 // WebhookSinkConfig holds settings for the HTTP webhook sink.
 type WebhookSinkConfig struct {
 	URL             string            `yaml:"url"`
-	URLTemplate     string            `yaml:"url-template"`     // optional; overrides URL per-event
-	Method          string            `yaml:"method"`           // POST (default) | PUT | PATCH
-	Timeout         string            `yaml:"timeout"`          // Go duration; "" = 30s
-	Headers         map[string]string `yaml:"headers"`          // static headers; values support ${VAR}
+	URLTemplate     string            `yaml:"url-template"` // optional; overrides URL per-event
+	Method          string            `yaml:"method"`       // POST (default) | PUT | PATCH
+	Timeout         string            `yaml:"timeout"`      // Go duration; "" = 30s
+	Headers         map[string]string `yaml:"headers"`      // static headers; values support ${VAR}
 	Auth            WebhookAuthConfig `yaml:"auth"`
 	Signing         WebhookSigning    `yaml:"signing"`
 	Batch           WebhookBatch      `yaml:"batch"`
@@ -158,7 +158,7 @@ type TransformConfig struct {
 // from an explicit false (pre-DLQ log-and-drop).
 type DLQConfig struct {
 	Enabled   *bool  `yaml:"enabled"`   // nil/true = on (default); false = pre-DLQ log-and-drop
-	Path      string `yaml:"path"`      // default <data_dir>/dlq.db; fallback = <path minus .db> + "-fallback.ndjson"
+	Path      string `yaml:"path"`      // default <data-dir>/dlq.db
 	Retention string `yaml:"retention"` // Go duration; ""/0 = keep forever
 }
 
@@ -167,15 +167,15 @@ type DLQConfig struct {
 // BuildConsumers function. Each action references a registered Type (e.g.
 // "slack", "pagerduty") and supplies parameters + optional routing match.
 type ActionConfig struct {
-	Name      string            `yaml:"name"`      // unique identifier ([a-z0-9-]+, no ":")
-	Type      string            `yaml:"type"`      // registered action type name
-	Params    map[string]string `yaml:"params"`    // key/value params; secret params must be ${VAR} refs
-	Match     MatchConfig       `yaml:"match"`     // event routing filter (RTG-01)
-	Timeout   string            `yaml:"timeout"`   // override type's default timeout; Go duration
-	Transform *TransformConfig  `yaml:"transform"` // replaces (not merges) the type's default transform
-	Headers   map[string]string `yaml:"headers"`   // merge over type defaults; must not collide with computed auth
-	Batch     *WebhookBatch     `yaml:"batch"`     // override type's batching; rejected if type pins batch
-	Webhook   *WebhookSinkConfig `yaml:"webhook"`  // verbatim webhook config for type "custom" (escape hatch)
+	Name      string             `yaml:"name"`      // unique identifier ([a-z0-9-]+, no ":")
+	Type      string             `yaml:"type"`      // registered action type name
+	Params    map[string]string  `yaml:"params"`    // key/value params; secret params must be ${VAR} refs
+	Match     MatchConfig        `yaml:"match"`     // event routing filter (RTG-01)
+	Timeout   string             `yaml:"timeout"`   // override type's default timeout; Go duration
+	Transform *TransformConfig   `yaml:"transform"` // replaces (not merges) the type's default transform
+	Headers   map[string]string  `yaml:"headers"`   // merge over type defaults; must not collide with computed auth
+	Batch     *WebhookBatch      `yaml:"batch"`     // override type's batching; rejected if type pins batch
+	Webhook   *WebhookSinkConfig `yaml:"webhook"`   // verbatim webhook config for type "custom" (escape hatch)
 }
 
 // MatchConfig declares which events an action should receive.
@@ -208,8 +208,8 @@ type SinksConfig struct {
 //
 // Cert rotation is not supported in v1; restart the process to reload certs.
 type ServerTLSConfig struct {
-	CertFile    string `yaml:"cert-file"`    // path to server certificate PEM; required for TLS
-	KeyFile     string `yaml:"key-file"`     // path to server private key PEM; required for TLS
+	CertFile     string `yaml:"cert-file"`      // path to server certificate PEM; required for TLS
+	KeyFile      string `yaml:"key-file"`       // path to server private key PEM; required for TLS
 	ClientCAFile string `yaml:"client-ca-file"` // path to CA PEM for client cert verification (mTLS); optional
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 	"github.com/olucasandrade/kaptanto/internal/cluster"
 	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/dlq"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/ha"
@@ -342,6 +343,51 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 
 	metrics := observability.NewKaptantoMetrics()
+
+	// Open the DLQ store. Enabled by default (nil/true); an explicit false
+	// restores pre-DLQ log-and-drop behavior.
+	var dlqStore dlq.Store
+	if cfg.DLQ.Enabled == nil || *cfg.DLQ.Enabled {
+		dlqPath := cfg.DLQ.Path
+		if dlqPath == "" {
+			dlqPath = filepath.Join(cfg.DataDir, "dlq.db")
+		}
+		store, err := dlq.Open(dlqPath)
+		if err != nil {
+			return fmt.Errorf("open dlq store: %w", err)
+		}
+		dlqStore = store
+		defer func() { _ = store.Close() }()
+
+		if cfg.DLQ.Retention != "" {
+			ret, err := time.ParseDuration(cfg.DLQ.Retention)
+			if err != nil {
+				return fmt.Errorf("parse dlq retention %q: %w", cfg.DLQ.Retention, err)
+			}
+			if ret > 0 {
+				retentionCtx, stopRetention := context.WithCancel(ctx)
+				defer stopRetention()
+				go func(ret time.Duration) {
+					ticker := time.NewTicker(ret / 2)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-retentionCtx.Done():
+							return
+						case <-ticker.C:
+							cutoff := time.Now().UTC().Add(-ret)
+							n, err := store.Purge(retentionCtx, dlq.Filter{OlderThan: cutoff})
+							if err != nil {
+								slog.Warn("dlq: retention purge failed", "err", err)
+							} else if n > 0 {
+								slog.Info("dlq: purged old entries", "count", n)
+							}
+						}
+					}
+				}(ret)
+			}
+		}
+	}
 	healthProbes := []observability.HealthProbe{
 		{Name: "eventlog", Check: elPing},
 		{Name: "checkpoint", Check: ckProbe},
@@ -369,7 +415,9 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	healthHandler := observability.NewHealthHandler(healthProbes)
 
 	rtr.SetMetrics(metrics)
+	rtr.RetryScheduler().SetMetrics(metrics)
 	cursorSetMetrics(metrics)
+	rtr.SetDLQ(dlqStore)
 
 	outputServer, err := buildOutputServer(cfg, rtr, cursorStore, metrics, healthHandler, healthProbes, rowFilters, colFilters)
 	if err != nil {
