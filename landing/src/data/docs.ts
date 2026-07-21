@@ -27,6 +27,7 @@ export const SEO_DOCS: SeoDoc[] = [
   { slug: 'docs-api', title: 'HTTP Endpoints', description: 'The HTTP endpoints kaptanto serves: /events, /metrics, and /healthz.' },
   { slug: 'docs-troubleshooting', title: 'Troubleshooting', description: 'Fix common CDC issues quickly in production.' },
   { slug: 'docs-actions', title: 'Actions', description: 'Turn CDC events into side effects — Slack, Discord, email, HTTP, cache purges, vector upserts, and workflow triggers.' },
+  { slug: 'docs-serverless', title: 'Serverless Actions', description: 'Invoke AWS Lambda, Cloudflare Workers, and Vercel functions from CDC events — cold starts, async invocation, and response handling.' },
   { slug: 'docs-routing', title: 'Routing Rules', description: 'Filter events by table globs, operations, and WHERE conditions with before./after. prefixes.' },
   { slug: 'docs-openapi', title: 'OpenAPI Discovery', description: 'Machine-readable spec of configured actions served at /openapi.json.' },
   { slug: 'docs-n8n', title: 'n8n Integration', description: 'Use kaptanto as an n8n trigger node to start workflows on database changes.' },
