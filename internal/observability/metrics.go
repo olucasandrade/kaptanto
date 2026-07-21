@@ -27,7 +27,11 @@ type KaptantoMetrics struct {
 	TransformErrorsTotal  *prometheus.CounterVec   // kaptanto_transform_errors_total{consumer}
 	ActionEventsMatched   *prometheus.CounterVec   // kaptanto_action_events_matched_total{consumer}
 	ActionEventsSkipped   *prometheus.CounterVec   // kaptanto_action_events_skipped_total{consumer}
-	MCPToolCallsTotal     *prometheus.CounterVec   // mcp_tool_calls_total{tool,outcome}
+	MCPToolCallsTotal       *prometheus.CounterVec // mcp_tool_calls_total{tool,outcome}
+	MCPSubscriptionsActive  prometheus.Gauge       // mcp_subscriptions_active
+	MCPEventsBufferedTotal  prometheus.Counter     // mcp_events_buffered_total
+	MCPEventsDroppedTotal   *prometheus.CounterVec // mcp_events_dropped_total{key}
+	MCPNudgesTotal          prometheus.Counter     // mcp_nudges_total
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -99,6 +103,22 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Name: "mcp_tool_calls_total",
 			Help: "Total MCP tool calls, labeled by tool name and outcome (ok|denied|error).",
 		}, []string{"tool", "outcome"}),
+		MCPSubscriptionsActive: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "mcp_subscriptions_active",
+			Help: "Number of active MCP ring-buffer subscriptions.",
+		}),
+		MCPEventsBufferedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "mcp_events_buffered_total",
+			Help: "Total events appended to MCP subscription ring buffers.",
+		}),
+		MCPEventsDroppedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "mcp_events_dropped_total",
+			Help: "Total events evicted from MCP subscription rings due to capacity, labeled by API key name.",
+		}, []string{"key"}),
+		MCPNudgesTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "mcp_nudges_total",
+			Help: "Total MCP notifications/resources/updated nudges sent for subscriptions.",
+		}),
 	}
 	reg.MustRegister(
 		m.EventsDelivered,
@@ -116,6 +136,10 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.ActionEventsMatched,
 		m.ActionEventsSkipped,
 		m.MCPToolCallsTotal,
+		m.MCPSubscriptionsActive,
+		m.MCPEventsBufferedTotal,
+		m.MCPEventsDroppedTotal,
+		m.MCPNudgesTotal,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
