@@ -23,9 +23,10 @@ type redactRule struct {
 // ACL enforces a single API key's table allow-list and column redaction
 // (MCP-01). There is no unfiltered code path through Apply.
 type ACL struct {
-	name    string
-	matcher *routing.Matcher // tables ACL; empty Tables ⇒ match all
-	rules   []redactRule
+	name           string
+	matcher        *routing.Matcher // tables ACL; empty Tables ⇒ match all
+	allowAllTables bool
+	rules          []redactRule
 }
 
 // CompileACL validates and compiles a key's tables + redact rules.
@@ -49,7 +50,12 @@ func CompileACL(key config.MCPAPIKey) (*ACL, error) {
 		}
 		rules = append(rules, redactRule{matcher: rm, columns: cols})
 	}
-	return &ACL{name: key.Name, matcher: m, rules: rules}, nil
+	return &ACL{
+		name:           key.Name,
+		matcher:        m,
+		allowAllTables: len(key.Tables) == 0,
+		rules:          rules,
+	}, nil
 }
 
 // Name returns the API key name (never the secret material).
@@ -58,6 +64,9 @@ func (a *ACL) Name() string { return a.name }
 // AllowTable reports whether the key may see the given qualified table name
 // (e.g. "public.orders").
 func (a *ACL) AllowTable(qualified string) bool {
+	if a.allowAllTables {
+		return true
+	}
 	schema, table := splitQualified(qualified)
 	ok, err := a.matcher.Match(&event.ChangeEvent{
 		Schema:    schema,

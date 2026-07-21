@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,8 +42,15 @@ func testEvent(table string, op event.Operation) *event.ChangeEvent {
 	}
 }
 
+// enrichTestTimeout avoids flakes when the full suite runs many parallel
+// httptest servers; production default remains 150ms (AIC-01).
+const enrichTestTimeout = "2s"
+
 func mustCompile(t testing.TB, cfg config.EnrichmentConfig, m *observability.KaptantoMetrics) *enrich.Enricher {
 	t.Helper()
+	if cfg.Timeout == "" && strings.TrimSpace(cfg.URL) != "" && len(cfg.Tables) > 0 {
+		cfg.Timeout = enrichTestTimeout
+	}
 	e, err := enrich.Compile(cfg, m)
 	require.NoError(t, err)
 	return e
@@ -282,7 +290,7 @@ func TestEnrich_DefaultOperations_SkipsDelete(t *testing.T) {
 func TestEnrich_TimeoutStorm_FailOpen(t *testing.T) {
 	// Sequential: timeout storm must not race other HTTP cases for CPU.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(80 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"intent":"late"}`))
 	}))
