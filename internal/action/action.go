@@ -96,9 +96,18 @@ func BuildConsumersWithRegistry(cfg *config.Config, m *observability.KaptantoMet
 			return nil, err
 		}
 
-		// Step 5: construct webhook consumer
+		// Step 5: construct webhook consumer. Most action types resolve ${VAR}
+		// refs in validateAndResolveParams, so using the resolved-config constructor
+		// avoids a second expansion that corrupts secrets containing '$' (F5).
+		// The "custom" type is the exception: it intentionally passes raw ${VAR}
+		// placeholders through to the sink for late expansion.
 		consumerID := fmt.Sprintf("action:%s:%s", a.Type, a.Name)
-		inner, err := webhooksink.NewWebhookSinkConsumer(consumerID, whCfg)
+		var inner *webhooksink.WebhookSinkConsumer
+		if a.Type == "custom" {
+			inner, err = webhooksink.NewWebhookSinkConsumer(consumerID, whCfg)
+		} else {
+			inner, err = webhooksink.NewResolvedWebhookSinkConsumer(consumerID, whCfg)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("action %q: webhook consumer: %w", a.Name, err)
 		}
@@ -121,9 +130,6 @@ func validateName(name string, seen map[string]struct{}) error {
 	}
 	if !nameRegex.MatchString(name) {
 		return fmt.Errorf("action %q: name must match [a-z0-9-]+ (no uppercase, no ':')", name)
-	}
-	if strings.Contains(name, ":") {
-		return fmt.Errorf("action %q: name must not contain ':'", name)
 	}
 	if _, dup := seen[name]; dup {
 		return fmt.Errorf("action %q: duplicate name", name)
@@ -158,9 +164,10 @@ func validateAndResolveParams(a *config.ActionConfig, t Type) (ResolvedParams, e
 		if ps.Secret {
 			trimmed := strings.TrimSpace(raw)
 			if !envRefRegex.MatchString(trimmed) {
+				example := "${" + strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "}"
 				return nil, fmt.Errorf(
-					"action %q: param %q is secret and must be an environment variable reference like ${SLACK_WEBHOOK_URL}",
-					a.Name, name)
+					"action %q: param %q is secret and must be an environment variable reference like %s",
+					a.Name, name, example)
 			}
 			// Resolve the env var
 			varName := trimmed[2 : len(trimmed)-1] // extract VAR from ${VAR}
@@ -314,7 +321,9 @@ func (c *matchConsumer) Close() {
 
 // SetMetrics delegates to the inner consumer.
 func (c *matchConsumer) SetMetrics(m *observability.KaptantoMetrics) {
-	type metricsAware interface{ SetMetrics(*observability.KaptantoMetrics) }
+	type metricsAware interface {
+		SetMetrics(*observability.KaptantoMetrics)
+	}
 	if ma, ok := c.inner.(metricsAware); ok {
 		ma.SetMetrics(m)
 	}
