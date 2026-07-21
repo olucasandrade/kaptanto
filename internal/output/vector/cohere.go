@@ -112,7 +112,7 @@ func (e *cohereEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 		return nil, fmt.Errorf("vector: cohere embed: read body: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("vector: cohere embed: HTTP %d: %s", resp.StatusCode, truncateForErr(body))
+		return nil, &StatusError{Status: resp.StatusCode, Msg: "cohere embed: " + truncateForErr(body)}
 	}
 
 	var parsed cohereResponse

@@ -126,7 +126,10 @@ func (s *PineconeStore) doJSON(ctx context.Context, method, url string, payload 
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("vector: pinecone: %s %s: status %d: %s", method, url, resp.StatusCode, truncate(string(body), 512))
+		return &StatusError{
+			Status: resp.StatusCode,
+			Msg:    fmt.Sprintf("pinecone: %s %s: %s", method, url, truncate(string(body), 512)),
+		}
 	}
 	return nil
 }

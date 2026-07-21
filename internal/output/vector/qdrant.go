@@ -153,7 +153,7 @@ func (s *QdrantStore) Ping(ctx context.Context) error {
 		return fmt.Errorf("vector: qdrant: ping: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return fmt.Errorf("vector: qdrant: ping: status %d: %s", status, truncate(string(body), 512))
+		return &StatusError{Status: status, Msg: "qdrant: ping: " + truncate(string(body), 512)}
 	}
 	return nil
 }
@@ -172,7 +172,10 @@ func (s *QdrantStore) doJSON(ctx context.Context, method, rawURL string, payload
 		return err
 	}
 	if status < 200 || status >= 300 {
-		return fmt.Errorf("vector: qdrant: %s %s: status %d: %s", method, rawURL, status, truncate(string(body), 512))
+		return &StatusError{
+			Status: status,
+			Msg:    fmt.Sprintf("qdrant: %s %s: %s", method, rawURL, truncate(string(body), 512)),
+		}
 	}
 	return nil
 }
