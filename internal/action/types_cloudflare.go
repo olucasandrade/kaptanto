@@ -2,6 +2,7 @@ package action
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -26,7 +27,7 @@ func (cloudflareType) ParamSpec() map[string]ParamSpec {
 	}
 }
 
-func (cloudflareType) PinsBatch() bool             { return true }
+func (cloudflareType) PinsBatch() bool               { return true }
 func (cloudflareType) ComputedAuthHeaders() []string { return []string{"Authorization"} }
 
 // urlFieldMap maps Go-template field names to jq JSON paths on the ChangeEvent.
@@ -38,6 +39,35 @@ var urlFieldMap = map[string]string{
 	"Source":         ".source",
 	"ID":             ".id",
 	"IdempotencyKey": ".idempotency_key",
+}
+
+// urlTemplateFieldRe matches {{.Field}} and {{.After.col}} / {{.Before.col}}
+// placeholders with optional whitespace inside the delimiters.
+var urlTemplateFieldRe = regexp.MustCompile(`\{\{\s*\.([\w.]+)\s*\}\}`)
+
+// urlTemplateFieldToJQ converts a captured template field name to a jq path.
+// It supports top-level fields from urlFieldMap and row-data prefixes
+// After.<col> / Before.<col>.
+func urlTemplateFieldToJQ(fieldName string) (string, error) {
+	if jq, ok := urlFieldMap[fieldName]; ok {
+		return jq, nil
+	}
+	if strings.HasPrefix(fieldName, "After.") {
+		col := strings.TrimPrefix(fieldName, "After.")
+		if col == "" {
+			return "", fmt.Errorf("empty column in After.* placeholder")
+		}
+		return fmt.Sprintf(`.after[%s]`, jqStringLiteral(col)), nil
+	}
+	if strings.HasPrefix(fieldName, "Before.") {
+		col := strings.TrimPrefix(fieldName, "Before.")
+		if col == "" {
+			return "", fmt.Errorf("empty column in Before.* placeholder")
+		}
+		return fmt.Sprintf(`.before[%s]`, jqStringLiteral(col)), nil
+	}
+	return "", fmt.Errorf("unsupported field %q; supported: %s, After.<col>, Before.<col>",
+		fieldName, strings.Join(sortedKeys(urlFieldMap), ", "))
 }
 
 func (cloudflareType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.TransformConfig, error) {
@@ -84,9 +114,10 @@ func (cloudflareType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.
 // urlTemplateToJQ converts a simple Go-template URL string like
 // "https://cdn.example.com/{{.Table}}" into a jq string expression that safely
 // JSON-encodes the rendered URL. Unsupported Go-template constructs are
-// rejected so they cannot silently produce malformed JSON.
+// rejected so they cannot silently produce malformed JSON. Row-data columns may
+// be referenced as {{.After.<col>}} or {{.Before.<col>}}.
 func urlTemplateToJQ(tmpl string) (string, error) {
-	matches := templateFieldRe.FindAllStringSubmatchIndex(tmpl, -1)
+	matches := urlTemplateFieldRe.FindAllStringSubmatchIndex(tmpl, -1)
 	if len(matches) == 0 {
 		if strings.Contains(tmpl, "{{") || strings.Contains(tmpl, "}}") {
 			return "", fmt.Errorf("unsupported template syntax in %q; only {{.Field}} placeholders are allowed", tmpl)
@@ -107,10 +138,9 @@ func urlTemplateToJQ(tmpl string) (string, error) {
 		}
 
 		fieldName := tmpl[loc[2]:loc[3]]
-		jqField, ok := urlFieldMap[fieldName]
-		if !ok {
-			return "", fmt.Errorf("unsupported field %q; supported: %s",
-				fieldName, strings.Join(sortedKeys(urlFieldMap), ", "))
+		jqField, err := urlTemplateFieldToJQ(fieldName)
+		if err != nil {
+			return "", err
 		}
 		parts = append(parts, fmt.Sprintf("(%s | tostring)", jqField))
 		lastEnd = loc[1]

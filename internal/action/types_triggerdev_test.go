@@ -201,6 +201,40 @@ func TestTriggerdev_Golden_APIURLOverride_Honored(t *testing.T) {
 	require.Len(t, consumers, 1)
 }
 
+func TestTriggerdev_Build_UnsupportedTemplateSyntax(t *testing.T) {
+	td := lookupType(t, "triggerdev")
+
+	unsupported := []string{
+		`myapp/{{.Table | upper}}`,
+		`{{if .Table}}x{{end}}`,
+		`{{.UnknownField}}`,
+	}
+
+	for _, tmpl := range unsupported {
+		_, _, err := td.Build(action.ResolvedParams{
+			"api-key":             "tr_test_key",
+			"api-url":             "https://api.trigger.dev",
+			"event-name-template": tmpl,
+		})
+		require.Error(t, err, "template %q must be rejected", tmpl)
+	}
+}
+
+func TestTriggerdev_Build_WhitespaceTemplate(t *testing.T) {
+	td := lookupType(t, "triggerdev")
+	params := action.ResolvedParams{
+		"api-key":             "tr_test_key",
+		"api-url":             "https://api.trigger.dev",
+		"event-name-template": "kaptanto/{{ .Table }}.{{ .Operation }}",
+	}
+
+	_, tc, err := td.Build(params)
+	require.NoError(t, err)
+	assert.Contains(t, tc.Expression, ".table")
+	assert.Contains(t, tc.Expression, ".operation")
+	assert.NotContains(t, tc.Expression, "{{")
+}
+
 func TestTriggerdev_Golden_AuthHeaderCollision_Rejected(t *testing.T) {
 	t.Setenv("TRIGGER_API_KEY", "tr_test_key")
 
