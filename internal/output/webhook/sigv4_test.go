@@ -114,6 +114,8 @@ func TestNewWebhookSinkConsumer_SigV4MissingCredentials(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "webhook sink:")
 	assert.Contains(t, err.Error(), "resolve aws credentials")
+	// G3-19 #16: startup error must name the credential provider chain.
+	assert.Contains(t, err.Error(), "standard provider chain")
 }
 
 func TestNewWebhookSinkConsumer_SigV4ServiceDefaultsToLambda(t *testing.T) {
