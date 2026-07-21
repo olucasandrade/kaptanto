@@ -28,6 +28,13 @@ func TestExamplesConfigsLoad(t *testing.T) {
 			if name == "trigger-dev" {
 				t.Setenv("TRIGGERDEV_API_KEY", "tr_dev_test_key")
 			}
+			if name == "lambda" {
+				t.Setenv("LAMBDA_FUNCTION_URL", "https://example.lambda-url.us-east-1.on.aws/")
+				t.Setenv("AWS_REGION", "us-east-1")
+				// SigV4 needs resolvable credentials at webhook sink construction.
+				t.Setenv("AWS_ACCESS_KEY_ID", "AKIATESTEXAMPLE")
+				t.Setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
+			}
 
 			cfg, err := config.Load(path)
 			require.NoError(t, err, "load %s", path)
