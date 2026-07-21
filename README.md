@@ -171,6 +171,62 @@ insecure: false            # explicit opt-out of TLS/auth — not for production
 | `--auth-token` | | Bearer token for the SSE/gRPC data plane (or `KAPTANTO_AUTH_TOKEN` env var) |
 | `--insecure` | `false` | Explicitly disable data-plane TLS/auth — not for production |
 
+## Actions
+
+Actions turn CDC events into side effects — Slack messages, HTTP requests, email alerts, cache purges, vector upserts, or workflow triggers — without writing consumer code. Set `output: none` to run kaptanto as a pure action processor.
+
+```yaml
+source: "postgres://localhost:5432/mydb"
+output: none
+
+actions:
+  - name: order-alerts
+    type: slack
+    params:
+      webhook-url: ${SLACK_WEBHOOK_URL}
+    match:
+      tables: ["public.orders"]
+      operations: ["insert"]
+```
+
+### Action types
+
+| Type | Key params | Description |
+|---|---|---|
+| `slack` | `webhook-url` (secret) | Post to a Slack incoming webhook |
+| `discord` | `webhook-url` (secret) | Post to a Discord webhook |
+| `http-request` | `url` (secret), `method` | Generic HTTP request (raw event JSON) |
+| `custom` | Full `webhook:` block | Escape hatch — supply a complete webhook config |
+| `email` | `api-key` (secret), `from`, `to` | Send email via SendGrid |
+| `cache-invalidate` | `api-token` (secret), `zone-id`, `url-template` | Purge Cloudflare cache |
+| `vector-upsert` | `api-key` (secret), `index-host`, `vector-field` | Upsert vectors to Pinecone |
+| `inngest` | `event-key` (secret) | Send events to Inngest |
+| `triggerdev` | `api-key` (secret) | Trigger Trigger.dev tasks |
+
+Secret params must use `${VAR}` env-var references — they are never logged or included in the OpenAPI spec.
+
+### Routing rules
+
+Each action has an optional `match:` block that controls which events it receives. All three conditions are AND-ed; omitting any means "match all".
+
+| Field | Syntax | Example |
+|---|---|---|
+| `tables` | Exact names or globs (`*`, `public.*`, `*.orders`) | `["public.orders", "analytics.*"]` |
+| `operations` | `insert`, `update`, `delete`, `read` | `["insert", "update"]` |
+| `where` | SQL-like filter with `before.` / `after.` prefixes | `"after.status = 'shipped'"` |
+
+### OpenAPI
+
+When a network output (SSE, gRPC, queue sinks, or `output: webhook`) or `output: none` is used, kaptanto serves a machine-readable spec at `/openapi.json` describing the configured actions, their parameter names, and routing rules.
+
+### Integration examples
+
+Self-contained examples for workflow platforms live in `examples/`:
+
+- **n8n** — `examples/n8n-trigger/` (SSE trigger node, see also `n8n-nodes-kaptanto/`)
+- **Inngest** — `examples/inngest/` (Docker Compose + function handler)
+- **Trigger.dev** — `examples/trigger-dev/` (task definition + config)
+
 ## Security
 
 By default, the SSE/gRPC data plane requires both a bearer token (`--auth-token` or

@@ -1,0 +1,16 @@
+source: postgres://postgres:postgres@localhost:5432/app?sslmode=disable
+output: none
+data-dir: /tmp/kaptanto-triggerdev
+source-id: triggerdev_demo
+tables:
+  public.orders: {}
+
+actions:
+  - name: send-to-triggerdev
+    type: triggerdev
+    params:
+      api-key: "${TRIGGERDEV_API_KEY}"   # Trigger.dev secret key, passed via env
+      api-url: "https://api.trigger.dev"  # Or your self-hosted URL
+      event-name-template: "kaptanto/{{.Table}}.{{.Operation}}"
+    match:
+      tables: ["public.orders"]

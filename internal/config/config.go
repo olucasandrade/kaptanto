@@ -108,6 +108,85 @@ type RabbitMQSinkConfig struct {
 	TLS                TLSConfig `yaml:"tls"`
 }
 
+// WebhookSinkConfig holds settings for the HTTP webhook sink.
+type WebhookSinkConfig struct {
+	URL             string            `yaml:"url"`
+	URLTemplate     string            `yaml:"url-template"` // optional; overrides URL per-event
+	Method          string            `yaml:"method"`       // POST (default) | PUT | PATCH
+	Timeout         string            `yaml:"timeout"`      // Go duration; "" = 30s
+	Headers         map[string]string `yaml:"headers"`      // static headers; values support ${VAR}
+	Auth            WebhookAuthConfig `yaml:"auth"`
+	Signing         WebhookSigning    `yaml:"signing"`
+	Batch           WebhookBatch      `yaml:"batch"`
+	PayloadTemplate string            `yaml:"payload-template"` // requires batch.max-events == 1
+	Transform       TransformConfig   `yaml:"transform"`
+	TLS             TLSConfig         `yaml:"tls"`
+}
+
+// WebhookAuthConfig holds bearer or basic auth for the webhook sink.
+type WebhookAuthConfig struct {
+	BearerToken string           `yaml:"bearer-token"` // supports ${VAR}
+	Basic       WebhookBasicAuth `yaml:"basic"`
+}
+
+// WebhookBasicAuth holds HTTP basic-auth credentials for the webhook sink.
+type WebhookBasicAuth struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"` // supports ${VAR}
+}
+
+// WebhookSigning holds HMAC-SHA256 signing settings for the webhook sink.
+// Empty Secret disables signing.
+type WebhookSigning struct {
+	Secret string `yaml:"secret"` // HMAC-SHA256; supports ${VAR}; empty = signing disabled
+}
+
+// WebhookBatch controls how many events are sent per HTTP request.
+// MaxEvents 0 or 1 means one request per event; >1 sends a JSON array body.
+type WebhookBatch struct {
+	MaxEvents int `yaml:"max-events"` // 0/1 = one request per event; >1 = JSON array body
+}
+
+// TransformConfig is the shared transform shape (used by the webhook sink in v1).
+type TransformConfig struct {
+	Language   string `yaml:"language"`   // "jq" | "go-template"
+	Expression string `yaml:"expression"` // inline; YAML block scalars for multi-line
+}
+
+// DLQConfig is a top-level `dlq:` block (router-level feature, not per-sink).
+// Enabled is a pointer so YAML can distinguish unset (nil → on by default)
+// from an explicit false (pre-DLQ log-and-drop).
+type DLQConfig struct {
+	Enabled   *bool  `yaml:"enabled"`   // nil/true = on (default); false = pre-DLQ log-and-drop
+	Path      string `yaml:"path"`      // default <data-dir>/dlq.db
+	Retention string `yaml:"retention"` // Go duration; ""/0 = keep forever
+}
+
+// ActionConfig defines a single configured action instance.
+// Actions produce router.Consumer instances via the action registry's
+// BuildConsumers function. Each action references a registered Type (e.g.
+// "slack", "pagerduty") and supplies parameters + optional routing match.
+type ActionConfig struct {
+	Name      string             `yaml:"name"`      // unique identifier ([a-z0-9-]+, no ":")
+	Type      string             `yaml:"type"`      // registered action type name
+	Params    map[string]string  `yaml:"params"`    // key/value params; secret params must be ${VAR} refs
+	Match     MatchConfig        `yaml:"match"`     // event routing filter (RTG-01)
+	Timeout   string             `yaml:"timeout"`   // override type's default timeout; Go duration
+	Transform *TransformConfig   `yaml:"transform"` // replaces (not merges) the type's default transform
+	Headers   map[string]string  `yaml:"headers"`   // merge over type defaults; must not collide with computed auth
+	Batch     *WebhookBatch      `yaml:"batch"`     // override type's batching; rejected if type pins batch
+	Webhook   *WebhookSinkConfig `yaml:"webhook"`   // verbatim webhook config for type "custom" (escape hatch)
+}
+
+// MatchConfig declares which events an action should receive.
+// Empty Tables means "match all tables"; empty Operations means "match all operations";
+// empty Where means "match all rows".
+type MatchConfig struct {
+	Tables     []string `yaml:"tables"`
+	Operations []string `yaml:"operations"`
+	Where      string   `yaml:"where"`
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
 type SinksConfig struct {
@@ -116,6 +195,7 @@ type SinksConfig struct {
 	Kafka    *KafkaSinkConfig    `yaml:"kafka"`
 	PubSub   *PubSubSinkConfig   `yaml:"pubsub"`
 	RabbitMQ *RabbitMQSinkConfig `yaml:"rabbitmq"`
+	Webhook  *WebhookSinkConfig  `yaml:"webhook"`
 }
 
 // ServerTLSConfig holds TLS settings for Kaptanto's own inbound servers
@@ -128,8 +208,8 @@ type SinksConfig struct {
 //
 // Cert rotation is not supported in v1; restart the process to reload certs.
 type ServerTLSConfig struct {
-	CertFile    string `yaml:"cert-file"`    // path to server certificate PEM; required for TLS
-	KeyFile     string `yaml:"key-file"`     // path to server private key PEM; required for TLS
+	CertFile     string `yaml:"cert-file"`      // path to server certificate PEM; required for TLS
+	KeyFile      string `yaml:"key-file"`       // path to server private key PEM; required for TLS
 	ClientCAFile string `yaml:"client-ca-file"` // path to CA PEM for client cert verification (mTLS); optional
 }
 
@@ -155,6 +235,8 @@ type Config struct {
 	ServerTLS       ServerTLSConfig        `yaml:"server-tls"`        // inbound server TLS (SSE / gRPC); distinct from sink-side TLS
 	AuthToken       string                 `yaml:"auth-token"`        // static bearer token for SSE/gRPC data plane; also read from KAPTANTO_AUTH_TOKEN env var
 	Insecure        bool                   `yaml:"insecure"`          // allow plaintext/unauthenticated sse/grpc (loud warning at startup; not for production)
+	DLQ             DLQConfig              `yaml:"dlq"`               // router-level dead-letter queue (enabled by default when Enabled is nil)
+	Actions         []ActionConfig         `yaml:"actions"`           // configured action instances
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
@@ -275,6 +357,24 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 			return fmt.Errorf("config: merge retention: %w", err)
 		}
 		cfg.Retention = v.String()
+	}
+
+	if flags.Changed("dlq-enabled") {
+		v, err := flags.GetBool("dlq-enabled")
+		if err != nil {
+			return fmt.Errorf("config: merge dlq-enabled: %w", err)
+		}
+		cfg.DLQ.Enabled = &v
+	}
+	if err := mergeString(flags, "dlq-path", &cfg.DLQ.Path); err != nil {
+		return err
+	}
+	if flags.Changed("dlq-retention") {
+		v, err := flags.GetDuration("dlq-retention")
+		if err != nil {
+			return fmt.Errorf("config: merge dlq-retention: %w", err)
+		}
+		cfg.DLQ.Retention = v.String()
 	}
 
 	if flags.Changed("tables") {

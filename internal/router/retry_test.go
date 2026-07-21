@@ -37,6 +37,23 @@ func TestNextDelay(t *testing.T) {
 	}
 }
 
+// TestJitteredDelay verifies full-jitter bounds: for every attempt index,
+// 0 < JitteredDelay(i) <= NextDelay(i) across many samples.
+func TestJitteredDelay(t *testing.T) {
+	attempts := []int{0, 1, 2, 3, 4, 5, 99}
+	const samples = 500
+
+	for _, attempt := range attempts {
+		base := router.NextDelay(attempt)
+		for i := 0; i < samples; i++ {
+			got := router.JitteredDelay(attempt)
+			if got <= 0 || got > base {
+				t.Fatalf("JitteredDelay(%d) = %v, want 0 < d <= %v (sample %d)", attempt, got, base, i)
+			}
+		}
+	}
+}
+
 // errRetry is a sentinel delivery error for retry tests.
 var errRetry = errors.New("delivery error")
 

@@ -1,0 +1,47 @@
+{
+  "name": "@kaptanto/events",
+  "version": "0.1.0",
+  "description": "TypeScript types for the Kaptanto ChangeEvent wire format",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "tsup": "^8",
+    "typescript": "^5",
+    "vitest": "^3"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/olucasandrade/kaptanto",
+    "directory": "packages/kaptanto-events"
+  },
+  "keywords": [
+    "cdc",
+    "change-data-capture",
+    "kaptanto",
+    "events",
+    "types"
+  ]
+}

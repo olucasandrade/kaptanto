@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Actions engine with built-in types: `slack`, `discord`, `email`, `cache-invalidate`, `vector-upsert`, `inngest`, `trigger-dev`, `http-request`, and `custom`
+- Routing rules (`match:`) with table globs, operation filtering, and row-level `where` expressions
+- Dead-letter queue (DLQ) with SQLite backing and configurable retention
+- OpenAPI 3.0 discovery endpoint at `/openapi.json`
+- `output: webhook` sink mode
+- `@kaptanto/events` TypeScript SSE client and `n8n-nodes-kaptanto` community node
+
+### Changed
+
+- **Breaking:** broker-sink observability endpoints (`/metrics`, `/healthz`, `/openapi.json`) and the gRPC observability port now require TLS unless `--insecure` is set. Previously these endpoints started in plaintext. To migrate, either configure `server-tls` or pass `--insecure` for local development.
+
+### Fixed
+
+- DLQ is now wired into the production pipeline
+- Webhook sink URLs are redacted in errors and DLQ reason strings
+- Resolved action secrets are no longer expanded a second time by the webhook sink
+- Non-HTTP(S) webhook URLs are rejected at startup or dead-lettered after rendering
+- Inngest events now use the event timestamp instead of send-time; Inngest supports a configurable `api-url`
+- Shared event-name template validation between Inngest and Trigger.dev
+- `cache-invalidate` url-template supports `{{.After.<col>}}` and `{{.Before.<col>}}`
+
 ## [0.3.0] - 2026-07-04
 
 ### Added
