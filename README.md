@@ -217,7 +217,7 @@ Each action has an optional `match:` block that controls which events it receive
 
 ### OpenAPI
 
-When actions are configured, kaptanto serves a machine-readable spec at `/openapi.json` describing the configured actions, their parameters, and routing rules.
+When a network output (SSE, gRPC, queue sinks, or `output: webhook`) or `output: none` is used, kaptanto serves a machine-readable spec at `/openapi.json` describing the configured actions, their parameter names, and routing rules.
 
 ### Integration examples
 
