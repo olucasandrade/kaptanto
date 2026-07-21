@@ -185,6 +185,42 @@ func TestDefaults(t *testing.T) {
 	assert.Equal(t, "", cfg.Retention) // empty → runtime applies 1h
 	assert.Equal(t, "", cfg.Source)
 	assert.Nil(t, cfg.Tables)
+	assert.False(t, cfg.MCP.Enabled)
+}
+
+func TestLoad_MCPBlock(t *testing.T) {
+	path := writeTempYAML(t, `
+mcp:
+  enabled: true
+  port: 7655
+  max-subscriptions: 8
+  ring-size: 512
+  api-keys:
+    - name: support
+      key: ${MCP_KEY}
+      tables: [public.orders]
+      redact:
+        - tables: [public.orders]
+          columns: [email]
+  audit:
+    enabled: true
+    path: /tmp/mcp-audit.ndjson
+`)
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	assert.True(t, cfg.MCP.Enabled)
+	assert.Equal(t, 7655, cfg.MCP.Port)
+	assert.Equal(t, 8, cfg.MCP.MaxSubscriptions)
+	assert.Equal(t, 512, cfg.MCP.RingSize)
+	require.Len(t, cfg.MCP.APIKeys, 1)
+	assert.Equal(t, "support", cfg.MCP.APIKeys[0].Name)
+	assert.Equal(t, "${MCP_KEY}", cfg.MCP.APIKeys[0].Key)
+	assert.Equal(t, []string{"public.orders"}, cfg.MCP.APIKeys[0].Tables)
+	require.Len(t, cfg.MCP.APIKeys[0].Redact, 1)
+	assert.Equal(t, []string{"email"}, cfg.MCP.APIKeys[0].Redact[0].Columns)
+	require.NotNil(t, cfg.MCP.Audit.Enabled)
+	assert.True(t, *cfg.MCP.Audit.Enabled)
+	assert.Equal(t, "/tmp/mcp-audit.ndjson", cfg.MCP.Audit.Path)
 }
 
 // --- Merge tests ---

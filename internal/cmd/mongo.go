@@ -15,6 +15,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/mcp"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/router"
 	mongodb "github.com/olucasandrade/kaptanto/internal/source/mongodb"
@@ -32,6 +33,7 @@ func runMongoPipeline(
 	pm *cluster.PartitionManager,
 	outputServer func(ctx context.Context) error,
 	metrics *observability.KaptantoMetrics,
+	mcpServer *mcp.Server,
 ) error {
 	// SRCC-03: cluster mode requires shared Postgres checkpoint store so a
 	// replacement node can resume from the correct resume token position.
@@ -80,6 +82,9 @@ func runMongoPipeline(
 	g.Go(func() error { return connector.Run(gctx) })
 	g.Go(func() error { return rtr.Run(gctx) })
 	g.Go(func() error { return outputServer(gctx) })
+	if mcpServer != nil {
+		g.Go(func() error { return mcpServer.Run(gctx) })
+	}
 	if cfg.Cluster {
 		g.Go(func() error { heartbeater.Run(gctx); return nil })
 		g.Go(func() error { return pm.Run(gctx) })
@@ -115,6 +120,9 @@ func runMongoPipeline(
 	g2.Go(func() error { return connector2.Run(gctx2) })
 	g2.Go(func() error { return rtr.Run(gctx2) })
 	g2.Go(func() error { return outputServer(gctx2) })
+	if mcpServer != nil {
+		g2.Go(func() error { return mcpServer.Run(gctx2) })
+	}
 	if cfg.Cluster {
 		g2.Go(func() error { heartbeater.Run(gctx2); return nil })
 		g2.Go(func() error { return pm.Run(gctx2) })

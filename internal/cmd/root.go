@@ -26,6 +26,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/ha"
 	"github.com/olucasandrade/kaptanto/internal/logging"
+	"github.com/olucasandrade/kaptanto/internal/mcp"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/router"
 	postgres "github.com/olucasandrade/kaptanto/internal/source/postgres"
@@ -436,8 +437,17 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("output: none requires at least one configured action")
 	}
 
+	mcpServer, err := openMCPServer(cfg, metrics)
+	if err != nil {
+		return err
+	}
+	if mcpServer != nil {
+		mcpServer.SetRouter(rtr)
+		defer func() { _ = mcpServer.Close() }()
+	}
+
 	if cfg.SourceType() == "mongodb" {
-		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, cursorRun, heartbeater, pm, outputServer, metrics)
+		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, cursorRun, heartbeater, pm, outputServer, metrics, mcpServer)
 	}
 
 	tables := make([]string, 0, len(cfg.Tables))
@@ -461,6 +471,9 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	connector.SetMetrics(metrics)
 	if walElector != nil {
 		connector.SetEpochGetter(walElector.EpochGetter)
+	}
+	if mcpServer != nil {
+		mcpServer.SetSchemaProvider(&mcp.ParserSchemaProvider{Parser: connector.Parser()})
 	}
 
 	var bkStore backfill.BackfillStore
@@ -515,11 +528,15 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	bkEng.SetWatermark(backfill.NewWatermarkChecker(el, numEventLogPartitions))
 	connector.SetBackfillEngine(bkEng)
 
+	// MCP already opened above (shared with mongo path).
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { cursorRun(gctx); return nil })
 	g.Go(func() error { return connector.Run(gctx) })
 	g.Go(func() error { return rtr.Run(gctx) })
 	g.Go(func() error { return outputServer(gctx) })
+	if mcpServer != nil {
+		g.Go(func() error { return mcpServer.Run(gctx) })
+	}
 	if cfg.Cluster {
 		g.Go(func() error { heartbeater.Run(gctx); return nil })
 		g.Go(func() error { return pm.Run(gctx) })
