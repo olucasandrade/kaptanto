@@ -1,0 +1,9 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+handler.zip
+.aws-sam/
+
+__pycache__/
+*.pyc

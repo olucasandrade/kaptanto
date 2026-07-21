@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Minimal Kaptanto → Lambda Function URL receiver (async SigV4).
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Runtime: python3.12
+
+Parameters:
+  FunctionName:
+    Type: String
+    Default: kaptanto-cdc-orders
+
+Resources:
+  CdcFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Ref FunctionName
+      CodeUri: src/
+      Handler: handler.handler
+      Description: Receives Kaptanto CDC ChangeEvents via Function URL
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+        InvokeMode: BUFFERED
+
+Outputs:
+  FunctionUrl:
+    Description: Set LAMBDA_FUNCTION_URL to this value for kaptanto.yaml
+    Value: !GetAtt CdcFunctionUrl.FunctionUrl
+  FunctionArn:
+    Description: Lambda ARN
+    Value: !GetAtt CdcFunction.Arn
+  RegionHint:
+    Description: Pass this region to the lambda action params.region
+    Value: !Ref AWS::Region
