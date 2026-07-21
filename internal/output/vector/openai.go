@@ -105,7 +105,7 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 		return nil, fmt.Errorf("vector: openai embed: read body: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("vector: openai embed: HTTP %d: %s", resp.StatusCode, truncateForErr(body))
+		return nil, &StatusError{Status: resp.StatusCode, Msg: "openai embed: " + truncateForErr(body)}
 	}
 
 	var parsed openAIResponse
