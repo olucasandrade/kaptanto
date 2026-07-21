@@ -22,6 +22,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/cluster"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/dlq"
+	"github.com/olucasandrade/kaptanto/internal/enrich"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/ha"
@@ -338,13 +339,21 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		cursorStore = cluster.NewEpochCursorStore(cursorStore, pm)
 	}
 
+	metrics := observability.NewKaptantoMetrics()
+
+	// Optional fail-open HTTP enricher (AIC-01/02). Wrap EventLog so every
+	// Append/AppendBatch path (WAL + backfill) enriches before the durable
+	// write — connectors and EventLog backends stay untouched.
+	enricher, err := enrich.Compile(cfg.Enrichment, metrics)
+	if err != nil {
+		return err
+	}
+	el = enrich.Wrap(el, enricher)
+
 	rtr := router.NewRouter(el, numEventLogPartitions, cursorStore)
 	if cfg.Cluster {
 		pm.SetRouter(rtr)
 	}
-
-	metrics := observability.NewKaptantoMetrics()
-
 	// Open the DLQ store. Enabled by default (nil/true); an explicit false
 	// restores pre-DLQ log-and-drop behavior.
 	var dlqStore dlq.Store
