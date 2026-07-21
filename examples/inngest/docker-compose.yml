@@ -16,6 +16,9 @@ services:
       context: ../..
       dockerfile: examples/shared/Dockerfile.kaptanto
     command: ["--config", "/app/kaptanto.yaml"]
+    environment:
+      # The inngest dev server accepts any event key; "local" is the convention.
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:-local}
     depends_on:
       - postgres
     volumes:
