@@ -31,11 +31,11 @@ import (
 // server without bringing up a real broker connection.
 type fakeObsSink struct{}
 
-func (f *fakeObsSink) ID() string                                 { return "fake" }
+func (f *fakeObsSink) ID() string                                           { return "fake" }
 func (f *fakeObsSink) Deliver(_ context.Context, _ eventlog.LogEntry) error { return nil }
-func (f *fakeObsSink) SetMetrics(_ *observability.KaptantoMetrics) {}
-func (f *fakeObsSink) Ping() error                                { return nil }
-func (f *fakeObsSink) Close()                                     {}
+func (f *fakeObsSink) SetMetrics(_ *observability.KaptantoMetrics)          {}
+func (f *fakeObsSink) Ping() error                                          { return nil }
+func (f *fakeObsSink) Close()                                               {}
 
 var _ messageSink = (*fakeObsSink)(nil)
 
@@ -334,6 +334,112 @@ func TestBuildSinkServer_mTLSObservability(t *testing.T) {
 	req2.Header.Set("Authorization", "Bearer "+token)
 	_, err = noCertClient.Do(req2)
 	require.Error(t, err, "client without certificate must fail mTLS handshake")
+
+	cancel()
+}
+
+func TestBuildOutputServer_WebhookRequiresSinkConfig(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Output = "webhook"
+	cfg.Insecure = true
+
+	metrics := observability.NewKaptantoMetrics()
+	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
+
+	_, err := buildOutputServer(cfg, rtr, router.NewNoopCursorStore(), metrics, http.NotFoundHandler(), nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sinks.webhook")
+}
+
+func TestBuildOutputServer_WebhookRequiresTLS(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Output = "webhook"
+	cfg.AuthToken = "token"
+	cfg.Sinks.Webhook = &config.WebhookSinkConfig{
+		URL: "http://localhost:1",
+	}
+
+	metrics := observability.NewKaptantoMetrics()
+	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
+
+	_, err := buildOutputServer(cfg, rtr, router.NewNoopCursorStore(), metrics, http.NotFoundHandler(), nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires TLS")
+}
+
+func TestBuildOutputServer_WebhookStarts(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Output = "webhook"
+	cfg.Insecure = true
+	cfg.Sinks.Webhook = &config.WebhookSinkConfig{
+		URL: "http://localhost:1",
+	}
+
+	metrics := observability.NewKaptantoMetrics()
+	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
+
+	fn, err := buildOutputServer(cfg, rtr, router.NewNoopCursorStore(), metrics, http.NotFoundHandler(), nil, nil, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, fn)
+}
+
+func TestBuildOutputServer_NoneObservabilityRequiresTLS(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Output = "none"
+
+	metrics := observability.NewKaptantoMetrics()
+	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
+
+	_, err := buildOutputServer(cfg, rtr, router.NewNoopCursorStore(), metrics, http.NotFoundHandler(), nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires TLS")
+}
+
+func TestBuildObservabilityServer_ServesEndpoints(t *testing.T) {
+	const token = "obs-none-token"
+	dir := t.TempDir()
+	certFile, keyFile := generateSelfSignedCert(t, dir)
+
+	cfg := config.Defaults()
+	port, lis := newLocalListener(t)
+	cfg.Port = port
+	_ = lis.Close() // release the port so the observability server can bind
+	cfg.AuthToken = token
+	cfg.ServerTLS = config.ServerTLSConfig{CertFile: certFile, KeyFile: keyFile}
+
+	metrics := observability.NewKaptantoMetrics()
+
+	fn, err := buildObservabilityServer(cfg, metrics, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = fn(ctx) }()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	addr := fmt.Sprintf("https://127.0.0.1:%d", cfg.Port)
+	waitForObsServer(t, addr, client)
+
+	// No token → 401.
+	resp, err := client.Get(addr + "/healthz")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	_ = resp.Body.Close()
+
+	// Token → 200 on all three observability endpoints.
+	for _, path := range []string{"/healthz", "/metrics", "/openapi.json"} {
+		req, err := http.NewRequest(http.MethodGet, addr+path, nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode, path)
+		_ = resp.Body.Close()
+	}
 
 	cancel()
 }
