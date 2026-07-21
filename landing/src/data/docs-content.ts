@@ -2,7 +2,10 @@ export type DocItem = { title: string; sub: string; body: string };
 
 // docs content
 export const DOCS_CONTENT: Record<string, DocItem> = {
-'docs-intro': {title:'What is Kaptanto?',sub:'The fastest way to stream changes from Postgres and MongoDB to your application. One binary, no infrastructure.',body:`
+  "docs-intro": {
+    title: "What is Kaptanto?",
+    sub: "The fastest way to stream changes from Postgres and MongoDB to your application. One binary, no infrastructure.",
+    body: `
 <div class="dcards">
 <div class="dcard" onclick="go('docs-quickstart')"><h4>Quick Start</h4><p>Go from zero to streaming in 2 minutes.</p></div>
 <div class="dcard" onclick="go('docs-postgres')"><h4>Connect Postgres</h4><p>Set up WAL logical replication.</p></div>
@@ -31,9 +34,13 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 <li><strong>Queue sinks</strong> — Push CDC events to NATS JetStream, AWS SQS, Apache Kafka, Google Cloud Pub/Sub, or RabbitMQ with per-table routing and TLS/mTLS support.</li>
 <li><strong>Named sources</strong> — One database per process today; <code>--source-id</code> namespaces the replication slot and publication so you can run several kaptanto instances against the same or different databases without collisions.</li>
 <li><strong>Filtering</strong> — Table, operation, column, and SQL WHERE condition filters.</li>
-</ul>`},
+</ul>`,
+  },
 
-'docs-quickstart': {title:'Quick Start',sub:'Install kaptanto and stream your first events in under 2 minutes.',body:`
+  "docs-quickstart": {
+    title: "Quick Start",
+    sub: "Install kaptanto and stream your first events in under 2 minutes.",
+    body: `
 <h2 class="dh2">1. Install</h2>
 <div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <p class="dp">Or with Docker:</p>
@@ -62,9 +69,13 @@ max_wal_senders = 4</div>
 <span class="tc"># gRPC server</span>
 <span class="tg">$</span> kaptanto --source postgres://... --output grpc --port 50051 --insecure</div>
 <p class="dp">Each connected client gets an independent consumer with its own cursor and checkpoint.</p>
-<div class="dcall"><p><strong>Auth is required by default:</strong> SSE, gRPC, and every queue sink refuse to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) and TLS certificates (SSE/gRPC only). <code>--insecure</code> disables both checks for local development — never use it in production. See <a onclick="go('docs-config')">Configuration</a> for the production setup.</p></div>`},
+<div class="dcall"><p><strong>Auth is required by default:</strong> SSE, gRPC, and every queue sink refuse to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) and TLS certificates (SSE/gRPC only). <code>--insecure</code> disables both checks for local development — never use it in production. See <a onclick="go('docs-config')">Configuration</a> for the production setup.</p></div>`,
+  },
 
-'docs-install': {title:'Installation',sub:'Install kaptanto on Linux, macOS, or Windows.',body:`
+  "docs-install": {
+    title: "Installation",
+    sub: "Install kaptanto on Linux, macOS, or Windows.",
+    body: `
 <h2 class="dh2">Binary (recommended)</h2>
 <div class="dcode"><span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh</div>
 <p class="dp">Downloads a statically-linked binary for your platform. No runtime dependencies.</p>
@@ -81,9 +92,13 @@ max_wal_senders = 4</div>
 <h2 class="dh2">With Rust acceleration</h2>
 <p class="dp">For maximum parsing performance, compile with the Rust FFI parser:</p>
 <div class="dcode"><span class="tg">$</span> make build-rust</div>
-<p class="dp">Requires Rust 1.77+ and CGO. Provides 30-40% lower CPU usage for the pgoutput decoding path.</p>`},
+<p class="dp">Requires Rust 1.77+ and CGO. Provides 30-40% lower CPU usage for the pgoutput decoding path.</p>`,
+  },
 
-'docs-postgres': {title:'Connect Postgres',sub:'Configure Postgres for CDC with kaptanto.',body:`
+  "docs-postgres": {
+    title: "Connect Postgres",
+    sub: "Configure Postgres for CDC with kaptanto.",
+    body: `
 <h2 class="dh2">Requirements</h2>
 <ul class="dul">
 <li><strong>Postgres 14–17</strong> — The tested and supported range for the <code>pgoutput</code> logical decoding plugin (included in Postgres core since v10).</li>
@@ -109,9 +124,13 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <h2 class="dh2">Failover handling</h2>
 <p class="dp">Kaptanto supports multi-host DSNs for automatic primary detection:</p>
 <div class="dcode">postgres://user:pass@primary:5432,standby:5432/mydb?target_session_attrs=read-write</div>
-<p class="dp">On failover, kaptanto reconnects, verifies it is connected to the primary (not a standby), checks for the replication slot, and resumes from the last checkpoint.</p>`},
+<p class="dp">On failover, kaptanto reconnects, verifies it is connected to the primary (not a standby), checks for the replication slot, and resumes from the last checkpoint.</p>`,
+  },
 
-'docs-mongo': {title:'Connect MongoDB',sub:'Configure MongoDB Change Streams for CDC with kaptanto.',body:`
+  "docs-mongo": {
+    title: "Connect MongoDB",
+    sub: "Configure MongoDB Change Streams for CDC with kaptanto.",
+    body: `
 <h2 class="dh2">Requirements</h2>
 <ul class="dul">
 <li><strong>MongoDB 4.0+</strong> — Change Streams require a replica set or sharded cluster.</li>
@@ -130,9 +149,13 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <p class="dp">If the oplog is truncated during a long outage and the resume token is invalid, kaptanto detects this and triggers an automatic re-snapshot.</p>
 
 <h2 class="dh2">Schema normalization</h2>
-<p class="dp">MongoDB documents are schemaless. Kaptanto emits the full document as-is in the <code>after</code> field, preserving nested structures. The <code>key</code> field contains the <code>_id</code> value.</p>`},
+<p class="dp">MongoDB documents are schemaless. Kaptanto emits the full document as-is in the <code>after</code> field, preserving nested structures. The <code>key</code> field contains the <code>_id</code> value.</p>`,
+  },
 
-'docs-schema': {title:'Event Schema',sub:'Every event follows the same JSON structure regardless of source.',body:`
+  "docs-schema": {
+    title: "Event Schema",
+    sub: "Every event follows the same JSON structure regardless of source.",
+    body: `
 <h2 class="dh2">Standard event</h2>
 <div class="dcode">{
   "id": "01HX7K9M3N4P5Q6R7S8T9U0V",
@@ -163,9 +186,13 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 
 <h2 class="dh2">Idempotency key</h2>
 <p class="dp">Every event has a deterministic <code>idempotency_key</code> composed of source_id, table, primary_key, operation, and position. This key is stable across restarts. Consumers use it for deduplication.</p>
-<div class="dcall"><p><strong>Format:</strong> <code>{source}:{schema}.{table}:{pk}:{op}:{position}</code></p></div>`},
+<div class="dcall"><p><strong>Format:</strong> <code>{source}:{schema}.{table}:{pk}:{op}:{position}</code></p></div>`,
+  },
 
-'docs-backfills': {title:'Backfills',sub:'How kaptanto snapshots existing data and coordinates with real-time streaming.',body:`
+  "docs-backfills": {
+    title: "Backfills",
+    sub: "How kaptanto snapshots existing data and coordinates with real-time streaming.",
+    body: `
 <h2 class="dh2">Strategies</h2>
 <p class="dp">Kaptanto currently runs the <code>snapshot_and_stream</code> strategy for every table — it is the default and is not yet selectable per table via a flag or YAML field. The remaining strategies exist in the backfill engine and are documented here for completeness; per-table strategy selection is on the roadmap.</p>
 <table class="dtbl"><thead><tr><th>Strategy</th><th>Behavior</th></tr></thead><tbody>
@@ -185,9 +212,13 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <div class="dcode">SELECT * FROM orders WHERE id > $1 ORDER BY id ASC LIMIT 5000;</div>
 
 <h2 class="dh2">Crash recovery</h2>
-<p class="dp">Backfill cursor position is persisted on every batch. If kaptanto crashes mid-backfill, it resumes from the last saved cursor, not from the beginning.</p>`},
+<p class="dp">Backfill cursor position is persisted on every batch. If kaptanto crashes mid-backfill, it resumes from the last saved cursor, not from the beginning.</p>`,
+  },
 
-'docs-consistency': {title:'Consistency Model',sub:'How kaptanto ensures loss-free, strictly ordered change data capture.',body:`
+  "docs-consistency": {
+    title: "Consistency Model",
+    sub: "How kaptanto ensures loss-free, strictly ordered change data capture.",
+    body: `
 <h2 class="dh2">Guarantees</h2>
 <table class="dtbl"><thead><tr><th>Guarantee</th><th>Description</th></tr></thead><tbody>
 <tr><td>Consistency</td><td>Every row-level event is delivered at least once</td></tr>
@@ -203,17 +234,25 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <p class="dp">Every event is durably written to the embedded Event Log (Badger) before the source checkpoint is advanced. If kaptanto crashes between receiving a WAL message and writing it, the source re-sends on reconnection. The Event Log deduplicates by the deterministic <code>idempotency_key</code>, so replayed messages collapse to a single event.</p>
 
 <h2 class="dh2">Poison pill handling</h2>
-<p class="dp">Failed events are retried with exponential backoff (1s → 5s → 30s → 2min → 10min plateau). After 15 failed attempts, the event is logged at Error level and dropped — there is no persistent dead-letter store to replay from, so alert on <code>kaptanto_errors_total</code> to catch this. A failed event blocks only its own message group, not other groups in the same partition.</p>`},
+<p class="dp">Failed events are retried with exponential backoff (1s → 5s → 30s → 2min → 10min plateau). After 15 failed attempts, the event is logged at Error level and dropped — there is no persistent dead-letter store to replay from, so alert on <code>kaptanto_errors_total</code> to catch this. A failed event blocks only its own message group, not other groups in the same partition.</p>`,
+  },
 
-'docs-ordering': {title:'Ordering and Partitions',sub:'How kaptanto maintains per-key order while maximizing throughput.',body:`
+  "docs-ordering": {
+    title: "Ordering and Partitions",
+    sub: "How kaptanto maintains per-key order while maximizing throughput.",
+    body: `
 <h2 class="dh2">Message groups</h2>
 <p class="dp">Events are hashed into 64 partitions by their primary key. All events for the same key land in the same partition and are delivered sequentially in commit order.</p>
 <div class="dcall"><p><strong>Note:</strong> The grouping key is currently the table's primary key (<code>id</code>) and is not yet configurable per table. Custom grouping keys are on the roadmap.</p></div>
 
 <h2 class="dh2">Partition isolation</h2>
-<p class="dp">Each partition is served by a dedicated goroutine. If consumer A is slow on partition 7, partitions 0-6 and 8-63 continue at full speed for all consumers.</p>`},
+<p class="dp">Each partition is served by a dedicated goroutine. If consumer A is slow on partition 7, partitions 0-6 and 8-63 continue at full speed for all consumers.</p>`,
+  },
 
-'docs-stdout': {title:'stdout Output',sub:'The simplest output mode — pipe CDC events anywhere.',body:`
+  "docs-stdout": {
+    title: "stdout Output",
+    sub: "The simplest output mode — pipe CDC events anywhere.",
+    body: `
 <h2 class="dh2">Usage</h2>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output stdout</div>
 <p class="dp">One JSON line per event written to stdout. Pipe to jq, a subprocess, or any program that reads stdin.</p>
@@ -222,9 +261,13 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output stdout | jq 'select(.operation == "insert")'</div>
 
 <h2 class="dh2">Limitations</h2>
-<p class="dp">Single consumer only. No acknowledgment — events are fire-and-forget. The consumer is responsible for its own checkpointing using <code>metadata.lsn</code> (Postgres) or the <code>idempotency_key</code>, which is stable across restarts.</p>`},
+<p class="dp">Single consumer only. No acknowledgment — events are fire-and-forget. The consumer is responsible for its own checkpointing using <code>metadata.lsn</code> (Postgres) or the <code>idempotency_key</code>, which is stable across restarts.</p>`,
+  },
 
-'docs-sse': {title:'SSE Output',sub:'Server-Sent Events for multi-consumer HTTP streaming.',body:`
+  "docs-sse": {
+    title: "SSE Output",
+    sub: "Server-Sent Events for multi-consumer HTTP streaming.",
+    body: `
 <h2 class="dh2">Usage</h2>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654 \\
     --tls-cert server.pem --tls-key server.key --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
@@ -242,9 +285,13 @@ data: {"operation":"update","table":"orders","after":{"id":1234,"status":"settle
 
 id: 01HX7K9M3N4P5Q6R7S8T9U0W
 data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
-<p class="dp">The <code>data:</code> payload is the full event JSON (simplified above for readability) — see the <a onclick="go('docs-schema')">Event Schema</a>.</p>`},
+<p class="dp">The <code>data:</code> payload is the full event JSON (simplified above for readability) — see the <a onclick="go('docs-schema')">Event Schema</a>.</p>`,
+  },
 
-'docs-grpc': {title:'gRPC Output',sub:'High-performance streaming with Protocol Buffers.',body:`
+  "docs-grpc": {
+    title: "gRPC Output",
+    sub: "High-performance streaming with Protocol Buffers.",
+    body: `
 <h2 class="dh2">Usage</h2>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output grpc --port 50051 \\
     --tls-cert server.pem --tls-key server.key --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
@@ -258,9 +305,13 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 
 <h2 class="dh2">Consumer pattern</h2>
 <p class="dp">Call <code>Subscribe</code> to open a streaming connection. Call <code>Acknowledge</code> periodically with the checkpoint from the last processed event to advance your cursor.</p>
-<p class="dp">HTTP/2 backpressure is native. If the consumer stops reading, the gRPC server detects window exhaustion and applies per-consumer backpressure.</p>`},
+<p class="dp">HTTP/2 backpressure is native. If the consumer stops reading, the gRPC server detects window exhaustion and applies per-consumer backpressure.</p>`,
+  },
 
-'docs-config': {title:'Configuration',sub:'CLI flags and YAML configuration reference.',body:`
+  "docs-config": {
+    title: "Configuration",
+    sub: "CLI flags and YAML configuration reference.",
+    body: `
 <h2 class="dh2">CLI flags</h2>
 <table class="dtbl"><thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>--source</code></td><td>required</td><td>Database connection string</td></tr>
@@ -321,9 +372,13 @@ sinks:
 <div class="dcards">
 <div class="dcard" onclick="go('docs-queue-sinks')"><h4>Queue Sinks</h4><p>YAML reference for NATS, SQS, Kafka, Pub/Sub, and RabbitMQ sinks.</p></div>
 <div class="dcard" onclick="go('docs-cluster')"><h4>Cluster Mode</h4><p>Active-active delivery with embedded NATS JetStream.</p></div>
-</div>`},
+</div>`,
+  },
 
-'docs-filtering': {title:'Filtering',sub:'Control which events reach your consumers.',body:`
+  "docs-filtering": {
+    title: "Filtering",
+    sub: "Control which events reach your consumers.",
+    body: `
 <h2 class="dh2">Table filtering</h2>
 <p class="dp">Specify which tables to capture with <code>--tables</code> or as keys under <code>tables:</code> in the YAML config (the config is a map keyed by table name).</p>
 
@@ -342,14 +397,22 @@ sinks:
 <h2 class="dh2">Operation filtering</h2>
 <p class="dp">Operation filtering is a consumer-side subscription filter, not table config. Pass <code>operations</code> as a query parameter when subscribing over SSE (or in the gRPC <code>SubscribeRequest</code>):</p>
 <div class="dcode">GET http://localhost:7654/events?tables=audit_log&operations=insert
-<span class="tc"># only inserts — updates and deletes are not delivered</span></div>`},
+<span class="tc"># only inserts — updates and deletes are not delivered</span></div>`,
+  },
 
-'docs-grouping': {title:'Message Grouping',sub:'Configure how events are partitioned for ordering.',body:`
+  "docs-grouping": {
+    title: "Message Grouping",
+    sub: "Configure how events are partitioned for ordering.",
+    body: `
 <h2 class="dh2">Grouping by primary key</h2>
 <p class="dp">Events are grouped by primary key. All events for the same row are delivered in order within their partition, and the 64 partitions are processed in parallel for throughput.</p>
-<div class="dcall"><p><strong>Roadmap:</strong> Custom grouping keys — for example, grouping all rows of a child table by a parent <code>order_id</code> — are not yet exposed via flag or YAML. The grouping key is fixed to the primary key today. The tradeoff when it ships: coarse-grained grouping (e.g. <code>account_id</code>) reduces parallelism; fine-grained grouping (primary key) maximizes throughput.</p></div>`},
+<div class="dcall"><p><strong>Roadmap:</strong> Custom grouping keys — for example, grouping all rows of a child table by a parent <code>order_id</code> — are not yet exposed via flag or YAML. The grouping key is fixed to the primary key today. The tradeoff when it ships: coarse-grained grouping (e.g. <code>account_id</code>) reduces parallelism; fine-grained grouping (primary key) maximizes throughput.</p></div>`,
+  },
 
-'docs-ha': {title:'High Availability',sub:'Run kaptanto in HA mode with automatic failover.',body:`
+  "docs-ha": {
+    title: "High Availability",
+    sub: "Run kaptanto in HA mode with automatic failover.",
+    body: `
 <h2 class="dh2">Agent failover</h2>
 <p class="dp">Run two kaptanto instances against the same source. Only one actively consumes via Postgres advisory lock leader election.</p>
 <div class="dcode"><span class="tc"># Instance 1</span>
@@ -370,9 +433,13 @@ sinks:
 
 <h2 class="dh2">Database failover</h2>
 <p class="dp">Use multi-host DSNs for automatic primary detection:</p>
-<div class="dcode">postgres://host1:5432,host2:5432/mydb?target_session_attrs=read-write</div>`},
+<div class="dcode">postgres://host1:5432,host2:5432/mydb?target_session_attrs=read-write</div>`,
+  },
 
-'docs-metrics': {title:'Metrics and Monitoring',sub:'Prometheus metrics and health check endpoints.',body:`
+  "docs-metrics": {
+    title: "Metrics and Monitoring",
+    sub: "Prometheus metrics and health check endpoints.",
+    body: `
 <h2 class="dh2">Prometheus endpoint</h2>
 <p class="dp">There is no separate metrics flag or port. <code>/metrics</code> and <code>/healthz</code> are served by the output server and follow <code>--port</code>:</p>
 <table class="dtbl"><thead><tr><th>Output mode</th><th>Metrics / health bind</th></tr></thead><tbody>
@@ -399,9 +466,13 @@ sinks:
 <h2 class="dh2">Health check</h2>
 <div class="dcode"><span class="tc"># same host:port as /metrics for the mode above</span>
 GET http://localhost:7654/healthz
-<span class="tc"># 200 = healthy, 503 = unhealthy with diagnostic JSON</span></div>`},
+<span class="tc"># 200 = healthy, 503 = unhealthy with diagnostic JSON</span></div>`,
+  },
 
-'docs-api': {title:'HTTP Endpoints',sub:'The HTTP surface kaptanto exposes today.',body:`
+  "docs-api": {
+    title: "HTTP Endpoints",
+    sub: "The HTTP surface kaptanto exposes today.",
+    body: `
 <p class="dp">Kaptanto runs a single HTTP server alongside the selected output mode. The endpoints below are everything it serves — there is no dynamic management API yet.</p>
 <h2 class="dh2">Available endpoints</h2>
 <table class="dtbl"><thead><tr><th>Method</th><th>Path</th><th>Mode</th><th>Description</th></tr></thead><tbody>
@@ -412,9 +483,13 @@ GET http://localhost:7654/healthz
 <p class="dp">In SSE and queue-sink modes these bind to <code>--port</code>; in gRPC mode <code>/metrics</code> and <code>/healthz</code> bind to <code>--port</code> + 1. stdout mode serves no HTTP endpoints. See <a onclick="go('docs-sse')">Server-Sent Events</a> and <a onclick="go('docs-metrics')">Metrics &amp; Monitoring</a>.</p>
 
 <h2 class="dh2">Roadmap: management API</h2>
-<p class="dp">A REST API for managing sources, tables, and backfills at runtime is not yet implemented. Today, sources and tables are fixed at startup via <code>--source</code>/<code>--tables</code> or the YAML config, and changing them requires a restart. Programmatic management (<code>/api/sources</code>, <code>/api/backfills</code>, …) is planned but not available in the current binary.</p>`},
+<p class="dp">A REST API for managing sources, tables, and backfills at runtime is not yet implemented. Today, sources and tables are fixed at startup via <code>--source</code>/<code>--tables</code> or the YAML config, and changing them requires a restart. Programmatic management (<code>/api/sources</code>, <code>/api/backfills</code>, …) is planned but not available in the current binary.</p>`,
+  },
 
-'docs-troubleshooting': {title:'Troubleshooting',sub:'Common issues and how to resolve them.',body:`
+  "docs-troubleshooting": {
+    title: "Troubleshooting",
+    sub: "Common issues and how to resolve them.",
+    body: `
 <h2 class="dh2">WAL bloat</h2>
 <p class="dp">If kaptanto falls behind, Postgres retains WAL indefinitely. Monitor <code>kaptanto_source_lag_bytes</code> and set an alert in your observability stack when it rises. There is no <code>wal_lag_alert_threshold</code> config field — alerting lives outside kaptanto.</p>
 
@@ -425,10 +500,13 @@ GET http://localhost:7654/healthz
 <p class="dp">Set <code>REPLICA IDENTITY FULL</code> on tables with large columns. Without it, unchanged TOAST columns appear as null in update events.</p>
 
 <h2 class="dh2">Consumer falling behind</h2>
-<p class="dp">Check <code>kaptanto_consumer_lag_events</code>. There is no built-in slow-consumer disconnect policy — if a consumer consistently falls behind, disconnect it at the application level and reconnect with the same consumer ID to resume from where it left off.</p>`},
+<p class="dp">Check <code>kaptanto_consumer_lag_events</code>. There is no built-in slow-consumer disconnect policy — if a consumer consistently falls behind, disconnect it at the application level and reconnect with the same consumer ID to resume from where it left off.</p>`,
+  },
 
-
-'docs-queue-sinks': {title:'Queue Sinks',sub:'Push CDC events to NATS, SQS, Kafka, Pub/Sub, or RabbitMQ.',body:`
+  "docs-queue-sinks": {
+    title: "Queue Sinks",
+    sub: "Push CDC events to NATS, SQS, Kafka, Pub/Sub, or RabbitMQ.",
+    body: `
 <p class="dp">Queue sinks let kaptanto publish each CDC event to a message broker instead of (or in addition to) serving SSE or gRPC consumers. At-least-once delivery is guaranteed. Per-table topic/subject/queue routing is supported on every sink via Go templates.</p>
 <div class="dcall"><p><strong>Auth required:</strong> every sink below exposes <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>, so kaptanto refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) unless you pass <code>--insecure</code> — see <a onclick="go('docs-config')">Configuration</a>.</p></div>
 
@@ -513,9 +591,13 @@ GET http://localhost:7654/healthz
 <tr><td><code>cert-file</code></td><td>Client certificate for mutual TLS (mTLS)</td></tr>
 <tr><td><code>key-file</code></td><td>Client private key for mutual TLS (mTLS)</td></tr>
 </tbody></table>
-<p class="dp">All TLS fields are optional. Omit the entire <code>tls:</code> block to use system CAs without mTLS.</p>`},
+<p class="dp">All TLS fields are optional. Omit the entire <code>tls:</code> block to use system CAs without mTLS.</p>`,
+  },
 
-'docs-cluster': {title:'Cluster Mode',sub:'Active-active delivery across multiple kaptanto nodes with embedded NATS JetStream.',body:`
+  "docs-cluster": {
+    title: "Cluster Mode",
+    sub: "Active-active delivery across multiple kaptanto nodes with embedded NATS JetStream.",
+    body: `
 <p class="dp">Cluster mode runs multiple kaptanto nodes in an active-active configuration. Each node owns a subset of the 64 partitions and delivers events for those partitions. If a node fails, its partitions are claimed by remaining nodes within seconds.</p>
 <div class="dcall"><p><strong>Requires:</strong> Cluster mode uses an embedded NATS JetStream server for the distributed Event Log and a shared Postgres database for cursor and backfill state. No separate NATS installation is needed.</p></div>
 
@@ -579,9 +661,13 @@ node-id: node-1</div>
 </tbody></table>
 
 <h2 class="dh2">vs. HA mode</h2>
-<p class="dp"><code>--ha</code> (Postgres advisory lock) is active-passive — one node captures and delivers, the other is a hot standby. <code>--cluster</code> is active-active — all nodes deliver events concurrently for different partitions. Use HA for simplicity; use cluster when you need horizontal throughput scaling.</p>`},
+<p class="dp"><code>--ha</code> (Postgres advisory lock) is active-passive — one node captures and delivers, the other is a hot standby. <code>--cluster</code> is active-active — all nodes deliver events concurrently for different partitions. Use HA for simplicity; use cluster when you need horizontal throughput scaling.</p>`,
+  },
 
-'docs-aws-setup': {title:'AWS Deployment Guide',sub:'How to run kaptanto, Debezium, and Sequin alongside an API on AWS — and what each setup actually costs you.',body:`
+  "docs-aws-setup": {
+    title: "AWS Deployment Guide",
+    sub: "How to run kaptanto, Debezium, and Sequin alongside an API on AWS — and what each setup actually costs you.",
+    body: `
 <div class="dcall"><p><strong>Scenario:</strong> An order management API (Node.js / Python / any language) running on ECS Fargate, backed by RDS Postgres. Every row written via the API must be streamed to downstream consumers in real time.</p></div>
 <h2 class="dh2">Best use cases for kaptanto</h2>
 <ul class="dul">
@@ -650,7 +736,7 @@ es.onmessage = (e) =&gt; {
 FROM golang:1.25 AS build
 RUN apt-get update &amp;&amp; apt-get install -y curl build-essential
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${'$'}{PATH}"
+ENV PATH="/root/.cargo/bin:${"$"}{PATH}"
 WORKDIR /src
 COPY . .
 RUN make build-rust</div>
@@ -758,9 +844,13 @@ app.post(<span class="ty">'/cdc/orders'</span>, async (req, res) =&gt; {
 <div class="dcards">
 <div class="dcard" onclick="go('docs-consistency')"><h4>Consistency Model</h4><p>Delivery guarantees, durability, and what happens on crash.</p></div>
 <div class="dcard" onclick="go('docs-ha')"><h4>High Availability</h4><p>Leader election and multi-AZ failover.</p></div>
-</div>`},
+</div>`,
+  },
 
-'docs-actions': {title:'Actions',sub:'Turn CDC events into side effects — Slack, Discord, email, HTTP, cache purges, vector upserts, and workflow triggers — without writing consumer code.',body:`
+  "docs-actions": {
+    title: "Actions",
+    sub: "Turn CDC events into side effects — Slack, Discord, email, HTTP, cache purges, vector upserts, and workflow triggers — without writing consumer code.",
+    body: `
 <p class="dp">Actions are the simplest way to react to database changes. Each action declares a type, parameters, and an optional routing rule. Kaptanto compiles them at startup and delivers matching events through the internal webhook sink — no consumer code required. Set <code>output: none</code> to run kaptanto as a pure action processor.</p>
 
 <h2 class="dh2">Quick example</h2>
@@ -826,8 +916,7 @@ actions:
     headers:
       X-Custom: myvalue
     batch:
-      max-events: 10
-      flush-interval: 5s</div>
+      max-events: 10</div>
 
 <h3 class="dh3">email</h3>
 <p class="dp">Sends CDC notifications via the SendGrid v3 API.</p>
@@ -861,7 +950,7 @@ actions:
 <table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>api-token</code></td><td>Yes</td><td>Yes</td><td>Cloudflare API token</td></tr>
 <tr><td><code>zone-id</code></td><td>Yes</td><td>No</td><td>Cloudflare zone ID</td></tr>
-<tr><td><code>url-template</code></td><td>Yes</td><td>No</td><td>Go template rendering the purge URL from the event</td></tr>
+<tr><td><code>url-template</code></td><td>Yes</td><td>No</td><td>Go template rendering the purge URL; supports event fields and <code>{{.After.&lt;col&gt;}}</code> / <code>{{.Before.&lt;col&gt;}}</code></td></tr>
 </tbody></table>
 
 <h3 class="dh3">vector-upsert</h3>
@@ -894,6 +983,7 @@ actions:
     operations: ["insert"]</div>
 <table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>event-key</code></td><td>Yes</td><td>Yes</td><td>Inngest event key</td></tr>
+<tr><td><code>api-url</code></td><td>No</td><td>No</td><td>API base URL (default: <code>https://inn.gs</code>)</td></tr>
 <tr><td><code>event-name-template</code></td><td>No</td><td>No</td><td>Go template for event name (default: <code>kaptanto/{{.Table}}.{{.Operation}}</code>)</td></tr>
 </tbody></table>
 <p class="dp">See <a onclick="go('docs-inngest')">Inngest integration</a> for a full Docker Compose example.</p>
@@ -920,15 +1010,19 @@ actions:
 <tr><td><code>transform</code></td><td>Override the type's default transform (<code>language</code> + <code>expression</code>)</td></tr>
 <tr><td><code>headers</code></td><td>Extra HTTP headers (merged over type defaults)</td></tr>
 <tr><td><code>timeout</code></td><td>Override the default request timeout (Go duration, e.g. <code>10s</code>)</td></tr>
-<tr><td><code>batch</code></td><td>Override batching (<code>max-events</code> + <code>flush-interval</code>); rejected if the type pins batch</td></tr>
+<tr><td><code>batch</code></td><td>Override batching (<code>max-events</code> only); rejected if the type pins batch</td></tr>
 </tbody></table>
 
 <div class="dcards">
 <div class="dcard" onclick="go('docs-routing')"><h4>Routing Rules</h4><p>Filter events by table, operation, and row conditions.</p></div>
 <div class="dcard" onclick="go('docs-openapi')"><h4>OpenAPI Discovery</h4><p>Machine-readable spec of configured actions.</p></div>
-</div>`},
+</div>`,
+  },
 
-'docs-routing': {title:'Routing Rules',sub:'Filter which CDC events each action receives with table globs, operation lists, and WHERE conditions.',body:`
+  "docs-routing": {
+    title: "Routing Rules",
+    sub: "Filter which CDC events each action receives with table globs, operation lists, and WHERE conditions.",
+    body: `
 <p class="dp">Each action has an optional <code>match:</code> block that controls which events it receives. All three conditions are AND-ed together; omitting any means "match all". Rules are compiled at startup (RTG-01) — any validation error aborts the process.</p>
 
 <h2 class="dh2">Table globs</h2>
@@ -968,28 +1062,36 @@ match:
 
 <h2 class="dh2">Performance</h2>
 <p class="dp">Match evaluation is allocation-free on the miss path (RTG-02). Operations use a bitmask check; tables use compiled globs; WHERE uses the same row filter engine as table-level filtering. 50 compiled matchers evaluate in under 1ms.</p>
-<div class="dcall"><p><strong>Non-matching events</strong> are acknowledged and the cursor advances (ACT-03). They are not retried, queued, or dead-lettered.</p></div>`},
+<div class="dcall"><p><strong>Non-matching events</strong> are acknowledged and the cursor advances (ACT-03). They are not retried, queued, or dead-lettered.</p></div>`,
+  },
 
-'docs-openapi': {title:'OpenAPI Discovery',sub:'Machine-readable spec of your configured actions, served at /openapi.json.',body:`
+  "docs-openapi": {
+    title: "OpenAPI Discovery",
+    sub: "Machine-readable spec of your configured actions, served at /openapi.json.",
+    body: `
 <p class="dp">When actions are configured, kaptanto serves an OpenAPI 3.0 specification at <code>/openapi.json</code> on the same port as <code>/metrics</code> and <code>/healthz</code>. The spec describes the configured actions, their parameters, and routing rules.</p>
 
 <h2 class="dh2">Usage</h2>
 <div class="dcode"><span class="tg">$</span> curl http://localhost:7654/openapi.json | jq .</div>
-<p class="dp">The response is a standard OpenAPI 3.0 document with one path per configured action. Import it into Postman, Swagger UI, or any OpenAPI-compatible tool.</p>
+<p class="dp">The response is a standard OpenAPI 3.0 document with the observability paths (<code>/healthz</code>, <code>/metrics</code>, <code>/openapi.json</code>, and <code>/events</code> for SSE). Configured actions are listed under the <code>x-kaptanto-actions</code> extension, including each action's name, type, match rules, and parameter names.</p>
 
 <h2 class="dh2">Byte-stable output</h2>
 <p class="dp">The spec is deterministic — the same configuration always produces byte-identical JSON output (OAS-01). Ordered maps and stable marshaling ensure reproducibility across restarts.</p>
 
 <h2 class="dh2">Secret redaction</h2>
-<p class="dp">Parameters marked as <code>secret</code> in a type's <code>ParamSpec</code> are excluded from the spec (ACT-02). The spec only includes non-secret parameter metadata: name, description, required status, and default values.</p>`},
+<p class="dp">Parameter <em>values</em> are never included in the spec (ACT-02). The <code>x-kaptanto-actions</code> extension lists parameter names for every action, including secret params; only the values are redacted. Non-secret metadata such as description, required status, and defaults are not currently emitted.</p>`,
+  },
 
-'docs-n8n': {title:'n8n Integration',sub:'Use kaptanto as an n8n trigger node to start workflows on database changes.',body:`
+  "docs-n8n": {
+    title: "n8n Integration",
+    sub: "Use kaptanto as an n8n trigger node to start workflows on database changes.",
+    body: `
 <p class="dp">The <code>n8n-nodes-kaptanto</code> package provides a community trigger node that connects to kaptanto's SSE endpoint. Each database change starts an n8n workflow execution.</p>
 
 <h2 class="dh2">Installation</h2>
-<div class="dcode"><span class="tc"># In your n8n instance</span>
-npm install n8n-nodes-kaptanto</div>
-<p class="dp">Or install from the n8n community nodes UI: search for "kaptanto".</p>
+<div class="dcode"><span class="tc"># In your n8n instance (pending npm publication)</span>
+npm install github:olucasandrade/kaptanto#n8n-nodes-kaptanto</div>
+<p class="dp">The package will also be available from the n8n community nodes UI once it is published to npm.</p>
 
 <h2 class="dh2">Configuration</h2>
 <p class="dp">The trigger node needs three settings:</p>
@@ -1008,9 +1110,13 @@ npm install n8n-nodes-kaptanto</div>
 
 <h2 class="dh2">How it works</h2>
 <p class="dp">The trigger node opens an SSE connection to <code>/events</code> with the configured consumer ID. Each event arrives as a standard <code>ChangeEvent</code> JSON payload. The node emits one n8n item per event, which flows into the rest of your workflow.</p>
-<div class="dcall"><p><strong>Resumability:</strong> n8n reconnects with the same consumer ID on restart. Kaptanto resumes from the last acknowledged cursor position — no events are lost.</p></div>`},
+<div class="dcall"><p><strong>Resumability:</strong> n8n reconnects with the same consumer ID on restart. Kaptanto resumes from the last acknowledged cursor position — no events are lost.</p></div>`,
+  },
 
-'docs-triggerdev': {title:'Trigger.dev Integration',sub:'Fire Trigger.dev tasks from CDC events with zero consumer code.',body:`
+  "docs-triggerdev": {
+    title: "Trigger.dev Integration",
+    sub: "Fire Trigger.dev tasks from CDC events with zero consumer code.",
+    body: `
 <p class="dp">The <code>triggerdev</code> action type sends CDC events to the Trigger.dev event ingestion API. Each matching event triggers a task execution.</p>
 
 <h2 class="dh2">Kaptanto config</h2>
@@ -1039,9 +1145,13 @@ export const orderUpdate = task({
 
 <h2 class="dh2">Full example</h2>
 <p class="dp">A project skeleton with the task definition, <code>trigger.config.ts</code>, and kaptanto config lives in <code>examples/trigger-dev/</code>.</p>
-<div class="dcall"><p><strong>Batching:</strong> Trigger.dev's event API does not accept arrays, so <code>triggerdev</code> pins batching to 1 event per request.</p></div>`},
+<div class="dcall"><p><strong>Batching:</strong> Trigger.dev's event API does not accept arrays, so <code>triggerdev</code> pins batching to 1 event per request.</p></div>`,
+  },
 
-'docs-inngest': {title:'Inngest Integration',sub:'Run durable Inngest functions from CDC events with zero consumer code.',body:`
+  "docs-inngest": {
+    title: "Inngest Integration",
+    sub: "Run durable Inngest functions from CDC events with zero consumer code.",
+    body: `
 <p class="dp">The <code>inngest</code> action type sends CDC events to Inngest's event ingestion API. Each matching event triggers one or more Inngest functions.</p>
 
 <h2 class="dh2">Kaptanto config</h2>
@@ -1084,9 +1194,13 @@ export const onNewOrder = inngest.createFunction(
   }
 }</div>
 <p class="dp">The <code>name</code> field is derived from the <code>event-name-template</code> parameter (default: <code>kaptanto/{{.Table}}.{{.Operation}}</code>).</p>
-<div class="dcall"><p><strong>Batching:</strong> Inngest accepts JSON arrays, so the <code>inngest</code> type supports batching. Adjust <code>batch.max-events</code> and <code>batch.flush-interval</code> on the action to tune throughput.</p></div>`},
+<div class="dcall"><p><strong>Batching:</strong> Inngest accepts JSON arrays, so the <code>inngest</code> type supports batching. Adjust <code>batch.max-events</code> on the action to tune throughput.</p></div>`,
+  },
 
-'docs-benchmarks': {title:'Benchmarks',sub:'Throughput and latency results vs. Debezium, Sequin, and PeerDB across 5 scenarios.',body:`
+  "docs-benchmarks": {
+    title: "Benchmarks",
+    sub: "Throughput and latency results vs. Debezium, Sequin, and PeerDB across 5 scenarios.",
+    body: `
 <p class="dp">Tested on GitHub Actions ubuntu-latest (4 vCPU, 16 GB RAM), Postgres 16, 5 CDC scenarios, 2026-07-04. Eight tools ran concurrently from the same database; all numbers reflect shared-CPU conditions.</p>
 <div class="dcall"><p><strong>Reproducing this run:</strong> the harness lives in <code>bench/</code> and is driven by <code>docker compose</code> plus <code>go run ./cmd/scenarios</code> — see the repo's <code>bench/README.md</code>. <code>bench/results/REPORT.md</code> in the repository tracks the most recent local run for development purposes and may show different numbers than the CI run summarized here; treat the table below as the current published result.</p></div>
 
@@ -1175,18 +1289,110 @@ export const onNewOrder = inngest.createFunction(
 <li><strong>Petabyte-scale ETL</strong> — kaptanto streams continuously; it is not an atomic batch system and does not write to S3/Snowflake natively. Use Debezium with Kafka connectors for data warehouse pipelines.</li>
 <li><strong>Sub-second p99 SLAs at high volume</strong> — burst p99 is ~11 s under shared-CPU load. If your pipeline requires guaranteed low tail latency under sustained load, evaluate purpose-built streaming systems.</li>
 <li><strong>Crash-recovery p99 SLAs</strong> — kaptanto Go p99 crash-recovery latency is ~81 s (kaptanto-rust ~91 s). Accept this tradeoff explicitly if you have tail-latency SLAs during recovery windows.</li>
-</ul>`}
+</ul>`,
+  },
 };
 
 export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
-  {label:'Get Started',items:[['docs-intro','Introduction'],['docs-quickstart','Quick Start'],['docs-install','Installation'],['docs-postgres','Connect Postgres'],['docs-mongo','Connect MongoDB']]},
-  {label:'Core Concepts',items:[['docs-schema','Event Schema'],['docs-backfills','Backfills'],['docs-consistency','Consistency Model'],['docs-ordering','Ordering & Partitions']]},
-  {label:'Output Modes',items:[['docs-stdout','stdout'],['docs-sse','Server-Sent Events'],['docs-grpc','gRPC'],['docs-queue-sinks','Queue Sinks']]},
-  {label:'Actions',items:[['docs-actions','Actions'],['docs-routing','Routing Rules'],['docs-openapi','OpenAPI Discovery']]},
-  {label:'Integrations',items:[['docs-n8n','n8n'],['docs-triggerdev','Trigger.dev'],['docs-inngest','Inngest']]},
-  {label:'Configuration',items:[['docs-config','CLI & YAML'],['docs-filtering','Filtering'],['docs-grouping','Message Grouping']]},
-  {label:'Production',items:[['docs-ha','High Availability'],['docs-cluster','Cluster Mode'],['docs-metrics','Metrics & Monitoring'],['docs-api','HTTP Endpoints'],['docs-troubleshooting','Troubleshooting']]},
-  {label:'Guides',items:[['docs-aws-setup','AWS Deployment Guide'],['docs-benchmarks','Benchmarks']]}
+  {
+    label: "Get Started",
+    items: [
+      ["docs-intro", "Introduction"],
+      ["docs-quickstart", "Quick Start"],
+      ["docs-install", "Installation"],
+      ["docs-postgres", "Connect Postgres"],
+      ["docs-mongo", "Connect MongoDB"],
+    ],
+  },
+  {
+    label: "Core Concepts",
+    items: [
+      ["docs-schema", "Event Schema"],
+      ["docs-backfills", "Backfills"],
+      ["docs-consistency", "Consistency Model"],
+      ["docs-ordering", "Ordering & Partitions"],
+    ],
+  },
+  {
+    label: "Output Modes",
+    items: [
+      ["docs-stdout", "stdout"],
+      ["docs-sse", "Server-Sent Events"],
+      ["docs-grpc", "gRPC"],
+      ["docs-queue-sinks", "Queue Sinks"],
+    ],
+  },
+  {
+    label: "Actions",
+    items: [
+      ["docs-actions", "Actions"],
+      ["docs-routing", "Routing Rules"],
+      ["docs-openapi", "OpenAPI Discovery"],
+    ],
+  },
+  {
+    label: "Integrations",
+    items: [
+      ["docs-n8n", "n8n"],
+      ["docs-triggerdev", "Trigger.dev"],
+      ["docs-inngest", "Inngest"],
+    ],
+  },
+  {
+    label: "Configuration",
+    items: [
+      ["docs-config", "CLI & YAML"],
+      ["docs-filtering", "Filtering"],
+      ["docs-grouping", "Message Grouping"],
+    ],
+  },
+  {
+    label: "Production",
+    items: [
+      ["docs-ha", "High Availability"],
+      ["docs-cluster", "Cluster Mode"],
+      ["docs-metrics", "Metrics & Monitoring"],
+      ["docs-api", "HTTP Endpoints"],
+      ["docs-troubleshooting", "Troubleshooting"],
+    ],
+  },
+  {
+    label: "Guides",
+    items: [
+      ["docs-aws-setup", "AWS Deployment Guide"],
+      ["docs-benchmarks", "Benchmarks"],
+    ],
+  },
 ];
 
-export const DOC_FLOW = ['docs-intro','docs-quickstart','docs-install','docs-postgres','docs-mongo','docs-schema','docs-backfills','docs-consistency','docs-ordering','docs-stdout','docs-sse','docs-grpc','docs-queue-sinks','docs-actions','docs-routing','docs-openapi','docs-n8n','docs-triggerdev','docs-inngest','docs-config','docs-filtering','docs-grouping','docs-ha','docs-cluster','docs-metrics','docs-api','docs-troubleshooting','docs-aws-setup','docs-benchmarks'];
+export const DOC_FLOW = [
+  "docs-intro",
+  "docs-quickstart",
+  "docs-install",
+  "docs-postgres",
+  "docs-mongo",
+  "docs-schema",
+  "docs-backfills",
+  "docs-consistency",
+  "docs-ordering",
+  "docs-stdout",
+  "docs-sse",
+  "docs-grpc",
+  "docs-queue-sinks",
+  "docs-actions",
+  "docs-routing",
+  "docs-openapi",
+  "docs-n8n",
+  "docs-triggerdev",
+  "docs-inngest",
+  "docs-config",
+  "docs-filtering",
+  "docs-grouping",
+  "docs-ha",
+  "docs-cluster",
+  "docs-metrics",
+  "docs-api",
+  "docs-troubleshooting",
+  "docs-aws-setup",
+  "docs-benchmarks",
+];
