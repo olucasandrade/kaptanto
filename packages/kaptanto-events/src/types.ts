@@ -14,9 +14,10 @@ const VALID_OPERATIONS: ReadonlySet<string> = new Set<Operation>([
 /**
  * Unified change event, mirroring Go's event.ChangeEvent json tags exactly.
  *
- * Fields with `omitempty` in Go (database, schema) become optional here.
+ * Fields with `omitempty` in Go (database, schema, ai_context) become optional here.
  * `before` and `after` are always present in the JSON (null when absent).
  * `key` and `metadata` are always present.
+ * `ai_context` is opaque AI enrichment metadata when present.
  */
 export interface ChangeEvent {
   id: string;
@@ -31,6 +32,7 @@ export interface ChangeEvent {
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
   metadata: Record<string, unknown>;
+  ai_context?: Record<string, unknown>;
 }
 
 function isNonNullObject(v: unknown): v is Record<string, unknown> {
@@ -54,6 +56,7 @@ export function isChangeEvent(obj: unknown): obj is ChangeEvent {
 
   if ("database" in obj && typeof obj.database !== "string") return false;
   if ("schema" in obj && typeof obj.schema !== "string") return false;
+  if ("ai_context" in obj && !isNonNullObject(obj.ai_context)) return false;
 
   if (!("key" in obj)) return false;
   if (!("before" in obj)) return false;
