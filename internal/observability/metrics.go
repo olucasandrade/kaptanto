@@ -27,11 +27,16 @@ type KaptantoMetrics struct {
 	TransformErrorsTotal  *prometheus.CounterVec   // kaptanto_transform_errors_total{consumer}
 	ActionEventsMatched   *prometheus.CounterVec   // kaptanto_action_events_matched_total{consumer}
 	ActionEventsSkipped   *prometheus.CounterVec   // kaptanto_action_events_skipped_total{consumer}
-	MCPToolCallsTotal       *prometheus.CounterVec // mcp_tool_calls_total{tool,outcome}
-	MCPSubscriptionsActive  prometheus.Gauge       // mcp_subscriptions_active
-	MCPEventsBufferedTotal  prometheus.Counter     // mcp_events_buffered_total
-	MCPEventsDroppedTotal   *prometheus.CounterVec // mcp_events_dropped_total{key}
-	MCPNudgesTotal          prometheus.Counter     // mcp_nudges_total
+	MCPToolCallsTotal      *prometheus.CounterVec // mcp_tool_calls_total{tool,outcome}
+	MCPSubscriptionsActive prometheus.Gauge       // mcp_subscriptions_active
+	MCPEventsBufferedTotal prometheus.Counter     // mcp_events_buffered_total
+	MCPEventsDroppedTotal  *prometheus.CounterVec // mcp_events_dropped_total{key}
+	MCPNudgesTotal         prometheus.Counter     // mcp_nudges_total
+	VectorEmbeddedTotal    prometheus.Counter     // vector_embedded_total
+	VectorUpsertsTotal     prometheus.Counter     // vector_upserts_total
+	VectorDeletesTotal     prometheus.Counter     // vector_deletes_total
+	VectorSkippedTotal     *prometheus.CounterVec // vector_skipped_total{reason}
+	VectorEmbedLatency     prometheus.Histogram   // vector_embed_latency_seconds
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -119,6 +124,27 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Name: "mcp_nudges_total",
 			Help: "Total MCP notifications/resources/updated nudges sent for subscriptions.",
 		}),
+		VectorEmbeddedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "vector_embedded_total",
+			Help: "Total texts successfully embedded by the vector sink.",
+		}),
+		VectorUpsertsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "vector_upserts_total",
+			Help: "Total vectors successfully upserted by the vector sink.",
+		}),
+		VectorDeletesTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "vector_deletes_total",
+			Help: "Total vector IDs successfully deleted by the vector sink.",
+		}),
+		VectorSkippedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_skipped_total",
+			Help: "Total vector sink events skipped, labeled by reason (empty|unchanged).",
+		}, []string{"reason"}),
+		VectorEmbedLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "vector_embed_latency_seconds",
+			Help:    "Latency of vector sink Embed calls in seconds.",
+			Buckets: prometheus.DefBuckets,
+		}),
 	}
 	reg.MustRegister(
 		m.EventsDelivered,
@@ -140,6 +166,11 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.MCPEventsBufferedTotal,
 		m.MCPEventsDroppedTotal,
 		m.MCPNudgesTotal,
+		m.VectorEmbeddedTotal,
+		m.VectorUpsertsTotal,
+		m.VectorDeletesTotal,
+		m.VectorSkippedTotal,
+		m.VectorEmbedLatency,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
