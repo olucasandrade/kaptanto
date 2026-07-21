@@ -301,6 +301,60 @@ async def test_reconnects_on_disconnect(url_builder) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reconnect_mid_event_at_least_once(url_builder) -> None:
+    """G3-19 #18: disconnect mid-frame discards the partial event; reconnect
+    may redeliver completed frames (at-least-once) but never yields a corrupt
+    or duplicate-beyond-replay event from the torn frame.
+    """
+    state = {"count": 0}
+    complete = make_event(id="complete-before-tear")
+    after = make_event(id="after-mid-reconnect")
+    # Half of a valid SSE data frame — no trailing \\n\\n, so it stays buffered.
+    torn = b'data: {"id":"torn-partial","operation":"insert"'
+
+    def factory() -> type[BaseHTTPRequestHandler]:
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                state["count"] += 1
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                if state["count"] == 1:
+                    self.wfile.write(sse_frame(complete))
+                    self.wfile.flush()
+                    self.wfile.write(torn)
+                    self.wfile.flush()
+                    return  # tear the connection mid-event
+                # At-least-once: server may re-send the completed event, then new.
+                self.wfile.write(sse_frame(complete))
+                self.wfile.write(sse_frame(after))
+
+            def log_message(self, *_args: Any) -> None:
+                return
+
+        return H
+
+    url = url_builder(factory)
+    stream = KaptantoStream(url, consumer="c")
+
+    with patch("kaptanto.client._backoff_delay", return_value=0.01):
+        received: list[ChangeEvent] = []
+        async for event in stream:
+            received.append(event)
+            if any(e.id == "after-mid-reconnect" for e in received):
+                await stream.aclose()
+
+    assert state["count"] >= 2
+    ids = [e.id for e in received]
+    assert "after-mid-reconnect" in ids
+    assert "torn-partial" not in ids, "partial mid-event frame must never parse"
+    # At-least-once: completed event may appear once or twice, never more than
+    # the number of successful connection attempts that re-sent it.
+    assert 1 <= ids.count("complete-before-tear") <= state["count"]
+    assert len(received) <= state["count"] + 1
+
+
+@pytest.mark.asyncio
 async def test_aclose_terminates_promptly(url_builder) -> None:
     import asyncio
 
