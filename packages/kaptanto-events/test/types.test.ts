@@ -14,7 +14,7 @@ import {
 
 const FIXTURES_PATH = resolve(
   __dirname,
-  "../../../internal/event/testdata/changeevent_fixtures.ndjson",
+  "fixtures/changeevent_fixtures.ndjson",
 );
 
 function loadFixtures(): unknown[] {
@@ -69,6 +69,25 @@ describe("ChangeEvent fixtures", () => {
     const expected: Operation[] = ["insert", "update", "delete", "read", "control"];
     for (const op of expected) {
       expect(ops.has(op), `missing operation: ${op}`).toBe(true);
+    }
+  });
+
+  it("omits ai_context on non-enriched fixtures and preserves it on the enriched line", () => {
+    const validated = fixtures.filter(isChangeEvent);
+    expect(validated.length).toBeGreaterThanOrEqual(6);
+
+    const without = validated.filter((ev) => ev.ai_context === undefined);
+    const withAI = validated.filter((ev) => ev.ai_context !== undefined);
+
+    expect(without.length).toBeGreaterThanOrEqual(5);
+    expect(withAI.length).toBeGreaterThanOrEqual(1);
+
+    for (const ev of withAI) {
+      expect(ev.ai_context).toEqual(
+        expect.objectContaining({
+          intent: expect.any(String),
+        }),
+      );
     }
   });
 });
