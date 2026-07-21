@@ -451,6 +451,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	if mcpServer != nil {
+		mcpServer.SetRouter(rtr)
 		defer func() { _ = mcpServer.Close() }()
 	}
 
