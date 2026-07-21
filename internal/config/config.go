@@ -187,6 +187,52 @@ type MatchConfig struct {
 	Where      string   `yaml:"where"`
 }
 
+// VectorSourceConfig selects how text is extracted from a ChangeEvent.
+// Exactly one of Columns or Template must be set.
+type VectorSourceConfig struct {
+	Columns  []string `yaml:"columns"`  // joined "col: value\n" in listed order from After
+	Template string   `yaml:"template"` // go-template over ChangeEvent (text/template)
+}
+
+// VectorEmbedderConfig configures the embedding provider.
+type VectorEmbedderConfig struct {
+	Provider   string `yaml:"provider"`   // openai | cohere
+	BaseURL    string `yaml:"base-url"`   // openai default https://api.openai.com/v1; Ollama: http://localhost:11434/v1
+	APIKey     string `yaml:"api-key"`    // STRICT ${VAR} when set; MAY be empty (local endpoints)
+	Model      string `yaml:"model"`      // required
+	Dimensions int    `yaml:"dimensions"` // optional (openai dimensions param)
+}
+
+// VectorStoreConfig configures the vector store backend.
+// Provider selects which fields are required:
+//   - pgvector: dsn (${VAR}), table (default "kaptanto_vectors")
+//   - pinecone: api-key (${VAR}), index-host, namespace (optional)
+//   - qdrant: url, collection, api-key (${VAR}, optional)
+type VectorStoreConfig struct {
+	Provider   string `yaml:"provider"` // pgvector | pinecone | qdrant
+	DSN        string `yaml:"dsn"`
+	Table      string `yaml:"table"`
+	APIKey     string `yaml:"api-key"`
+	IndexHost  string `yaml:"index-host"`
+	Namespace  string `yaml:"namespace"`
+	URL        string `yaml:"url"`
+	Collection string `yaml:"collection"`
+}
+
+// VectorBatchConfig controls how many events are flushed per embed+upsert call.
+type VectorBatchConfig struct {
+	MaxEvents int `yaml:"max-events"` // default 96; clamped to embedder Cap() at runtime
+}
+
+// VectorSinkConfig holds settings for the vector store sink (output: vector).
+type VectorSinkConfig struct {
+	Source   VectorSourceConfig   `yaml:"source"`
+	Embedder VectorEmbedderConfig `yaml:"embedder"`
+	Store    VectorStoreConfig    `yaml:"store"`
+	Metadata []string             `yaml:"metadata"` // After column names copied into Record.Metadata
+	Batch    VectorBatchConfig    `yaml:"batch"`
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
 type SinksConfig struct {
@@ -196,6 +242,7 @@ type SinksConfig struct {
 	PubSub   *PubSubSinkConfig   `yaml:"pubsub"`
 	RabbitMQ *RabbitMQSinkConfig `yaml:"rabbitmq"`
 	Webhook  *WebhookSinkConfig  `yaml:"webhook"`
+	Vector   *VectorSinkConfig   `yaml:"vector"`
 }
 
 // ServerTLSConfig holds TLS settings for Kaptanto's own inbound servers
