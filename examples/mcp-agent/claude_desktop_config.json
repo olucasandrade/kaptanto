@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "kaptanto": {
+      "type": "http",
+      "url": "http://localhost:7655",
+      "headers": {
+        "Authorization": "Bearer mcp-demo-key"
+      }
+    }
+  }
+}
