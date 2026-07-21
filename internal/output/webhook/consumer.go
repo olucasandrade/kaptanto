@@ -79,6 +79,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/redact"
 	"github.com/olucasandrade/kaptanto/internal/router"
 	"github.com/olucasandrade/kaptanto/internal/transform"
 )
@@ -129,9 +130,24 @@ type pendingReq struct {
 // configuration (fail-fast), and builds a shared http.Client. The caller is
 // responsible for calling Close() when done.
 func NewWebhookSinkConsumer(id string, cfg config.WebhookSinkConfig) (*WebhookSinkConsumer, error) {
-	cfg, err := expandWebhookConfig(cfg)
-	if err != nil {
-		return nil, err
+	return newWebhookSinkConsumer(id, cfg, true)
+}
+
+// NewResolvedWebhookSinkConsumer creates a WebhookSinkConsumer from a config
+// whose values have already been resolved (e.g. by the action engine). It skips
+// env expansion so a resolved secret containing a literal '$' is not corrupted
+// by a second expansion pass.
+func NewResolvedWebhookSinkConsumer(id string, cfg config.WebhookSinkConfig) (*WebhookSinkConsumer, error) {
+	return newWebhookSinkConsumer(id, cfg, false)
+}
+
+func newWebhookSinkConsumer(id string, cfg config.WebhookSinkConfig, expand bool) (*WebhookSinkConsumer, error) {
+	var err error
+	if expand {
+		cfg, err = expandWebhookConfig(cfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	norm, err := validateWebhookConfig(cfg)
@@ -253,6 +269,24 @@ func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 	case http.MethodPost, http.MethodPut, http.MethodPatch:
 	default:
 		return zero, fmt.Errorf("webhook sink: method %q not allowed — must be one of POST, PUT, PATCH", cfg.Method)
+	}
+
+	// 2a. Scheme allowlist. Only http/https are supported; other schemes surface
+	// as transient transport errors and would retry forever (F6).
+	if cfg.URL != "" {
+		if err := requireHTTPScheme(cfg.URL); err != nil {
+			return zero, err
+		}
+	}
+	if cfg.URLTemplate != "" {
+		trimmed := strings.TrimSpace(cfg.URLTemplate)
+		// Templates whose first token is a placeholder cannot be validated until
+		// render time; anything with a literal scheme prefix must be http/https.
+		if trimmed != "" && !strings.HasPrefix(trimmed, "{{") {
+			if err := requireHTTPScheme(trimmed); err != nil {
+				return zero, err
+			}
+		}
 	}
 
 	// 3. Bearer XOR basic.
@@ -439,6 +473,8 @@ func (c *WebhookSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEnt
 }
 
 // resolveURL returns the request URL for ev: url-template if set, else static url.
+// A rendered URL that does not use http/https is returned as a permanent error
+// so the router dead-letters it instead of retrying forever (F6).
 func (c *WebhookSinkConsumer) resolveURL(ev *event.ChangeEvent) (string, error) {
 	if c.urlT != nil {
 		var buf bytes.Buffer
@@ -448,6 +484,9 @@ func (c *WebhookSinkConsumer) resolveURL(ev *event.ChangeEvent) (string, error) 
 		u := strings.TrimSpace(buf.String())
 		if u == "" {
 			return "", fmt.Errorf("webhook sink: url-template rendered to an empty string — check url-template config")
+		}
+		if err := requireHTTPScheme(u); err != nil {
+			return "", &router.PermanentError{Cause: err.Error()}
 		}
 		return u, nil
 	}
@@ -476,6 +515,9 @@ func (c *WebhookSinkConsumer) buildBody(entry eventlog.LogEntry) ([]byte, bool, 
 	}
 	out, drop, err := c.engine.Apply(raw, entry.Event)
 	if err != nil {
+		if c.m != nil {
+			c.m.TransformErrorsTotal.WithLabelValues(c.id).Inc()
+		}
 		return nil, false, err
 	}
 	if drop {
@@ -540,12 +582,12 @@ func (c *WebhookSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32
 func (c *WebhookSinkConsumer) sendGrouped(ctx context.Context, req httpReq) error {
 	status, snippet, err := c.doRequest(ctx, req)
 	if err != nil {
-		return fmt.Errorf("webhook sink: %s %s: %w", c.method, req.url, err)
+		return fmt.Errorf("webhook sink: %s %s: %w", c.method, redact.URL(req.url), err)
 	}
 	if status >= 200 && status < 300 {
 		return nil
 	}
-	cause := fmt.Errorf("webhook sink: %s %s returned %d: %.256s", c.method, req.url, status, snippet)
+	cause := fmt.Errorf("webhook sink: %s %s returned %d: %.256s", c.method, redact.URL(req.url), status, snippet)
 	if isTransientStatus(status) {
 		return cause
 	}
@@ -576,12 +618,12 @@ func (c *WebhookSinkConsumer) isolatePoisonChunk(ctx context.Context, items []pe
 		status, snippet, err := c.doRequest(ctx, single)
 		if err != nil {
 			// Transient network/timeout — abort isolation; do not resend further.
-			return fmt.Errorf("webhook sink: %s %s: %w", c.method, item.url, err)
+			return fmt.Errorf("webhook sink: %s %s: %w", c.method, redact.URL(item.url), err)
 		}
 		if status >= 200 && status < 300 {
 			continue
 		}
-		cause := fmt.Errorf("webhook sink: %s %s returned %d: %.256s", c.method, item.url, status, snippet)
+		cause := fmt.Errorf("webhook sink: %s %s returned %d: %.256s", c.method, redact.URL(item.url), status, snippet)
 		if isTransientStatus(status) {
 			return cause
 		}
@@ -764,6 +806,21 @@ func (c *WebhookSinkConsumer) Ping() error {
 // Close closes idle HTTP connections. It is safe to call Close multiple times.
 func (c *WebhookSinkConsumer) Close() {
 	c.client.CloseIdleConnections()
+}
+
+// requireHTTPScheme returns an error if s does not start with an http or https
+// scheme. It tolerates leading/trailing whitespace and placeholder templates
+// as long as the scheme prefix is literal http:// or https://.
+func requireHTTPScheme(s string) error {
+	trimmed := strings.TrimSpace(s)
+	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		return nil
+	}
+	u, err := url.Parse(trimmed)
+	if err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+		return nil
+	}
+	return fmt.Errorf("webhook sink: url/url-template must use http or https scheme")
 }
 
 // buildTLSConfig constructs a *tls.Config from cfg:
