@@ -123,10 +123,19 @@ type WebhookSinkConfig struct {
 	TLS             TLSConfig         `yaml:"tls"`
 }
 
-// WebhookAuthConfig holds bearer or basic auth for the webhook sink.
+// WebhookAuthConfig holds bearer, basic, or AWS SigV4 auth for the webhook sink.
+// At most one of BearerToken, Basic, or AWSSigV4 may be set.
 type WebhookAuthConfig struct {
 	BearerToken string           `yaml:"bearer-token"` // supports ${VAR}
 	Basic       WebhookBasicAuth `yaml:"basic"`
+	AWSSigV4    *WebhookSigV4    `yaml:"aws-sigv4"` // nil = unset; mutually exclusive with bearer/basic/HMAC
+}
+
+// WebhookSigV4 holds AWS Signature Version 4 settings for the webhook sink.
+// Credentials come from the standard AWS provider chain (env, shared config, IMDS/IRSA).
+type WebhookSigV4 struct {
+	Region  string `yaml:"region"`  // required
+	Service string `yaml:"service"` // default "lambda"
 }
 
 // WebhookBasicAuth holds HTTP basic-auth credentials for the webhook sink.
