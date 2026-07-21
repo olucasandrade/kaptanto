@@ -1003,6 +1003,48 @@ actions:
 </tbody></table>
 <p class="dp">See <a onclick="go('docs-triggerdev')">Trigger.dev integration</a> for a project setup walkthrough.</p>
 
+<h3 class="dh3">lambda</h3>
+<p class="dp">POSTs raw event JSON to an AWS Lambda Function URL with SigV4 auth. Batching is pinned to 1. Use <code>invocation: async</code> for fire-and-forget (Lambda returns 202).</p>
+<div class="dcode">- name: order-lambda
+  type: lambda
+  params:
+    function-url: \${LAMBDA_FUNCTION_URL}
+    region: us-east-1
+    invocation: async</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>function-url</code></td><td>Yes</td><td>Yes</td><td>AWS Lambda Function URL</td></tr>
+<tr><td><code>region</code></td><td>Yes</td><td>No</td><td>AWS region for SigV4 signing</td></tr>
+<tr><td><code>invocation</code></td><td>No</td><td>No</td><td><code>sync</code> (default) or <code>async</code></td></tr>
+</tbody></table>
+
+<h3 class="dh3">cloudflare-worker</h3>
+<p class="dp">Plain HTTPS POST to a Cloudflare Worker. Optional static auth header. Batching allowed.</p>
+<div class="dcode">- name: cf-worker
+  type: cloudflare-worker
+  params:
+    url: \${CF_WORKER_URL}
+    auth-token: \${CF_WORKER_TOKEN}
+  batch:
+    max-events: 25</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>url</code></td><td>Yes</td><td>Yes</td><td>Worker HTTPS endpoint URL</td></tr>
+<tr><td><code>auth-header-name</code></td><td>No</td><td>No</td><td>Auth header name (default <code>Authorization</code>)</td></tr>
+<tr><td><code>auth-token</code></td><td>No</td><td>Yes</td><td>Optional static auth token</td></tr>
+</tbody></table>
+
+<h3 class="dh3">vercel</h3>
+<p class="dp">Plain HTTPS POST to a Vercel serverless function. Optional Deployment Protection bypass. Batching allowed.</p>
+<div class="dcode">- name: vercel-hook
+  type: vercel
+  params:
+    url: \${VERCEL_FN_URL}
+    bypass-secret: \${VERCEL_BYPASS}</div>
+<table class="dtbl"><thead><tr><th>Param</th><th>Required</th><th>Secret</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>url</code></td><td>Yes</td><td>Yes</td><td>Vercel function HTTPS URL</td></tr>
+<tr><td><code>bypass-secret</code></td><td>No</td><td>Yes</td><td>Sent as <code>x-vercel-protection-bypass</code></td></tr>
+</tbody></table>
+<p class="dp">See <a onclick="go('docs-serverless')">Serverless guidance</a> for cold-start and response-handling details.</p>
+
 <h2 class="dh2">Common options</h2>
 <p class="dp">Every action supports these optional fields:</p>
 <table class="dtbl"><thead><tr><th>Field</th><th>Description</th></tr></thead><tbody>
@@ -1016,7 +1058,34 @@ actions:
 <div class="dcards">
 <div class="dcard" onclick="go('docs-routing')"><h4>Routing Rules</h4><p>Filter events by table, operation, and row conditions.</p></div>
 <div class="dcard" onclick="go('docs-openapi')"><h4>OpenAPI Discovery</h4><p>Machine-readable spec of configured actions.</p></div>
+<div class="dcard" onclick="go('docs-serverless')"><h4>Serverless</h4><p>Lambda, Workers, and Vercel cold-start guidance.</p></div>
 </div>`,
+  },
+
+  "docs-serverless": {
+    title: "Serverless Actions",
+    sub: "Invoke AWS Lambda, Cloudflare Workers, and Vercel functions from CDC events — cold starts, async invocation, and response handling.",
+    body: `
+<p class="dp">The <code>lambda</code>, <code>cloudflare-worker</code>, and <code>vercel</code> action types are ACT-01 presets over the webhook sink. There is no pre-warm pinger and no Lambda Invoke-API sink — Function URLs / HTTPS endpoints only.</p>
+
+<h2 class="dh2">Cold starts</h2>
+<p class="dp">HTTP keep-alive is automatic: the webhook sink reuses a pooled <code>http.Client</code>, so successive deliveries to the same host reuse TCP/TLS connections when the platform allows it. That reduces cold-start overhead for steady traffic but does not keep idle functions warm forever.</p>
+<table class="dtbl"><thead><tr><th>Goal</th><th>Approach</th></tr></thead><tbody>
+<tr><td>Fire-and-forget</td><td>Use <code>lambda</code> with <code>invocation: async</code></td></tr>
+<tr><td>Latency-critical sync</td><td>Provisioned concurrency (Lambda) or always-warm plans</td></tr>
+<tr><td>High rate to Workers/Vercel</td><td>Enable <code>batch.max-events</code></td></tr>
+<tr><td>Idempotent handlers</td><td>Honor <code>X-Kaptanto-Idempotency-Key</code></td></tr>
+</tbody></table>
+
+<h2 class="dh2">Response handling</h2>
+<p class="dp">Any <strong>2xx</strong> status is success. Response bodies are read up to <strong>1 KiB</strong> and logged at debug.</p>
+<table class="dtbl"><thead><tr><th>Mode</th><th>Typical status</th><th>Meaning</th></tr></thead><tbody>
+<tr><td>Lambda <code>async</code></td><td><strong>202</strong></td><td>Event queued — success under the 2xx rule</td></tr>
+<tr><td>Lambda <code>sync</code></td><td><strong>200</strong></td><td>Function result (≤1 KiB snippet at debug)</td></tr>
+<tr><td>Worker / Vercel</td><td><strong>2xx</strong></td><td>Handler-defined success</td></tr>
+</tbody></table>
+
+<div class="dcall"><p><strong>Also see:</strong> <a onclick="go('docs-actions')">Actions reference</a> for full param tables, and <code>docs/serverless.md</code> in the repo.</p></div>`,
   },
 
   "docs-routing": {
@@ -1326,6 +1395,7 @@ export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
     label: "Actions",
     items: [
       ["docs-actions", "Actions"],
+      ["docs-serverless", "Serverless"],
       ["docs-routing", "Routing Rules"],
       ["docs-openapi", "OpenAPI Discovery"],
     ],
@@ -1380,6 +1450,7 @@ export const DOC_FLOW = [
   "docs-grpc",
   "docs-queue-sinks",
   "docs-actions",
+  "docs-serverless",
   "docs-routing",
   "docs-openapi",
   "docs-n8n",
