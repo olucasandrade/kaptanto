@@ -618,12 +618,23 @@ func (s *Server) getRecentEvents(key *ResolvedKey, in getRecentEventsInput) (get
 	return getRecentEventsOutput{Events: outEvents, Dropped: dropped, Remaining: remaining}, OutcomeOK, nil
 }
 
-// SetRouter attaches the pipeline router used to register ring consumers.
-// Safe to call after New; required before subscribe_to_changes succeeds.
+// SetRouter attaches the pipeline router used to register ring consumers and
+// the always-on recent-event index consumer (MCP-04: only while enabled with
+// ≥1 API key — which New already enforces). Safe to call after New; required
+// before subscribe_to_changes / get_event_by_id succeed.
 func (s *Server) SetRouter(r ConsumerRegistry) {
 	s.subsMu.Lock()
 	defer s.subsMu.Unlock()
+	if s.recent != nil && s.registry != nil {
+		s.registry.Unregister(s.recent.ID())
+	}
 	s.registry = r
+	if r != nil {
+		s.startRecentIndexLocked()
+	} else if s.recent != nil {
+		s.recent.close()
+		s.recent = nil
+	}
 }
 
 // SetClock replaces the wall clock (tests: fake clock for nudge debounce).
@@ -734,6 +745,7 @@ func (s *Server) cleanupAllSubscriptions() {
 	}
 	s.subs = make(map[string]*subscription)
 	s.sessionSubs = make(map[string][]string)
+	s.stopRecentIndexLocked()
 }
 
 func (s *Server) allowResourceSubscribe(_ context.Context, req *sdk.SubscribeRequest) error {

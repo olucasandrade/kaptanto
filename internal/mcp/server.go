@@ -14,7 +14,8 @@
 //   - MCP-04 — Bounded impact: MCP disabled ⇒ zero pipeline cost; enabled ⇒
 //     ring-buffer consumers with non-blocking Deliver and capped counts.
 //
-// Schema tools live in tools.go; subscription tools in subscription.go.
+// Schema tools live in tools.go; subscription tools in subscription.go;
+// recent-event index + get_event_by_id in recent.go.
 //
 // SDK: github.com/modelcontextprotocol/go-sdk (v1.6.1) — streamable-HTTP via
 // mcp.NewStreamableHTTPHandler. Pure Go (no CGO). Session cleanup uses
@@ -73,6 +74,7 @@ type Options struct {
 	SourceType       string       // "postgres" | "mongodb"; default postgres
 	ConfiguredTables []string     // from config.Tables keys
 	Schema           SchemaProvider
+	RecentIndexSize  int // ULID→event index capacity; 0 → DefaultRecentIndexSize (10_000)
 }
 
 // Server is the MCP streamable-HTTP listener lifecycle.
@@ -96,6 +98,7 @@ type Server struct {
 	registry    ConsumerRegistry
 	subs        map[string]*subscription // id → sub
 	sessionSubs map[string][]string      // sessionID → subscription ids
+	recent      *recentConsumer          // always-on ULID index (nil until SetRouter)
 	clockFn     Clock
 
 	mu     sync.Mutex
@@ -239,6 +242,7 @@ func New(opts Options) (*Server, error) {
 	s.sdk = mcpServer
 	s.registerSchemaTools()
 	s.registerSubscriptionTools()
+	s.registerRecentTools()
 	return s, nil
 }
 
