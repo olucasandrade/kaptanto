@@ -1,7 +1,6 @@
-// Package vector implements the vector store sink foundation: config
-// validation, text extraction, and the VEC-01 SHA-256 hash cache.
-//
-// Embedders, stores, and the consumer are follow-up packages/files.
+// Package vector implements the vector store sink: config validation, text
+// extraction, the VEC-01 SHA-256 hash cache, and VectorStore backends
+// (pgvector, Pinecone, Qdrant). Embedders and the consumer are follow-ups.
 package vector
 
 import (
