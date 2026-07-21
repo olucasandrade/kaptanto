@@ -237,6 +237,40 @@ type Config struct {
 	Insecure        bool                   `yaml:"insecure"`          // allow plaintext/unauthenticated sse/grpc (loud warning at startup; not for production)
 	DLQ             DLQConfig              `yaml:"dlq"`               // router-level dead-letter queue (enabled by default when Enabled is nil)
 	Actions         []ActionConfig         `yaml:"actions"`           // configured action instances
+	MCP             MCPConfig              `yaml:"mcp"`               // MCP server (disabled by default; MCP-04)
+}
+
+// MCPConfig holds settings for the optional Model Context Protocol server.
+// Disabled by default (MCP-04: zero pipeline cost when Enabled is false).
+type MCPConfig struct {
+	Enabled          bool           `yaml:"enabled"`
+	Port             int            `yaml:"port"`              // default 7655; own listener, reuses ServerTLS
+	APIKeys          []MCPAPIKey    `yaml:"api-keys"`          // ≥1 required when enabled
+	MaxSubscriptions int            `yaml:"max-subscriptions"` // per key; default 16
+	RingSize         int            `yaml:"ring-size"`         // events per subscription; default 1024
+	Audit            MCPAuditConfig `yaml:"audit"`             // enabled default true; path default <data-dir>/mcp-audit.ndjson
+}
+
+// MCPAPIKey is one authenticated MCP client identity with ACL + redaction.
+type MCPAPIKey struct {
+	Name   string            `yaml:"name"`   // unique, appears in audit lines
+	Key    string            `yaml:"key"`    // secret: must be ${VAR} (strict ref rule); unset = startup error
+	Tables []string          `yaml:"tables"` // routing glob syntax; empty = all
+	Redact []MCPRedactConfig `yaml:"redact"` // {tables: [globs], columns: [names]}
+}
+
+// MCPRedactConfig masks column values for matching tables (schema stays visible).
+type MCPRedactConfig struct {
+	Tables  []string `yaml:"tables"`  // routing globs; empty = all tables
+	Columns []string `yaml:"columns"` // column names whose values are masked
+}
+
+// MCPAuditConfig controls the NDJSON audit log for MCP tool calls (MCP-03).
+// Enabled is a pointer so YAML can distinguish unset (nil → on by default)
+// from an explicit false.
+type MCPAuditConfig struct {
+	Enabled *bool  `yaml:"enabled"` // nil/true = on (default); false = disable audit writes
+	Path    string `yaml:"path"`    // default <data-dir>/mcp-audit.ndjson
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.

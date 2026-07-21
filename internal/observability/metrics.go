@@ -27,6 +27,7 @@ type KaptantoMetrics struct {
 	TransformErrorsTotal  *prometheus.CounterVec   // kaptanto_transform_errors_total{consumer}
 	ActionEventsMatched   *prometheus.CounterVec   // kaptanto_action_events_matched_total{consumer}
 	ActionEventsSkipped   *prometheus.CounterVec   // kaptanto_action_events_skipped_total{consumer}
+	MCPToolCallsTotal     *prometheus.CounterVec   // mcp_tool_calls_total{tool,outcome}
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -94,6 +95,10 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Name: "kaptanto_action_events_skipped_total",
 			Help: "Total events skipped by action routing, labeled by consumer.",
 		}, []string{"consumer"}),
+		MCPToolCallsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "mcp_tool_calls_total",
+			Help: "Total MCP tool calls, labeled by tool name and outcome (ok|denied|error).",
+		}, []string{"tool", "outcome"}),
 	}
 	reg.MustRegister(
 		m.EventsDelivered,
@@ -110,6 +115,7 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.TransformErrorsTotal,
 		m.ActionEventsMatched,
 		m.ActionEventsSkipped,
+		m.MCPToolCallsTotal,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
