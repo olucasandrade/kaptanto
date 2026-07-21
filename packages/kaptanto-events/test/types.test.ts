@@ -14,7 +14,7 @@ import {
 
 const FIXTURES_PATH = resolve(
   __dirname,
-  "../../../internal/event/testdata/changeevent_fixtures.ndjson",
+  "fixtures/changeevent_fixtures.ndjson",
 );
 
 function loadFixtures(): unknown[] {
