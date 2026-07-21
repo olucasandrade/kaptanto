@@ -3,7 +3,6 @@ package action
 import (
 	"fmt"
 	"strings"
-	"text/template"
 
 	"github.com/olucasandrade/kaptanto/internal/config"
 )
@@ -41,7 +40,7 @@ func (*triggerdevType) ParamSpec() map[string]ParamSpec {
 	}
 }
 
-func (*triggerdevType) PinsBatch() bool             { return true }
+func (*triggerdevType) PinsBatch() bool               { return true }
 func (*triggerdevType) ComputedAuthHeaders() []string { return []string{"Authorization"} }
 
 func (*triggerdevType) Build(p ResolvedParams) (config.WebhookSinkConfig, config.TransformConfig, error) {
@@ -49,12 +48,16 @@ func (*triggerdevType) Build(p ResolvedParams) (config.WebhookSinkConfig, config
 	apiURL := strings.TrimRight(p["api-url"], "/")
 	nameTemplate := p["event-name-template"]
 
-	if _, err := template.New("").Parse(nameTemplate); err != nil {
+	if err := validateEventNameTemplate(nameTemplate); err != nil {
 		return config.WebhookSinkConfig{}, config.TransformConfig{},
 			fmt.Errorf("triggerdev: invalid event-name-template: %w", err)
 	}
 
-	nameExpr := renderNameExpr(nameTemplate)
+	nameExpr, err := renderEventNameExpr(nameTemplate)
+	if err != nil {
+		return config.WebhookSinkConfig{}, config.TransformConfig{},
+			fmt.Errorf("triggerdev: invalid event-name-template: %w", err)
+	}
 
 	whCfg := config.WebhookSinkConfig{
 		URL:    apiURL + "/api/v1/events",
