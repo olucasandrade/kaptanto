@@ -48,21 +48,25 @@
 //   - WHK-03 (Signature over exact body bytes): When signing.secret is set,
 //     X-Kaptanto-Signature is HMAC-SHA256 over t + "." + the exact request
 //     body bytes on the wire (post-transform, after batching/array join).
+//     auth.aws-sigv4 signs the same final body bytes (SHA-256 payload hash)
+//     and is mutually exclusive with signing.secret.
 //
 //   - TRF-01 / TRF-02: payload-template and transform.* compile at startup via
 //     transform.Compile; drop results are not buffered (cursor advances with
 //     the next successful flush).
 //
 //   - CGO-free for the sink itself (gojq lives in internal/transform);
-//     CGO_ENABLED=0 is safe.
+//     CGO_ENABLED=0 is safe. AWS SigV4 uses pure-Go aws-sdk-go-v2.
 package webhooksink
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,6 +79,10 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
@@ -83,6 +91,11 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/router"
 	"github.com/olucasandrade/kaptanto/internal/transform"
 )
+
+// loadAWSDefaultConfig resolves the standard AWS credential chain. Tests may
+// override it to inject failing or static providers without touching the
+// process environment.
+var loadAWSDefaultConfig = awsconfig.LoadDefaultConfig
 
 // Compile-time assertion: WebhookSinkConsumer must implement router.Consumer.
 var _ router.Consumer = (*WebhookSinkConsumer)(nil)
@@ -109,11 +122,20 @@ type WebhookSinkConsumer struct {
 	headers  map[string]string // already env-expanded
 	authHdr  string            // precomputed "Bearer …" or "Basic …"; "" if none
 	secret   []byte            // signing secret; nil disables signing
+	sigv4    *webhookSigV4     // nil disables AWS SigV4 signing
 	batchMax int
 	timeout  time.Duration
 	mu       sync.Mutex
 	pending  map[uint32][]pendingReq // keyed by entry.PartitionID
 	m        *observability.KaptantoMetrics
+}
+
+// webhookSigV4 holds resolved AWS SigV4 signing state.
+type webhookSigV4 struct {
+	provider aws.CredentialsProvider
+	region   string
+	service  string
+	signer   *v4.Signer
 }
 
 // pendingReq holds one buffered event ready for FlushBatch.
@@ -160,6 +182,11 @@ func newWebhookSinkConsumer(id string, cfg config.WebhookSinkConfig, expand bool
 		return nil, err
 	}
 
+	sigv4, err := resolveWebhookSigV4(cfg.Auth.AWSSigV4)
+	if err != nil {
+		return nil, err
+	}
+
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = tlsCfg
 
@@ -185,6 +212,7 @@ func newWebhookSinkConsumer(id string, cfg config.WebhookSinkConfig, expand bool
 		headers:  headers,
 		authHdr:  norm.authHdr,
 		secret:   norm.secret,
+		sigv4:    sigv4,
 		batchMax: norm.batchMax,
 		timeout:  norm.timeout,
 		pending:  make(map[uint32][]pendingReq),
@@ -340,15 +368,32 @@ func validateURLAndMethod(cfg config.WebhookSinkConfig) (string, error) {
 	return method, nil
 }
 
-// validateAuth enforces rules 3 and 5: bearer/basic are mutually exclusive and
-// must not conflict with an Authorization header.
+// validateAuth enforces rules 3 and 5: bearer/basic/SigV4 are mutually exclusive,
+// SigV4 cannot stack with HMAC signing, and auth must not conflict with an
+// Authorization header.
 func validateAuth(cfg config.WebhookSinkConfig) (bool, bool, error) {
 	hasBearer := cfg.Auth.BearerToken != ""
 	hasBasic := cfg.Auth.Basic.Username != ""
+	hasSigV4 := cfg.Auth.AWSSigV4 != nil
+
+	if hasSigV4 {
+		if strings.TrimSpace(cfg.Auth.AWSSigV4.Region) == "" {
+			return false, false, fmt.Errorf("webhook sink: auth.aws-sigv4.region is required")
+		}
+		if hasBearer {
+			return false, false, fmt.Errorf("webhook sink: auth.aws-sigv4 and auth.bearer-token are mutually exclusive")
+		}
+		if hasBasic {
+			return false, false, fmt.Errorf("webhook sink: auth.aws-sigv4 and auth.basic are mutually exclusive")
+		}
+		if cfg.Signing.Secret != "" {
+			return false, false, fmt.Errorf("webhook sink: auth.aws-sigv4 and signing.secret are mutually exclusive")
+		}
+	}
 	if hasBearer && hasBasic {
 		return false, false, fmt.Errorf("webhook sink: auth.bearer-token and auth.basic are mutually exclusive")
 	}
-	if hasBearer || hasBasic {
+	if hasBearer || hasBasic || hasSigV4 {
 		for k := range cfg.Headers {
 			if strings.EqualFold(k, "Authorization") {
 				return false, false, fmt.Errorf("webhook sink: headers must not set Authorization when auth is configured")
@@ -356,6 +401,37 @@ func validateAuth(cfg config.WebhookSinkConfig) (bool, bool, error) {
 		}
 	}
 	return hasBearer, hasBasic, nil
+}
+
+// resolveWebhookSigV4 loads AWS credentials from the standard provider chain and
+// returns signing state. A nil cfg disables SigV4 (returns nil, nil).
+func resolveWebhookSigV4(cfg *config.WebhookSigV4) (*webhookSigV4, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	service := strings.TrimSpace(cfg.Service)
+	if service == "" {
+		service = "lambda"
+	}
+	region := strings.TrimSpace(cfg.Region)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	awsCfg, err := loadAWSDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("webhook sink: auth.aws-sigv4: load aws config: %w", err)
+	}
+	if _, err := awsCfg.Credentials.Retrieve(ctx); err != nil {
+		return nil, fmt.Errorf("webhook sink: auth.aws-sigv4: resolve aws credentials: %w", err)
+	}
+
+	return &webhookSigV4{
+		provider: awsCfg.Credentials,
+		region:   region,
+		service:  service,
+		signer:   v4.NewSigner(),
+	}, nil
 }
 
 // validateBatchAndPayload enforces rules 4 and 8: batch.max-events is non-negative
@@ -727,7 +803,8 @@ func groupRequests(batch []pendingReq, batchMax int) []httpReq {
 	return out
 }
 
-// doRequest issues a single HTTP request with timeout, headers, and optional HMAC.
+// doRequest issues a single HTTP request with timeout, headers, and optional
+// HMAC or AWS SigV4. Signing always covers the exact final body bytes (WHK-03).
 // It returns the status code and a body snippet on HTTP responses; err is set
 // only for transport / request-construction failures.
 func (c *WebhookSinkConsumer) doRequest(ctx context.Context, req httpReq) (status int, snippet []byte, err error) {
@@ -756,6 +833,11 @@ func (c *WebhookSinkConsumer) doRequest(ctx context.Context, req httpReq) (statu
 		t := time.Now().Unix()
 		httpReq.Header.Set("X-Kaptanto-Signature", signature(c.secret, t, req.body))
 	}
+	if c.sigv4 != nil {
+		if err := c.signRequestSigV4(reqCtx, httpReq, req.body); err != nil {
+			return 0, nil, err
+		}
+	}
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
@@ -766,6 +848,22 @@ func (c *WebhookSinkConsumer) doRequest(ctx context.Context, req httpReq) (statu
 	snippet, _ = io.ReadAll(io.LimitReader(resp.Body, 1024))
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode, snippet, nil
+}
+
+// signRequestSigV4 signs httpReq with AWS SigV4 over the exact body bytes
+// (post-batching / array join), matching WHK-03 ordering.
+func (c *WebhookSinkConsumer) signRequestSigV4(ctx context.Context, httpReq *http.Request, body []byte) error {
+	creds, err := c.sigv4.provider.Retrieve(ctx)
+	if err != nil {
+		return fmt.Errorf("resolve aws credentials: %w", err)
+	}
+	sum := sha256.Sum256(body)
+	payloadHash := hex.EncodeToString(sum[:])
+	httpReq.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	if err := c.sigv4.signer.SignHTTP(ctx, creds, httpReq, payloadHash, c.sigv4.service, c.sigv4.region, time.Now()); err != nil {
+		return fmt.Errorf("sign request: %w", err)
+	}
+	return nil
 }
 
 // Ping verifies the webhook host is reachable via a TCP (or TLS) dial with a
