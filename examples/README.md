@@ -28,6 +28,7 @@ These examples include:
 - `inngest`: Postgres CDC events trigger Inngest functions with automatic deduplication via `idempotency_key → id` mapping.
 - `trigger-dev`: Trigger.dev v3 tasks react to CDC events with durable execution and `wait.forEvent`; covers cloud and self-hosted API URLs.
 - `n8n-trigger`: n8n workflows triggered by CDC events via the `n8n-nodes-kaptanto` community node and Kaptanto's SSE output.
+- `mastra`: Mastra workflows react to `public.orders` CDC via `@kaptanto/mastra` (`kaptantoTrigger` + `toAgentContext`) over SSE.
 
 ## Supporting Examples
 
