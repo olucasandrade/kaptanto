@@ -162,7 +162,6 @@ export class KaptantoStream implements AsyncIterable<ChangeEvent> {
 
       console.warn("KaptantoStream: skipping malformed SSE line", {
         lineLength: line.length,
-        linePrefix: line.slice(0, 20),
       });
     }
 

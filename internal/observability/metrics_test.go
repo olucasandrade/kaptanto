@@ -136,12 +136,6 @@ func TestDLQAndTransformMetrics(t *testing.T) {
 		if m.DLQWriteFailuresTotal == nil {
 			t.Fatal("expected DLQWriteFailuresTotal to be non-nil")
 		}
-		if m.DLQFallbackWritesTotal == nil {
-			t.Fatal("expected DLQFallbackWritesTotal to be non-nil")
-		}
-		if m.DLQSize == nil {
-			t.Fatal("expected DLQSize to be non-nil")
-		}
 		if m.TransformDroppedTotal == nil {
 			t.Fatal("expected TransformDroppedTotal to be non-nil")
 		}
@@ -154,8 +148,6 @@ func TestDLQAndTransformMetrics(t *testing.T) {
 		m := NewKaptantoMetrics()
 		m.DLQEventsTotal.WithLabelValues("consumer-1").Inc()
 		m.DLQWriteFailuresTotal.WithLabelValues("consumer-1").Inc()
-		m.DLQFallbackWritesTotal.WithLabelValues("consumer-1").Inc()
-		m.DLQSize.Set(3)
 		m.TransformDroppedTotal.WithLabelValues("consumer-1").Inc()
 		m.TransformErrorsTotal.WithLabelValues("consumer-1").Inc()
 	})
@@ -164,8 +156,6 @@ func TestDLQAndTransformMetrics(t *testing.T) {
 		m := NewKaptantoMetrics()
 		m.DLQEventsTotal.WithLabelValues("consumer-1").Inc()
 		m.DLQWriteFailuresTotal.WithLabelValues("consumer-1").Inc()
-		m.DLQFallbackWritesTotal.WithLabelValues("consumer-1").Inc()
-		m.DLQSize.Set(7)
 		m.TransformDroppedTotal.WithLabelValues("consumer-1").Inc()
 		m.TransformErrorsTotal.WithLabelValues("consumer-1").Inc()
 
@@ -181,8 +171,6 @@ func TestDLQAndTransformMetrics(t *testing.T) {
 		}{
 			{"kaptanto_dlq_events_total", "Total events written to the dead-letter queue, labeled by consumer."},
 			{"kaptanto_dlq_write_failures_total", "Total failed writes to the dead-letter queue, labeled by consumer."},
-			{"kaptanto_dlq_fallback_writes_total", "Total DLQ fallback writes (e.g. when primary DLQ storage fails), labeled by consumer."},
-			{"kaptanto_dlq_size", "Current number of events in the dead-letter queue."},
 			{"kaptanto_transform_dropped_total", "Total events dropped by transform filters, labeled by consumer."},
 			{"kaptanto_transform_errors_total", "Total transform evaluation errors, labeled by consumer."},
 		}
