@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -164,7 +165,7 @@ type subscription struct {
 	closed bool
 
 	nudgeMu      sync.Mutex
-	nudgePending bool
+	nudgePending atomic.Bool
 	nudgeCancel  func()
 
 	clock    Clock
@@ -215,19 +216,22 @@ func (sub *subscription) Deliver(_ context.Context, entry eventlog.LogEntry) err
 }
 
 func (sub *subscription) scheduleNudge() {
-	sub.nudgeMu.Lock()
-	defer sub.nudgeMu.Unlock()
-	if sub.nudgePending {
+	if sub.nudgePending.Load() {
 		return
 	}
-	sub.nudgePending = true
+	sub.nudgeMu.Lock()
+	defer sub.nudgeMu.Unlock()
+	if sub.nudgePending.Load() {
+		return
+	}
+	sub.nudgePending.Store(true)
 	clock := sub.clock
 	if clock == nil {
 		clock = realClock{}
 	}
 	sub.nudgeCancel = clock.AfterFunc(nudgeDebounce, func() {
 		sub.nudgeMu.Lock()
-		sub.nudgePending = false
+		sub.nudgePending.Store(false)
 		sub.nudgeCancel = nil
 		sub.nudgeMu.Unlock()
 
@@ -253,7 +257,7 @@ func (sub *subscription) closeRing() {
 		sub.nudgeCancel()
 		sub.nudgeCancel = nil
 	}
-	sub.nudgePending = false
+	sub.nudgePending.Store(false)
 	sub.nudgeMu.Unlock()
 
 	sub.mu.Lock()
