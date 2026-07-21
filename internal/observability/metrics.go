@@ -12,23 +12,21 @@ import (
 // Uses a custom registry (not global DefaultRegisterer) to prevent
 // duplicate-registration panics in tests.
 type KaptantoMetrics struct {
-	reg               *prometheus.Registry
-	EventsDelivered   *prometheus.CounterVec   // kaptanto_events_delivered_total{consumer,table,operation}
-	ConsumerLag       *prometheus.GaugeVec     // kaptanto_consumer_lag_events{consumer}
-	ErrorsTotal       *prometheus.CounterVec   // kaptanto_errors_total{consumer,kind}
-	SourceLagBytes    *prometheus.GaugeVec     // kaptanto_source_lag_bytes{source}
-	CheckpointFlushes prometheus.Counter       // kaptanto_checkpoint_flushes_total
-	QueuePublishTotal   *prometheus.CounterVec   // queue_publish_total{sink}
-	QueuePublishErrors  *prometheus.CounterVec   // queue_publish_errors_total{sink}
-	QueuePublishLatency *prometheus.HistogramVec // queue_publish_latency_seconds{sink}
-	DLQEventsTotal         *prometheus.CounterVec // kaptanto_dlq_events_total{consumer}
-	DLQWriteFailuresTotal  *prometheus.CounterVec // kaptanto_dlq_write_failures_total{consumer}
-	DLQFallbackWritesTotal *prometheus.CounterVec // kaptanto_dlq_fallback_writes_total{consumer}
-	DLQSize                prometheus.Gauge       // kaptanto_dlq_size
-	TransformDroppedTotal  *prometheus.CounterVec // kaptanto_transform_dropped_total{consumer}
-	TransformErrorsTotal   *prometheus.CounterVec // kaptanto_transform_errors_total{consumer}
-	ActionEventsMatched    *prometheus.CounterVec // kaptanto_action_events_matched_total{consumer}
-	ActionEventsSkipped    *prometheus.CounterVec // kaptanto_action_events_skipped_total{consumer}
+	reg                   *prometheus.Registry
+	EventsDelivered       *prometheus.CounterVec   // kaptanto_events_delivered_total{consumer,table,operation}
+	ConsumerLag           *prometheus.GaugeVec     // kaptanto_consumer_lag_events{consumer}
+	ErrorsTotal           *prometheus.CounterVec   // kaptanto_errors_total{consumer,kind}
+	SourceLagBytes        *prometheus.GaugeVec     // kaptanto_source_lag_bytes{source}
+	CheckpointFlushes     prometheus.Counter       // kaptanto_checkpoint_flushes_total
+	QueuePublishTotal     *prometheus.CounterVec   // queue_publish_total{sink}
+	QueuePublishErrors    *prometheus.CounterVec   // queue_publish_errors_total{sink}
+	QueuePublishLatency   *prometheus.HistogramVec // queue_publish_latency_seconds{sink}
+	DLQEventsTotal        *prometheus.CounterVec   // kaptanto_dlq_events_total{consumer}
+	DLQWriteFailuresTotal *prometheus.CounterVec   // kaptanto_dlq_write_failures_total{consumer}
+	TransformDroppedTotal *prometheus.CounterVec   // kaptanto_transform_dropped_total{consumer}
+	TransformErrorsTotal  *prometheus.CounterVec   // kaptanto_transform_errors_total{consumer}
+	ActionEventsMatched   *prometheus.CounterVec   // kaptanto_action_events_matched_total{consumer}
+	ActionEventsSkipped   *prometheus.CounterVec   // kaptanto_action_events_skipped_total{consumer}
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -80,14 +78,6 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Name: "kaptanto_dlq_write_failures_total",
 			Help: "Total failed writes to the dead-letter queue, labeled by consumer.",
 		}, []string{"consumer"}),
-		DLQFallbackWritesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "kaptanto_dlq_fallback_writes_total",
-			Help: "Total DLQ fallback writes (e.g. when primary DLQ storage fails), labeled by consumer.",
-		}, []string{"consumer"}),
-		DLQSize: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "kaptanto_dlq_size",
-			Help: "Current number of events in the dead-letter queue.",
-		}),
 		TransformDroppedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "kaptanto_transform_dropped_total",
 			Help: "Total events dropped by transform filters, labeled by consumer.",
@@ -116,8 +106,6 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.QueuePublishLatency,
 		m.DLQEventsTotal,
 		m.DLQWriteFailuresTotal,
-		m.DLQFallbackWritesTotal,
-		m.DLQSize,
 		m.TransformDroppedTotal,
 		m.TransformErrorsTotal,
 		m.ActionEventsMatched,
