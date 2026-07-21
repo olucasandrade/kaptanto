@@ -27,6 +27,11 @@ type KaptantoMetrics struct {
 	TransformErrorsTotal  *prometheus.CounterVec   // kaptanto_transform_errors_total{consumer}
 	ActionEventsMatched   *prometheus.CounterVec   // kaptanto_action_events_matched_total{consumer}
 	ActionEventsSkipped   *prometheus.CounterVec   // kaptanto_action_events_skipped_total{consumer}
+	VectorEmbeddedTotal   prometheus.Counter       // vector_embedded_total
+	VectorUpsertsTotal    prometheus.Counter       // vector_upserts_total
+	VectorDeletesTotal    prometheus.Counter       // vector_deletes_total
+	VectorSkippedTotal    *prometheus.CounterVec   // vector_skipped_total{reason}
+	VectorEmbedLatency    prometheus.Histogram     // vector_embed_latency_seconds
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -94,6 +99,27 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Name: "kaptanto_action_events_skipped_total",
 			Help: "Total events skipped by action routing, labeled by consumer.",
 		}, []string{"consumer"}),
+		VectorEmbeddedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "vector_embedded_total",
+			Help: "Total texts successfully embedded by the vector sink.",
+		}),
+		VectorUpsertsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "vector_upserts_total",
+			Help: "Total vectors successfully upserted by the vector sink.",
+		}),
+		VectorDeletesTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "vector_deletes_total",
+			Help: "Total vector IDs successfully deleted by the vector sink.",
+		}),
+		VectorSkippedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_skipped_total",
+			Help: "Total vector sink events skipped, labeled by reason (empty|unchanged).",
+		}, []string{"reason"}),
+		VectorEmbedLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "vector_embed_latency_seconds",
+			Help:    "Latency of vector sink Embed calls in seconds.",
+			Buckets: prometheus.DefBuckets,
+		}),
 	}
 	reg.MustRegister(
 		m.EventsDelivered,
@@ -110,6 +136,11 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.TransformErrorsTotal,
 		m.ActionEventsMatched,
 		m.ActionEventsSkipped,
+		m.VectorEmbeddedTotal,
+		m.VectorUpsertsTotal,
+		m.VectorDeletesTotal,
+		m.VectorSkippedTotal,
+		m.VectorEmbedLatency,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)

@@ -24,6 +24,7 @@ import (
 	sqssink "github.com/olucasandrade/kaptanto/internal/output/sqs"
 	"github.com/olucasandrade/kaptanto/internal/output/sse"
 	"github.com/olucasandrade/kaptanto/internal/output/stdout"
+	vectorsink "github.com/olucasandrade/kaptanto/internal/output/vector"
 	webhooksink "github.com/olucasandrade/kaptanto/internal/output/webhook"
 	"github.com/olucasandrade/kaptanto/internal/router"
 )
@@ -135,6 +136,7 @@ func buildOutputServer(
 	networkOutputs := map[string]bool{
 		"sse": true, "grpc": true, "webhook": true,
 		"nats": true, "sqs": true, "kafka": true, "pubsub": true, "rabbitmq": true,
+		"vector": true,
 	}
 	if networkOutputs[cfg.Output] && cfg.AuthToken == "" {
 		if !cfg.Insecure {
@@ -175,15 +177,15 @@ func buildOutputServer(
 		return buildSSEServer(cfg, rtr, metrics, healthHandler, oaHandler, rowFilters, colFilters)
 	case "grpc":
 		return buildGRPCServer(cfg, rtr, cursorStore, metrics, healthHandler, oaHandler, rowFilters, colFilters, nil)
-	case "nats", "sqs", "kafka", "pubsub", "rabbitmq", "webhook":
+	case "nats", "sqs", "kafka", "pubsub", "rabbitmq", "webhook", "vector":
 		return buildBrokerOutputServer(cfg, rtr, metrics, healthProbes, oaHandler)
 	default:
-		return nil, fmt.Errorf("unknown output mode %q: valid modes are none, stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq, webhook", cfg.Output)
+		return nil, fmt.Errorf("unknown output mode %q: valid modes are none, stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq, webhook, vector", cfg.Output)
 	}
 }
 
 // buildBrokerOutputServer constructs the external-broker sinks (nats, sqs,
-// kafka, pubsub, rabbitmq, webhook) and their shared observability server.
+// kafka, pubsub, rabbitmq, webhook, vector) and their shared observability server.
 func buildBrokerOutputServer(
 	cfg *config.Config,
 	rtr *router.Router,
@@ -246,6 +248,15 @@ func buildBrokerOutputServer(
 			return nil, fmt.Errorf("webhook sink: init: %w", err)
 		}
 		return buildSinkServer(cfg, "webhook", sink, rtr, metrics, healthProbes, oaHandler, nil)
+	case "vector":
+		if cfg.Sinks.Vector == nil {
+			return nil, fmt.Errorf("--output vector requires a sinks.vector block in config (source, embedder, store)")
+		}
+		sink, err := vectorsink.NewVectorSinkConsumer("vector", *cfg.Sinks.Vector, cfg.DataDir)
+		if err != nil {
+			return nil, fmt.Errorf("vector sink: init: %w", err)
+		}
+		return buildSinkServer(cfg, "vector", sink, rtr, metrics, healthProbes, oaHandler, nil)
 	default:
 		return nil, fmt.Errorf("unknown broker output mode %q", cfg.Output)
 	}
