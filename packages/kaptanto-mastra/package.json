@@ -1,0 +1,54 @@
+{
+  "name": "@kaptanto/mastra",
+  "version": "0.1.0",
+  "description": "Mastra adapter for Kaptanto CDC — trigger workflows from real-time database changes",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@kaptanto/events": "^0.1.0",
+    "mastra": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@kaptanto/events": "file:../kaptanto-events",
+    "tsup": "^8",
+    "typescript": "^5",
+    "vitest": "^3"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/olucasandrade/kaptanto",
+    "directory": "packages/kaptanto-mastra"
+  },
+  "keywords": [
+    "cdc",
+    "change-data-capture",
+    "kaptanto",
+    "mastra",
+    "ai",
+    "agents",
+    "workflows"
+  ]
+}
