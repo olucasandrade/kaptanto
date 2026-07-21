@@ -72,6 +72,11 @@ Backfill runs concurrently with WAL streaming. The WatermarkChecker discards sna
 | `internal/ha/leader.go` | Postgres advisory lock leader election (~5s failover) |
 | `internal/observability/metrics.go` | Custom prometheus.Registry; `/metrics` + `/healthz` |
 | `internal/checkpoint/` | SQLite (local) or PostgreSQL (HA) for source LSN + consumer cursors |
+| `internal/action/` | Action registry: type definitions (ACT-01), param validation (ACT-02), routing match integration |
+| `internal/routing/` | Compiled match-rule evaluation: glob tables, bitmask ops, WHERE filters (RTG-01, RTG-02) |
+| `internal/openapi/` | `/openapi.json` generator: reflects configured actions into a byte-stable OpenAPI 3.0.3 spec (OAS-01) |
+| `packages/kaptanto-events/` | TypeScript SDK: typed SSE client, `ChangeEvent` types, auto-reconnect |
+| `n8n-nodes-kaptanto/` | n8n community node: SSE trigger node with table/operation/consumer filters |
 
 ### Runtime Data Directory
 
@@ -100,6 +105,18 @@ These must never be violated. This list mirrors the codebase's headline invarian
 6. **SRC-01 — Connection isolation:** Postgres connector keeps a separate `pgx.Conn` for snapshots; replication connections cannot be reused for regular queries.
 
 7. **DLV-02/03/04 — Broker sink delivery:** Sinks route by CDC key to preserve per-key ordering (DLV-02), never retry internally (DLV-03 — retry is the router's job), and stamp every message with an idempotency key/header for downstream dedup (DLV-04). See `internal/output/kafka/consumer.go` for the reference implementation.
+
+8. **ACT-01 — Types are data only:** An action type is a function from (params, secrets) to a webhook sink config + transform expression. Types must not add delivery code paths; every byte goes through the webhook sink.
+
+9. **ACT-02 — Secret params:** Secret params (`ParamSpec.Secret = true`) must be `${VAR}` env-var references. They are never logged, never included in the OpenAPI spec, and never embedded as literals in config.
+
+10. **ACT-03 — Non-matching events:** Events that do not match any action's routing rule are acknowledged and the cursor advances. They are not retried, queued, or dead-lettered.
+
+11. **RTG-01 — Rules compile at startup:** `routing.Compile()` is called once at startup for each action's `match:` block. Any validation error aborts the process.
+
+12. **RTG-02 — No-alloc match:** `Matcher.Match()` performs no heap allocation on the miss path. 50 compiled matchers evaluate in < 1ms.
+
+13. **OAS-01 — Byte-stable spec:** The OpenAPI JSON output is deterministic — same config produces byte-identical output across runs (ordered maps, stable marshal).
 
 ## Test Patterns
 
@@ -153,6 +170,32 @@ sinks:                # only the active sink's block needs to be populated
 
 `ServerTLS` (`server-tls` in YAML) enables TLS/mTLS for the inbound SSE/gRPC servers, distinct from per-sink outbound TLS. `auth-token` (or `KAPTANTO_AUTH_TOKEN` env var) sets a static bearer token for the SSE/gRPC data plane; `insecure: true` disables this with a loud startup warning and is not for production.
 
+Actions config example (`output: none` runs kaptanto as a pure action processor):
+
+```yaml
+source: "postgres://user:pass@host/db"
+output: none
+
+actions:
+  - name: order-alerts
+    type: slack
+    params:
+      webhook-url: ${SLACK_WEBHOOK_URL}
+    match:
+      tables: ["public.orders"]
+      operations: ["insert"]
+
+  - name: sync-vectors
+    type: vector-upsert
+    params:
+      api-key: ${PINECONE_API_KEY}
+      index-host: my-index.svc.us-east1-gcp.pinecone.io
+      vector-field: embedding
+    match:
+      tables: ["public.products"]
+      operations: ["insert", "update"]
+```
+
 ## Landing Page
 
-`landing/` is a static site with no build step. Open `landing/index.html` directly in a browser. All documentation content lives in `landing/js/main.js` as the `docs` object; the sidebar is defined in the `sidebar` array in the same file.
+`landing/` is a Qwik app. Run `npm run dev` from `landing/` for local development. Documentation content lives in `landing/src/data/docs-content.ts` as the `DOCS_CONTENT` record; the sidebar is the `SIDEBAR` array in the same file. SEO-crawlable routes are at `landing/src/routes/docs/`; the corresponding SEO metadata is in `landing/src/data/docs.ts`.

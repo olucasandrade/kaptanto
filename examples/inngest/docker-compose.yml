@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/001-seed.sql:ro
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    environment:
+      # The inngest dev server accepts any event key; "local" is the convention.
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:-local}
+    depends_on:
+      - postgres
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  inngest:
+    image: inngest/inngest:latest
+    command: ["inngest", "dev", "-u", "http://host.docker.internal:3000/api/inngest"]
+    ports:
+      - "8288:8288"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

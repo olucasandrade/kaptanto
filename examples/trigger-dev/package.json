@@ -1,0 +1,18 @@
+{
+  "name": "kaptanto-trigger-dev-example",
+  "private": true,
+  "scripts": {
+    "dev": "npx trigger.dev@latest dev",
+    "deploy": "npx trigger.dev@latest deploy"
+  },
+  "dependencies": {
+    "@trigger.dev/sdk": "^3.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0"
+  },
+  "trigger.dev": {
+    "endpointId": "kaptanto-example"
+  }
+}

@@ -26,6 +26,12 @@ export const SEO_DOCS: SeoDoc[] = [
   { slug: 'docs-metrics', title: 'Metrics & Monitoring', description: 'Prometheus metrics and health checks for observability.' },
   { slug: 'docs-api', title: 'HTTP Endpoints', description: 'The HTTP endpoints kaptanto serves: /events, /metrics, and /healthz.' },
   { slug: 'docs-troubleshooting', title: 'Troubleshooting', description: 'Fix common CDC issues quickly in production.' },
+  { slug: 'docs-actions', title: 'Actions', description: 'Turn CDC events into side effects — Slack, Discord, email, HTTP, cache purges, vector upserts, and workflow triggers.' },
+  { slug: 'docs-routing', title: 'Routing Rules', description: 'Filter events by table globs, operations, and WHERE conditions with before./after. prefixes.' },
+  { slug: 'docs-openapi', title: 'OpenAPI Discovery', description: 'Machine-readable spec of configured actions served at /openapi.json.' },
+  { slug: 'docs-n8n', title: 'n8n Integration', description: 'Use kaptanto as an n8n trigger node to start workflows on database changes.' },
+  { slug: 'docs-triggerdev', title: 'Trigger.dev Integration', description: 'Fire Trigger.dev tasks from CDC events with zero consumer code.' },
+  { slug: 'docs-inngest', title: 'Inngest Integration', description: 'Run durable Inngest functions from CDC events with zero consumer code.' },
   { slug: 'docs-aws-setup', title: 'AWS Deployment Guide', description: 'How to run kaptanto, Debezium, and Sequin alongside an API on AWS — infrastructure, cost, and consumer code compared.' },
   { slug: 'docs-benchmarks', title: 'Benchmarks', description: 'Independent throughput and latency comparison of kaptanto vs. Debezium and Sequin across steady, burst, large-batch, crash-recovery, and cluster scenarios.' },
 ];

@@ -16,10 +16,12 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/olucasandrade/kaptanto/internal/action"
 	"github.com/olucasandrade/kaptanto/internal/backfill"
 	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 	"github.com/olucasandrade/kaptanto/internal/cluster"
 	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/dlq"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/ha"
@@ -107,6 +109,9 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().String("tls-client-ca", "", "path to CA PEM for client certificate verification (mTLS); requires --tls-cert and --tls-key")
 	root.PersistentFlags().String("auth-token", "", "static bearer token required by SSE/gRPC clients (prefer KAPTANTO_AUTH_TOKEN env var to avoid leaking the secret in process listings)")
 	root.PersistentFlags().Bool("insecure", false, "allow plaintext SSE/gRPC without TLS or auth token (not recommended for production; logs a security warning)")
+	root.PersistentFlags().Bool("dlq-enabled", true, "enable the dead-letter queue for poison events (default on; --dlq-enabled=false restores pre-DLQ log-and-drop)")
+	root.PersistentFlags().String("dlq-path", "", "path to the DLQ SQLite store (default <data-dir>/dlq.db)")
+	root.PersistentFlags().Duration("dlq-retention", 0, "DLQ retention period (e.g. 168h); 0 keeps entries forever")
 
 	root.Version = version.Version
 	root.AddCommand(newVersionCmd())
@@ -338,6 +343,51 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 
 	metrics := observability.NewKaptantoMetrics()
+
+	// Open the DLQ store. Enabled by default (nil/true); an explicit false
+	// restores pre-DLQ log-and-drop behavior.
+	var dlqStore dlq.Store
+	if cfg.DLQ.Enabled == nil || *cfg.DLQ.Enabled {
+		dlqPath := cfg.DLQ.Path
+		if dlqPath == "" {
+			dlqPath = filepath.Join(cfg.DataDir, "dlq.db")
+		}
+		store, err := dlq.Open(dlqPath)
+		if err != nil {
+			return fmt.Errorf("open dlq store: %w", err)
+		}
+		dlqStore = store
+		defer func() { _ = store.Close() }()
+
+		if cfg.DLQ.Retention != "" {
+			ret, err := time.ParseDuration(cfg.DLQ.Retention)
+			if err != nil {
+				return fmt.Errorf("parse dlq retention %q: %w", cfg.DLQ.Retention, err)
+			}
+			if ret > 0 {
+				retentionCtx, stopRetention := context.WithCancel(ctx)
+				defer stopRetention()
+				go func(ret time.Duration) {
+					ticker := time.NewTicker(ret / 2)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-retentionCtx.Done():
+							return
+						case <-ticker.C:
+							cutoff := time.Now().UTC().Add(-ret)
+							n, err := store.Purge(retentionCtx, dlq.Filter{OlderThan: cutoff})
+							if err != nil {
+								slog.Warn("dlq: retention purge failed", "err", err)
+							} else if n > 0 {
+								slog.Info("dlq: purged old entries", "count", n)
+							}
+						}
+					}
+				}(ret)
+			}
+		}
+	}
 	healthProbes := []observability.HealthProbe{
 		{Name: "eventlog", Check: elPing},
 		{Name: "checkpoint", Check: ckProbe},
@@ -365,11 +415,25 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	healthHandler := observability.NewHealthHandler(healthProbes)
 
 	rtr.SetMetrics(metrics)
+	rtr.RetryScheduler().SetMetrics(metrics)
 	cursorSetMetrics(metrics)
+	rtr.SetDLQ(dlqStore)
 
 	outputServer, err := buildOutputServer(cfg, rtr, cursorStore, metrics, healthHandler, healthProbes, rowFilters, colFilters)
 	if err != nil {
 		return err
+	}
+
+	// Build and register action consumers (after primary output, before source start).
+	actionConsumers, err := action.BuildConsumers(cfg, metrics)
+	if err != nil {
+		return err
+	}
+	for _, ac := range actionConsumers {
+		rtr.Register(ac)
+	}
+	if cfg.Output == "none" && len(actionConsumers) == 0 {
+		return fmt.Errorf("output: none requires at least one configured action")
 	}
 
 	if cfg.SourceType() == "mongodb" {

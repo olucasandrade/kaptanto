@@ -1,0 +1,72 @@
+name: TypeScript
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "packages/kaptanto-events/**"
+      - "n8n-nodes-kaptanto/**"
+      - ".github/workflows/ts.yml"
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "packages/kaptanto-events/**"
+      - "n8n-nodes-kaptanto/**"
+      - ".github/workflows/ts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-events:
+    name: "@kaptanto/events"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/kaptanto-events
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: packages/kaptanto-events/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  test-n8n:
+    name: n8n-nodes-kaptanto
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: n8n-nodes-kaptanto
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # n8n-workflow pulls in isolated-vm, whose prebuilt binaries require
+      # Node >= 22.0.0. Running this job on Node 20 causes a native compile
+      # against V8 headers that no longer expose v8::SourceLocation.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: n8n-nodes-kaptanto/package-lock.json
+
+      # @kaptanto/events is a local linked dependency. Its dist/ is not checked
+      # in, so we must build it before the n8n package can resolve the module.
+      - name: Build @kaptanto/events dependency
+        working-directory: packages/kaptanto-events
+        run: |
+          npm ci
+          npm run build
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
