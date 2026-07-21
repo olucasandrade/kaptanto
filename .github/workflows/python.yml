@@ -1,0 +1,55 @@
+name: Python
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "packages/kaptanto-python/**"
+      - "internal/event/testdata/changeevent_fixtures.ndjson"
+      - "Makefile"
+      - ".github/workflows/python.yml"
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "packages/kaptanto-python/**"
+      - "packages/kaptanto-events/test/fixtures/**"
+      - "internal/event/testdata/changeevent_fixtures.ndjson"
+      - "Makefile"
+      - ".github/workflows/python.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    name: fixture drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Copy fixtures and fail on drift
+        run: make fixtures
+
+  test:
+    name: kaptanto (python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/kaptanto-python
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q

@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kaptanto"
+version = "0.1.0"
+description = "Python SDK for Kaptanto CDC — pydantic ChangeEvent models and httpx SSE client"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{ name = "Lucas Andrade" }]
+keywords = ["cdc", "kaptanto", "sse", "change-data-capture"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "httpx>=0.27",
+  "pydantic>=2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+]
+
+[project.urls]
+Homepage = "https://github.com/olucasandrade/kaptanto"
+Repository = "https://github.com/olucasandrade/kaptanto"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kaptanto"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/README.md",
+  "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = [
+  # Wire field matches Go's json:"schema"; BaseModel.schema() is deprecated in v2.
+  'ignore:Field name "schema" in "ChangeEvent" shadows:UserWarning',
+]
