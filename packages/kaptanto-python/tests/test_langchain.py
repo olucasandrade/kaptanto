@@ -83,6 +83,7 @@ def _hold_open_handler(events: list[dict[str, Any]]) -> type[BaseHTTPRequestHand
             self.send_header("Content-Type", "text/event-stream")
             # Force connection close so the client sees response end instead
             # of waiting on a persistent HTTP/1.1 connection.
+            self.close_connection = True
             self.send_header("Connection", "close")
             self.end_headers()
             for ev in events:
