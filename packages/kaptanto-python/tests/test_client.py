@@ -275,6 +275,9 @@ async def test_reconnects_on_disconnect(url_builder) -> None:
                 state["count"] += 1
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
+                # Force connection close so the client sees response end instead
+                # of waiting on a persistent HTTP/1.1 connection.
+                self.send_header("Connection", "close")
                 self.end_headers()
                 if state["count"] == 1:
                     # Abrupt disconnect without a body frame.
@@ -318,6 +321,9 @@ async def test_reconnect_mid_event_at_least_once(url_builder) -> None:
                 state["count"] += 1
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
+                # Force connection close so the client sees response end instead
+                # of waiting on a persistent HTTP/1.1 connection.
+                self.send_header("Connection", "close")
                 self.end_headers()
                 if state["count"] == 1:
                     self.wfile.write(sse_frame(complete))

@@ -377,16 +377,18 @@ describe("KaptantoStream", () => {
       const iterator = stream[Symbol.asyncIterator]();
       const resultPromise = iterator.next();
 
+      // Wait for the first connection, then for a retry so we prove backoff
+      // is actually applied (BASE_DELAY_MS is 1000ms with jitter).
       await vi.waitFor(() => expect(connectionCount).toBeGreaterThanOrEqual(1), {
         timeout: 2000,
       });
-      // Allow at least one backoff cycle (BASE_DELAY_MS is 1000 with jitter).
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await vi.waitFor(() => expect(connectionCount).toBeGreaterThanOrEqual(2), {
+        timeout: 5000,
+      });
       stream.close();
       await resultPromise;
 
       const elapsed = Date.now() - start;
-      expect(connectionCount).toBeGreaterThanOrEqual(2);
       expect(elapsed).toBeGreaterThanOrEqual(100);
     },
     10_000,
