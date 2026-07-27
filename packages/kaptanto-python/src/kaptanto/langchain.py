@@ -97,7 +97,7 @@ def as_tool(
         while len(events) < max_events:
             try:
                 ev = await asyncio.wait_for(agen.__anext__(), timeout=timeout_s)
-            except (TimeoutError, StopAsyncIteration):
+            except (TimeoutError, asyncio.TimeoutError, StopAsyncIteration):
                 break
             events.append(ev.model_dump(mode="json"))
         return json.dumps(events)
