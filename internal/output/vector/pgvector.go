@@ -77,7 +77,12 @@ CREATE TABLE IF NOT EXISTS %s (
     metadata jsonb
 )`, ident, s.dimensions)
 	if _, err := s.conn.Exec(ctx, ddl); err != nil {
-		return fmt.Errorf("vector: pgvector: CREATE TABLE: %w", err)
+		// Concurrent CREATE TABLE IF NOT EXISTS can race on the unique
+		// constraint pg_type_typname_nsp_index; a duplicate-key error means
+		// another connection created the table and we can proceed.
+		if !isPGUniqueViolation(err) {
+			return fmt.Errorf("vector: pgvector: CREATE TABLE: %w", err)
+		}
 	}
 	return nil
 }
