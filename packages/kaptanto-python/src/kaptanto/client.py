@@ -129,7 +129,7 @@ class KaptantoStream:
                     try:
                         await asyncio.wait_for(self._abort.wait(), timeout=delay)
                         return
-                    except TimeoutError:
+                    except (TimeoutError, asyncio.TimeoutError):
                         continue
         finally:
             if self._client is not None:
