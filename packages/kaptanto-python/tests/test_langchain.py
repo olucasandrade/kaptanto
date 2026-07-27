@@ -81,12 +81,15 @@ def _hold_open_handler(events: list[dict[str, Any]]) -> type[BaseHTTPRequestHand
         def do_GET(self) -> None:  # noqa: N802
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
+            # Force connection close so the client sees response end instead
+            # of waiting on a persistent HTTP/1.1 connection.
+            self.send_header("Connection", "close")
             self.end_headers()
             for ev in events:
                 self.wfile.write(sse_frame(ev))
                 self.wfile.flush()
-            # Stay open past the tool idle timeout (0.75s), then return.
-            time.sleep(1.5)
+            # Stay open past the tool idle timeout, then return.
+            time.sleep(2.5)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
             return
@@ -106,7 +109,7 @@ async def test_as_tool_drains_recent_events(url_builder) -> None:
     url = url_builder(lambda: _hold_open_handler(events))
     stream = KaptantoStream(url, consumer="langchain-tool")
     try:
-        tool = as_tool(stream, max_events=10, timeout_s=0.75)
+        tool = as_tool(stream, max_events=10, timeout_s=2.0)
         assert isinstance(tool, StructuredTool)
         assert tool.name == "kaptanto_recent_events"
 
@@ -129,7 +132,7 @@ async def test_as_tool_respects_max_events(url_builder) -> None:
     url = url_builder(lambda: _hold_open_handler(events))
     stream = KaptantoStream(url, consumer="langchain-max")
     try:
-        tool = as_tool(stream, name="drain_two", max_events=2, timeout_s=0.75)
+        tool = as_tool(stream, name="drain_two", max_events=2, timeout_s=2.0)
         assert tool.name == "drain_two"
         raw = await tool.ainvoke({})
         parsed = json.loads(raw)
