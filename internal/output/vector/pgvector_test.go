@@ -109,6 +109,11 @@ func TestPGVectorStore_ErrorPaths(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "CREATE EXTENSION")
 
+	// Concurrent CREATE EXTENSION IF NOT EXISTS can raise 23505; we treat it as
+	// "extension already exists" and continue to CREATE TABLE.
+	sConcurrent := &PGVectorStore{conn: &fakePGX{failExecOn: 1, execErrNth: &pgconn.PgError{Code: "23505"}}, table: "t", dimensions: 2}
+	require.NoError(t, sConcurrent.ensureSchema(context.Background()))
+
 	s2 := &PGVectorStore{conn: &fakePGX{failExecOn: 2, execErrNth: errors.New("table fail")}, table: "t", dimensions: 2}
 	err = s2.ensureSchema(context.Background())
 	require.Error(t, err)

@@ -3,6 +3,7 @@ package vector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -60,7 +61,12 @@ func OpenPGVector(ctx context.Context, dsn, table string, dimensions int) (*PGVe
 // concurrently from multiple nodes (CREATE … IF NOT EXISTS).
 func (s *PGVectorStore) ensureSchema(ctx context.Context) error {
 	if _, err := s.conn.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
-		return fmt.Errorf("vector: pgvector: CREATE EXTENSION: %w", err)
+		// Concurrent CREATE EXTENSION IF NOT EXISTS can race on the unique
+		// index pg_extension_name_index; a duplicate-key error means another
+		// connection created the extension and we can proceed.
+		if !isPGUniqueViolation(err) {
+			return fmt.Errorf("vector: pgvector: CREATE EXTENSION: %w", err)
+		}
 	}
 	ident := pgx.Identifier{s.table}.Sanitize()
 	ddl := fmt.Sprintf(`
@@ -74,6 +80,17 @@ CREATE TABLE IF NOT EXISTS %s (
 		return fmt.Errorf("vector: pgvector: CREATE TABLE: %w", err)
 	}
 	return nil
+}
+
+// isPGUniqueViolation reports whether err is a Postgres unique-violation
+// (SQLSTATE 23505), which can arise from concurrent CREATE EXTENSION IF NOT
+// EXISTS races.
+func isPGUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return false
 }
 
 // Upsert writes records in a single pgx.Batch (order preserved by construction).
