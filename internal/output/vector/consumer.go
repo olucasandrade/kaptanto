@@ -211,7 +211,7 @@ func (c *VectorSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 	}
 
 	hash := HashText(text)
-	if c.cache != nil && c.cache.Unchanged(id, hash) {
+	if c.cache != nil && c.cache.Unchanged(id, hash) && !c.pendingHasID(entry.PartitionID, id) {
 		c.incSkipped(SkipReasonUnchanged)
 		return nil
 	}
@@ -233,6 +233,19 @@ func (c *VectorSinkConsumer) incSkipped(reason string) {
 	if c.m != nil {
 		c.m.VectorSkippedTotal.WithLabelValues(reason).Inc()
 	}
+}
+
+// pendingHasID reports whether partitionID already buffers an upsert or delete
+// for id. Hash-skip (VEC-01) must not ignore in-flight pending for the same id.
+func (c *VectorSinkConsumer) pendingHasID(partitionID uint32, id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, p := range c.pending[partitionID] {
+		if p.id == id {
+			return true
+		}
+	}
+	return false
 }
 
 func buildMetadata(ev *event.ChangeEvent, cols []string) map[string]any {
@@ -322,9 +335,14 @@ func splitRuns(batch []pendingVec) []vecRun {
 }
 
 // flushEmbedCache holds embeddings produced during a single FlushBatch attempt
-// so poison isolation does not re-embed already-embedded vectors.
+// so poison isolation does not re-embed already-embedded vectors. Keys combine
+// id and text hash so consecutive same-id upserts with different text each embed.
 type flushEmbedCache struct {
 	vectors map[string][]float32
+}
+
+func embedCacheKey(it pendingVec) string {
+	return it.id + "\x00" + string(it.hash)
 }
 
 func (c *VectorSinkConsumer) flushDeleteRun(ctx context.Context, items []pendingVec) error {
@@ -333,8 +351,29 @@ func (c *VectorSinkConsumer) flushDeleteRun(ctx context.Context, items []pending
 		ids[i] = it.id
 	}
 	if err := c.store.Delete(ctx, ids); err != nil {
+		if IsPoison(err) && len(items) > 1 {
+			return c.isolateDelete(ctx, items)
+		}
 		return c.classifyStoreErr(err, items)
 	}
+	c.ackDeletes(items)
+	return nil
+}
+
+func (c *VectorSinkConsumer) isolateDelete(ctx context.Context, items []pendingVec) error {
+	for _, it := range items {
+		if err := c.store.Delete(ctx, []string{it.id}); err != nil {
+			if IsPoison(err) {
+				return &router.PermanentFlushError{Seq: it.seq, Cause: err}
+			}
+			return err // transient — abort isolation
+		}
+		c.ackDeletes([]pendingVec{it})
+	}
+	return nil
+}
+
+func (c *VectorSinkConsumer) ackDeletes(items []pendingVec) {
 	for _, it := range items {
 		if c.cache != nil {
 			if err := c.cache.Del(it.id); err != nil {
@@ -345,7 +384,6 @@ func (c *VectorSinkConsumer) flushDeleteRun(ctx context.Context, items []pending
 	if c.m != nil {
 		c.m.VectorDeletesTotal.Add(float64(len(items)))
 	}
-	return nil
 }
 
 func (c *VectorSinkConsumer) flushUpsertRun(ctx context.Context, items []pendingVec, state *flushEmbedCache) error {
@@ -379,7 +417,7 @@ func (c *VectorSinkConsumer) flushUpsertChunk(ctx context.Context, items []pendi
 	for i, it := range items {
 		recs[i] = Record{
 			ID:       it.id,
-			Vector:   state.vectors[it.id],
+			Vector:   state.vectors[embedCacheKey(it)],
 			Metadata: it.metadata,
 			Text:     it.text,
 		}
@@ -398,7 +436,7 @@ func (c *VectorSinkConsumer) ensureEmbedded(ctx context.Context, items []pending
 	var need []pendingVec
 	var texts []string
 	for _, it := range items {
-		if _, ok := state.vectors[it.id]; ok {
+		if _, ok := state.vectors[embedCacheKey(it)]; ok {
 			continue
 		}
 		need = append(need, it)
@@ -419,7 +457,7 @@ func (c *VectorSinkConsumer) ensureEmbedded(ctx context.Context, items []pending
 		return fmt.Errorf("vector: embedder returned %d vectors for %d texts (VEC-02)", len(vecs), len(texts))
 	}
 	for i, it := range need {
-		state.vectors[it.id] = vecs[i]
+		state.vectors[embedCacheKey(it)] = vecs[i]
 	}
 	if c.m != nil {
 		c.m.VectorEmbeddedTotal.Add(float64(len(texts)))
@@ -439,7 +477,7 @@ func (c *VectorSinkConsumer) isolateUpsert(ctx context.Context, items []pendingV
 		}
 		rec := Record{
 			ID:       it.id,
-			Vector:   state.vectors[it.id],
+			Vector:   state.vectors[embedCacheKey(it)],
 			Metadata: it.metadata,
 			Text:     it.text,
 		}

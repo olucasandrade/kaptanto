@@ -584,3 +584,99 @@ func TestStatusErrorMethods(t *testing.T) {
 	assert.False(t, vector.IsTransient(nil))
 	assert.False(t, vector.IsPoison(nil))
 }
+
+func TestDeliver_HashSkipRespectsPendingDelete_VEC01(t *testing.T) {
+	emb := &fakeEmbedder{cap: 96}
+	store := &fakeStore{}
+	cache := newSpyCache()
+	c := newTestConsumer(t, emb, store, cache)
+
+	text := map[string]any{"title": "hello", "body": "world"}
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(1, event.OpInsert, "docs", map[string]any{"id": 1}, text)))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+	assert.Equal(t, 1, emb.calls)
+
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(2, event.OpDelete, "docs", map[string]any{"id": 1}, nil)))
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(3, event.OpInsert, "docs", map[string]any{"id": 1}, text)))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+
+	assert.Equal(t, 2, emb.calls, "reinsert after delete must re-embed despite unchanged hash cache")
+	require.GreaterOrEqual(t, len(store.ops), 2)
+	assert.Equal(t, "upsert", store.ops[len(store.ops)-1].kind)
+}
+
+func TestDeliver_HashSkipRespectsPendingUpsertRevert_VEC01(t *testing.T) {
+	emb := &fakeEmbedder{cap: 96}
+	store := &fakeStore{}
+	cache := newSpyCache()
+	c := newTestConsumer(t, emb, store, cache)
+
+	original := map[string]any{"title": "hello", "body": "world"}
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(1, event.OpInsert, "docs", map[string]any{"id": 1}, original)))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(2, event.OpUpdate, "docs", map[string]any{"id": 1}, map[string]any{"title": "new", "body": "text"})))
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(3, event.OpUpdate, "docs", map[string]any{"id": 1}, original)))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+
+	assert.Equal(t, 2, emb.calls, "revert while newer update pending must not hash-skip")
+	require.NotEmpty(t, store.upserts)
+	lastBatch := store.upserts[len(store.upserts)-1]
+	final := lastBatch[len(lastBatch)-1]
+	assert.Equal(t, "title: hello\nbody: world", final.Text)
+	assert.InDelta(t, float32(len("title: hello\nbody: world")), final.Vector[0], 0.001)
+}
+
+func TestFlushBatch_SameIDDifferentTextEmbedsBoth_VEC02(t *testing.T) {
+	emb := &fakeEmbedder{cap: 96}
+	store := &fakeStore{}
+	c := newTestConsumer(t, emb, store, nil)
+
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(1, event.OpUpdate, "docs", map[string]any{"id": 1}, map[string]any{"title": "alpha", "body": "one"})))
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(2, event.OpUpdate, "docs", map[string]any{"id": 1}, map[string]any{"title": "beta", "body": "two"})))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+
+	require.Len(t, emb.texts, 1)
+	assert.Equal(t, []string{"title: alpha\nbody: one", "title: beta\nbody: two"}, emb.texts[0])
+	require.NotEmpty(t, store.upserts)
+	lastBatch := store.upserts[len(store.upserts)-1]
+	require.Len(t, lastBatch, 2)
+	final := lastBatch[1]
+	assert.Equal(t, "title: beta\nbody: two", final.Text)
+	assert.InDelta(t, float32(len("title: beta\nbody: two")), final.Vector[0], 0.001)
+}
+
+func TestFlushBatch_DeletePoisonIsolation(t *testing.T) {
+	poisonID, err := vector.CanonicalID("public", "docs", map[string]any{"id": "2"})
+	require.NoError(t, err)
+
+	store := &fakeStore{}
+	store.deleteFn = func(ids []string) error {
+		if len(ids) > 1 {
+			return &vector.StatusError{Status: 400, Msg: "batch rejected"}
+		}
+		if len(ids) == 1 && ids[0] == poisonID {
+			return &vector.StatusError{Status: 400, Msg: "bad id"}
+		}
+		return nil
+	}
+	c := newTestConsumer(t, nil, store, newSpyCache())
+
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(1, event.OpDelete, "docs", map[string]any{"id": "1"}, nil)))
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(2, event.OpDelete, "docs", map[string]any{"id": "2"}, nil)))
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(3, event.OpDelete, "docs", map[string]any{"id": "3"}, nil)))
+
+	err = c.FlushBatch(context.Background(), 0)
+	require.Error(t, err)
+	var pfe *router.PermanentFlushError
+	require.True(t, errors.As(err, &pfe))
+	assert.Equal(t, uint64(2), pfe.Seq)
+
+	deleteOps := 0
+	for _, op := range store.ops {
+		if op.kind == "delete" {
+			deleteOps++
+		}
+	}
+	assert.Equal(t, 3, deleteOps, "isolation must retry each delete individually")
+}
