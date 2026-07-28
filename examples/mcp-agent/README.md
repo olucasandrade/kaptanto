@@ -22,10 +22,11 @@ Postgres → Kaptanto (mcp.enabled) → MCP tools → Claude Desktop / agent
 
 ## Run
 
-**1. Start infrastructure:**
+**1. Set an MCP API key and start infrastructure:**
 
 ```bash
 cd examples/mcp-agent
+export MCP_API_KEY="$(openssl rand -hex 16)"
 docker compose up --build -d
 ```
 
@@ -33,9 +34,8 @@ docker compose up --build -d
 
 Merge `claude_desktop_config.json` into your Claude Desktop MCP config
 (typically `~/Library/Application Support/Claude/claude_desktop_config.json` on
-macOS). Restart Claude Desktop.
-
-The demo bearer token is `mcp-demo-key` (override with `MCP_API_KEY`).
+macOS). Replace `<MCP_API_KEY>` with the same value you exported in step 1.
+Restart Claude Desktop.
 
 **3. Agent workflow — list → subscribe → drain:**
 

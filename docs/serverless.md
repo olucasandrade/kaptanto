@@ -72,6 +72,7 @@ actions:
 | `url` | Yes | Yes | Worker HTTPS URL |
 | `auth-header-name` | No | No | Header name (default `Authorization`) |
 | `auth-token` | No | Yes | Static token value for that header |
+| `allow-unauthenticated` | No | No | Set to `true` to POST without `auth-token` (explicit opt-in) |
 
 ### `vercel`
 

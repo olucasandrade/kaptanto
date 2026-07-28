@@ -255,7 +255,7 @@ mcp:
           columns: ["customer"]
 ```
 
-Point Claude Desktop (or any streamable-HTTP MCP client) at it:
+Point Claude Desktop (or any streamable-HTTP MCP client) at it. Replace `<MCP_API_KEY>` with the same bearer token you export as `MCP_API_KEY`:
 
 ```json
 {
@@ -264,7 +264,7 @@ Point Claude Desktop (or any streamable-HTTP MCP client) at it:
       "type": "http",
       "url": "http://localhost:7655",
       "headers": {
-        "Authorization": "Bearer mcp-demo-key"
+        "Authorization": "Bearer <MCP_API_KEY>"
       }
     }
   }

@@ -34,6 +34,11 @@ func (CloudflareWorkerType) ParamSpec() map[string]ParamSpec {
 			Secret:      true,
 			Description: "Optional static auth token value for auth-header-name",
 		},
+		"allow-unauthenticated": {
+			Required:    false,
+			Secret:      false,
+			Description: "Set to true to POST CDC JSON without auth-token (unsafe for sensitive tables)",
+		},
 	}
 }
 
@@ -56,7 +61,11 @@ func (CloudflareWorkerType) Build(p ResolvedParams) (config.WebhookSinkConfig, c
 		"Content-Type": "application/json",
 	}
 
-	token := p["auth-token"]
+	token := strings.TrimSpace(p["auth-token"])
+	if token == "" && !cloudflareWorkerAllowsUnauthenticated(p["allow-unauthenticated"]) {
+		return config.WebhookSinkConfig{}, config.TransformConfig{},
+			fmt.Errorf("cloudflare-worker: auth-token is empty; set auth-token or allow-unauthenticated: true to POST CDC JSON without auth")
+	}
 	if token != "" {
 		hdrName := strings.TrimSpace(p["auth-header-name"])
 		if hdrName == "" {
@@ -72,4 +81,13 @@ func (CloudflareWorkerType) Build(p ResolvedParams) (config.WebhookSinkConfig, c
 	}
 
 	return whCfg, config.TransformConfig{}, nil
+}
+
+func cloudflareWorkerAllowsUnauthenticated(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }

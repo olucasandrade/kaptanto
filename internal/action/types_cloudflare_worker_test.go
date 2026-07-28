@@ -33,6 +33,8 @@ func TestCloudflareWorker_ParamSpec(t *testing.T) {
 	assert.Equal(t, "Authorization", spec["auth-header-name"].Default)
 	assert.False(t, spec["auth-token"].Required)
 	assert.True(t, spec["auth-token"].Secret)
+	assert.False(t, spec["allow-unauthenticated"].Required)
+	assert.False(t, spec["allow-unauthenticated"].Secret)
 }
 
 func TestCloudflareWorker_Build_WithAuth(t *testing.T) {
@@ -58,9 +60,19 @@ func TestCloudflareWorker_Build_CustomAuthHeader(t *testing.T) {
 	assert.Empty(t, whCfg.Headers["Authorization"])
 }
 
-func TestCloudflareWorker_Build_NoAuth(t *testing.T) {
-	whCfg, _, err := action.CloudflareWorkerType{}.Build(action.ResolvedParams{
+func TestCloudflareWorker_Build_NoAuth_Rejected(t *testing.T) {
+	_, _, err := action.CloudflareWorkerType{}.Build(action.ResolvedParams{
 		"url": "https://worker.example.workers.dev/",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "auth-token is empty")
+	assert.Contains(t, err.Error(), "allow-unauthenticated")
+}
+
+func TestCloudflareWorker_Build_AllowUnauthenticatedOptIn(t *testing.T) {
+	whCfg, _, err := action.CloudflareWorkerType{}.Build(action.ResolvedParams{
+		"url":                     "https://worker.example.workers.dev/",
+		"allow-unauthenticated":   "true",
 	})
 	require.NoError(t, err)
 	assert.Empty(t, whCfg.Headers["Authorization"])
@@ -148,6 +160,24 @@ func TestCloudflareWorker_SecretPolicy_LiteralAuthTokenRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "auth-token")
 }
 
+func TestCloudflareWorker_BuildConsumers_NoAuthRequiresOptIn(t *testing.T) {
+	t.Setenv("CF_WORKER_URL", "https://worker.example.workers.dev/")
+	reg := action.NewRegistry()
+	reg.Register(action.CloudflareWorkerType{})
+
+	_, err := action.BuildConsumersWithRegistry(&config.Config{
+		Actions: []config.ActionConfig{{
+			Name: "unauth-cfw",
+			Type: "cloudflare-worker",
+			Params: map[string]string{
+				"url": "${CF_WORKER_URL}",
+			},
+		}},
+	}, observability.NewKaptantoMetrics(), reg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "allow-unauthenticated")
+}
+
 func TestCloudflareWorker_BatchOverride_Allowed(t *testing.T) {
 	t.Setenv("CF_WORKER_URL", "https://worker.example.workers.dev/")
 	reg := action.NewRegistry()
@@ -159,7 +189,8 @@ func TestCloudflareWorker_BatchOverride_Allowed(t *testing.T) {
 			Name: "batched-cfw",
 			Type: "cloudflare-worker",
 			Params: map[string]string{
-				"url": "${CF_WORKER_URL}",
+				"url":                   "${CF_WORKER_URL}",
+				"allow-unauthenticated": "true",
 			},
 			Batch: &batch,
 		}},
