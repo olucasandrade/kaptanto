@@ -194,15 +194,12 @@ func (sub *subscription) Deliver(_ context.Context, entry eventlog.LogEntry) err
 		return nil
 	}
 
-	// Shallow copy so drain-time redaction cannot race with later mutations.
-	cp := *entry.Event
-
 	sub.mu.Lock()
 	if sub.closed {
 		sub.mu.Unlock()
 		return nil
 	}
-	evicted := sub.ring.push(&cp)
+	evicted := sub.ring.push(entry.Event)
 	sub.mu.Unlock()
 
 	if sub.onBuffer != nil {
