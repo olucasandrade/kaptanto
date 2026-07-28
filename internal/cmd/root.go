@@ -348,7 +348,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	el = enrich.Wrap(el, enricher)
+	el = enrich.Wrap(ctx, el, enricher)
 
 	rtr := router.NewRouter(el, numEventLogPartitions, cursorStore)
 	if cfg.Cluster {
