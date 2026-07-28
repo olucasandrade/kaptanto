@@ -220,7 +220,7 @@ func (c *HashCache) PutBatch(ids []string, hashes [][]byte) error {
 		_ = tx.Rollback()
 		return fmt.Errorf("vector: hash cache put batch prepare: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().Unix()
 	for i, id := range ids {
@@ -258,7 +258,7 @@ func (c *HashCache) DelBatch(ids []string) error {
 		_ = tx.Rollback()
 		return fmt.Errorf("vector: hash cache del batch prepare: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, id := range ids {
 		if _, err := stmt.Exec(id); err != nil {
