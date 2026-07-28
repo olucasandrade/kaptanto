@@ -149,9 +149,13 @@ func columnsFromRelation(msg *pglogrepl.RelationMessageV2) []ColumnInfo {
 	return out
 }
 
+// sharedTypeMap is built once for oidTypeName lookups; pgtype.Map is treated
+// as read-only after construction, so concurrent TypeForOID calls are safe.
+var sharedTypeMap = pgtype.NewMap()
+
 // oidTypeName maps a Postgres type OID to a human-readable name.
 func oidTypeName(oid uint32) string {
-	if t, ok := pgtype.NewMap().TypeForOID(oid); ok {
+	if t, ok := sharedTypeMap.TypeForOID(oid); ok {
 		return t.Name
 	}
 	return fmt.Sprintf("oid:%d", oid)

@@ -94,12 +94,17 @@ def as_tool(
     async def _drain() -> str:
         events: list[dict[str, Any]] = []
         agen = stream.__aiter__()
-        while len(events) < max_events:
-            try:
-                ev = await asyncio.wait_for(agen.__anext__(), timeout=timeout_s)
-            except (TimeoutError, asyncio.TimeoutError, StopAsyncIteration):
-                break
-            events.append(ev.model_dump(mode="json"))
+        try:
+            while len(events) < max_events:
+                try:
+                    ev = await asyncio.wait_for(agen.__anext__(), timeout=timeout_s)
+                except (TimeoutError, asyncio.TimeoutError, StopAsyncIteration):
+                    break
+                events.append(ev.model_dump(mode="json"))
+        finally:
+            # Close the generator explicitly so the underlying SSE connection
+            # is released now instead of whenever the loop finalizes the agen.
+            await agen.aclose()
         return json.dumps(events)
 
     return StructuredTool.from_function(

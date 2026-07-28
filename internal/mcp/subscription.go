@@ -459,7 +459,7 @@ func (s *Server) subscribeToChanges(key *ResolvedKey, sessionID string, in subsc
 	return subscribeOutput{SubscriptionID: id, ResourceURI: uri}, mc.Tables, OutcomeOK, nil
 }
 
-func (s *Server) readSubscriptionResource(_ context.Context, req *sdk.ReadResourceRequest) (*sdk.ReadResourceResult, error) {
+func (s *Server) readSubscriptionResource(ctx context.Context, req *sdk.ReadResourceRequest) (*sdk.ReadResourceResult, error) {
 	uri := ""
 	if req != nil && req.Params != nil {
 		uri = req.Params.URI
@@ -469,6 +469,12 @@ func (s *Server) readSubscriptionResource(_ context.Context, req *sdk.ReadResour
 	sub := s.subs[id]
 	s.subsMu.RUnlock()
 	if sub == nil {
+		return nil, fmt.Errorf("subscription not found")
+	}
+	// MCP-01: subscription resources are per-key; foreign keys get the same
+	// "not found" response as an unknown id (no existence oracle).
+	key := PrincipalFromContext(ctx)
+	if key == nil || sub.keyName != key.Name {
 		return nil, fmt.Errorf("subscription not found")
 	}
 	buffered, dropped := sub.snapshot()
@@ -752,21 +758,39 @@ func (s *Server) cleanupAllSubscriptions() {
 	s.stopRecentIndexLocked()
 }
 
-func (s *Server) allowResourceSubscribe(_ context.Context, req *sdk.SubscribeRequest) error {
+func (s *Server) allowResourceSubscribe(ctx context.Context, req *sdk.SubscribeRequest) error {
 	if req == nil || req.Params == nil {
 		return fmt.Errorf("missing subscribe params")
 	}
 	if !strings.HasPrefix(req.Params.URI, subscriptionURIPrefix) {
 		return fmt.Errorf("unknown resource")
 	}
-	return nil
+	return s.checkSubscriptionOwnership(ctx, req.Params.URI)
 }
 
-func (s *Server) allowResourceUnsubscribe(_ context.Context, req *sdk.UnsubscribeRequest) error {
+func (s *Server) allowResourceUnsubscribe(ctx context.Context, req *sdk.UnsubscribeRequest) error {
 	if req == nil || req.Params == nil {
 		return fmt.Errorf("missing unsubscribe params")
 	}
 	if !strings.HasPrefix(req.Params.URI, subscriptionURIPrefix) {
+		return fmt.Errorf("unknown resource")
+	}
+	return s.checkSubscriptionOwnership(ctx, req.Params.URI)
+}
+
+// checkSubscriptionOwnership enforces MCP-01 on resource subscribe/unsubscribe:
+// the requesting key must own the subscription. Foreign or unknown ids both
+// yield "unknown resource" so keys cannot probe each other's subscription ids.
+func (s *Server) checkSubscriptionOwnership(ctx context.Context, uri string) error {
+	id := strings.TrimPrefix(uri, subscriptionURIPrefix)
+	s.subsMu.RLock()
+	sub := s.subs[id]
+	s.subsMu.RUnlock()
+	if sub == nil {
+		return fmt.Errorf("unknown resource")
+	}
+	key := PrincipalFromContext(ctx)
+	if key == nil || sub.keyName != key.Name {
 		return fmt.Errorf("unknown resource")
 	}
 	return nil

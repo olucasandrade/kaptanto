@@ -19,6 +19,13 @@ logger = logging.getLogger("kaptanto.client")
 _BASE_DELAY_S = 1.0
 _MAX_DELAY_S = 30.0
 
+# The SSE server emits a `: ping` keepalive comment every 15s, so 75s without
+# any bytes means the connection is silently dead (half-open TCP) and must be
+# re-established. Without a read timeout such a connection hangs the iterator
+# forever. Connect/write/pool get conservative bounds; total stays unbounded
+# because SSE streams are long-lived by design.
+_TIMEOUT = httpx.Timeout(None, connect=10.0, read=75.0, write=30.0, pool=30.0)
+
 
 class _TerminalStreamError(Exception):
     """4xx responses indicate auth/config failure and must not be retried."""
@@ -107,7 +114,7 @@ class KaptantoStream:
     async def _iterate(self) -> AsyncIterator[ChangeEvent]:
         attempt = 0
         self._abort = asyncio.Event()
-        self._client = httpx.AsyncClient(timeout=None)
+        self._client = httpx.AsyncClient(timeout=_TIMEOUT)
         try:
             while not self._closed:
                 try:
