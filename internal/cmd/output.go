@@ -138,7 +138,8 @@ func buildOutputServer(
 		"nats": true, "sqs": true, "kafka": true, "pubsub": true, "rabbitmq": true,
 		"vector": true,
 	}
-	if networkOutputs[cfg.Output] && cfg.AuthToken == "" {
+	requiresAuth := networkOutputs[cfg.Output] || (cfg.Output == "none" && cfg.MCP.Enabled)
+	if requiresAuth && cfg.AuthToken == "" {
 		if !cfg.Insecure {
 			return nil, fmt.Errorf(
 				"output %q requires --auth-token (or KAPTANTO_AUTH_TOKEN env var) to protect the data stream; "+

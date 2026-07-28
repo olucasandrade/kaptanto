@@ -40,8 +40,9 @@ func TestOpenMCPServer_EnabledWiresRecentAndShutdown(t *testing.T) {
 	cfg.Insecure = true
 	cfg.MCP.Enabled = true
 	cfg.MCP.APIKeys = []config.MCPAPIKey{{
-		Name: "agent",
-		Key:  "${MCP_CMD_WIRE}",
+		Name:   "agent",
+		Key:    "${MCP_CMD_WIRE}",
+		Tables: []string{"*"},
 	}}
 	cfg.Tables = map[string]config.TableConfig{
 		"public.orders": {},
@@ -73,7 +74,7 @@ func TestOpenMCPServer_SharesServerTLS(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.DataDir = t.TempDir()
 	cfg.MCP.Enabled = true
-	cfg.MCP.APIKeys = []config.MCPAPIKey{{Name: "agent", Key: "${MCP_CMD_TLS}"}}
+	cfg.MCP.APIKeys = []config.MCPAPIKey{{Name: "agent", Key: "${MCP_CMD_TLS}", Tables: []string{"*"}}}
 	cfg.ServerTLS = config.ServerTLSConfig{
 		CertFile: cert,
 		KeyFile:  key,

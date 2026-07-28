@@ -1,13 +1,18 @@
 package cmd
 
 import (
+	"context"
+	"crypto/tls"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/olucasandrade/kaptanto/internal/auth"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/openapi"
 	"github.com/olucasandrade/kaptanto/internal/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,4 +96,80 @@ func TestBuildOutputServer_SSEWithAuth(t *testing.T) {
 	req3.Header.Set("Authorization", "bearer "+token)
 	protected.ServeHTTP(rr3, req3)
 	assert.Equal(t, http.StatusOK, rr3.Code, "lowercase bearer scheme must yield 200")
+}
+
+// TestBuildOutputServer_NoneWithMCPRequiresAuthToken asserts output=none with
+// MCP enabled requires --auth-token to protect observability endpoints.
+func TestBuildOutputServer_NoneWithMCPRequiresAuthToken(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile := generateSelfSignedCert(t, dir)
+
+	cfg := config.Defaults()
+	cfg.Output = "none"
+	cfg.MCP.Enabled = true
+	cfg.Insecure = false
+	cfg.AuthToken = ""
+	cfg.ServerTLS = config.ServerTLSConfig{CertFile: certFile, KeyFile: keyFile}
+
+	metrics := observability.NewKaptantoMetrics()
+	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
+
+	_, err := buildOutputServer(cfg, rtr, router.NewNoopCursorStore(), metrics, http.NotFoundHandler(), nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "auth-token")
+}
+
+// TestBuildOutputServer_NoneWithMCPMetricsRequireBearer verifies observability
+// endpoints reject unauthenticated requests when MCP is enabled and a token is set.
+func TestBuildOutputServer_NoneWithMCPMetricsRequireBearer(t *testing.T) {
+	const token = "none-mcp-obs-token"
+	dir := t.TempDir()
+	certFile, keyFile := generateSelfSignedCert(t, dir)
+
+	cfg := config.Defaults()
+	port, lis := newLocalListener(t)
+	cfg.Port = port
+	_ = lis.Close()
+	cfg.Output = "none"
+	cfg.MCP.Enabled = true
+	cfg.AuthToken = token
+	cfg.ServerTLS = config.ServerTLSConfig{CertFile: certFile, KeyFile: keyFile}
+
+	metrics := observability.NewKaptantoMetrics()
+	oaDoc := openapi.Generate(openapi.NewGenerateOptions(cfg))
+	oaBytes, err := openapi.MarshalDocument(oaDoc)
+	require.NoError(t, err)
+
+	fn, err := buildObservabilityServer(cfg, metrics, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), nil, openapi.NewHandler(oaBytes))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = fn(ctx) }()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	addr := fmt.Sprintf("https://127.0.0.1:%d", cfg.Port)
+	waitForObsServer(t, addr, client)
+
+	resp, err := client.Get(addr + "/metrics")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	_ = resp.Body.Close()
+
+	req, err := http.NewRequest(http.MethodGet, addr+"/metrics", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = client.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	_ = resp.Body.Close()
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
 }

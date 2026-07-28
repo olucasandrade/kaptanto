@@ -251,7 +251,8 @@ func (s *Server) getEventByID(key *ResolvedKey, id string) (getEventByIDOutput, 
 	qualified := qualifiedName(ev.Schema, ev.Table)
 	redacted, allowed := key.ACL.Apply(ev)
 	if !allowed {
-		return getEventByIDOutput{}, []string{qualified}, OutcomeDenied, errDenied
+		return getEventByIDOutput{}, []string{qualified}, OutcomeDenied, fmt.Errorf(
+			"event not in recent index (last %d events); use get_recent_events on a subscription", capN)
 	}
 
 	b, err := json.Marshal(redacted)

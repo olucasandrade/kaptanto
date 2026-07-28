@@ -24,7 +24,7 @@ func TestNew_OwnsAuditorAndAccessors(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_OWN_AUD}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_OWN_AUD}", Tables: []string{"*"}}},
 		},
 		DataDir: dir,
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -43,7 +43,7 @@ func TestNew_OwnsAuditorAndAccessors(t *testing.T) {
 	assert.NoError(t, s.Close()) // idempotent
 }
 func TestApply_NilAndPassthrough(t *testing.T) {
-	acl, err := mcp.CompileACL(config.MCPAPIKey{Name: "a"})
+	acl, err := mcp.CompileACL(config.MCPAPIKey{Name: "a", Tables: []string{"*"}})
 	require.NoError(t, err)
 	out, ok := acl.Apply(nil)
 	assert.False(t, ok)
@@ -67,7 +67,8 @@ func TestApply_NilAndPassthrough(t *testing.T) {
 		After:     json.RawMessage(`[1,2,3]`),
 	}
 	acl2, err := mcp.CompileACL(config.MCPAPIKey{
-		Name: "b",
+		Name:   "b",
+		Tables: []string{"*"},
 		Redact: []config.MCPRedactConfig{{
 			Columns: []string{"id"},
 		}},
@@ -83,8 +84,8 @@ func TestResolveConfig_DuplicateAndEmptyName(t *testing.T) {
 	_, _, err := mcp.ResolveConfig(config.MCPConfig{
 		Enabled: true,
 		APIKeys: []config.MCPAPIKey{
-			{Name: "a", Key: "${MCP_DUP}"},
-			{Name: "a", Key: "${MCP_DUP}"},
+			{Name: "a", Key: "${MCP_DUP}", Tables: []string{"*"}},
+			{Name: "a", Key: "${MCP_DUP}", Tables: []string{"*"}},
 		},
 	}, t.TempDir())
 	require.Error(t, err)
@@ -100,7 +101,8 @@ func TestResolveConfig_DuplicateAndEmptyName(t *testing.T) {
 
 func TestCompileACL_BadRedactGlob(t *testing.T) {
 	_, err := mcp.CompileACL(config.MCPAPIKey{
-		Name: "k",
+		Name:   "k",
+		Tables: []string{"*"},
 		Redact: []config.MCPRedactConfig{{
 			Tables:  []string{"a*b*c"},
 			Columns: []string{"x"},
@@ -115,7 +117,7 @@ func TestNew_AuditDisabled(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_NOAUD}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_NOAUD}", Tables: []string{"*"}}},
 			Audit:   config.MCPAuditConfig{Enabled: &falseVal},
 		},
 		DataDir: t.TempDir(),
@@ -133,7 +135,7 @@ func TestServer_RunShutdown(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_RUN}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_RUN}", Tables: []string{"*"}}},
 			Audit:   config.MCPAuditConfig{Enabled: boolPtr(false)},
 		},
 		DataDir:  t.TempDir(),

@@ -79,14 +79,15 @@ func TestGetEventByID_HitMissACLRedaction(t *testing.T) {
 	assert.Equal(t, "***", after["email"])
 	assert.Equal(t, "open", after["status"])
 
-	// ACL denied (event in index, table not allowed).
+	// ACL denied (event in index, table not allowed) — same surface as miss.
 	denyRes, err := cs.CallTool(ctx, &sdk.CallToolParams{
 		Name:      "get_event_by_id",
 		Arguments: map[string]any{"id": deniedID.String()},
 	})
 	require.NoError(t, err)
 	require.True(t, denyRes.IsError)
-	assert.Contains(t, contentText(denyRes), "table not accessible")
+	assert.Contains(t, contentText(denyRes), "event not in recent index (last 10000 events)")
+	assert.Contains(t, contentText(denyRes), "use get_recent_events on a subscription")
 
 	// Miss — never indexed.
 	missID := idGen.New()
@@ -110,7 +111,7 @@ func TestRecentIndex_BoundedEviction(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_RECENT_BOUND}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_RECENT_BOUND}", Tables: []string{"*"}}},
 		},
 		DataDir:         t.TempDir(),
 		Auditor:         mcp.NewAuditorWriter(io.Discard, slog.New(slog.NewTextHandler(io.Discard, nil))),
@@ -182,7 +183,7 @@ func TestMCP_WiringStartupShutdown(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_WIRE_KEY}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_WIRE_KEY}", Tables: []string{"*"}}},
 		},
 		DataDir:  t.TempDir(),
 		Auditor:  mcp.NewAuditorWriter(io.Discard, slog.New(slog.NewTextHandler(io.Discard, nil))),
@@ -231,7 +232,7 @@ func TestMCP_WiringStartupShutdown(t *testing.T) {
 func TestGetEventByID_EmptyIDAndUnauth(t *testing.T) {
 	t.Setenv("MCP_RECENT_EDGE", "edge-secret")
 	s, probe := newSubServer(t, []config.MCPAPIKey{{
-		Name: "agent", Key: "${MCP_RECENT_EDGE}",
+		Name: "agent", Key: "${MCP_RECENT_EDGE}", Tables: []string{"*"},
 	}}, 1024, 16, nil)
 
 	ctx := mcp.ContextWithPrincipal(context.Background(), s.Keys()[0])
@@ -279,7 +280,7 @@ func TestSetRouter_NilClearsRecent(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_RECENT_NIL}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_RECENT_NIL}", Tables: []string{"*"}}},
 		},
 		DataDir:         t.TempDir(),
 		Auditor:         mcp.NewAuditorWriter(io.Discard, slog.New(slog.NewTextHandler(io.Discard, nil))),
@@ -309,7 +310,7 @@ func TestRecentIndex_DefaultCapacityClamp(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_RECENT_CLAMP}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_RECENT_CLAMP}", Tables: []string{"*"}}},
 		},
 		DataDir:         t.TempDir(),
 		Auditor:         mcp.NewAuditorWriter(io.Discard, slog.New(slog.NewTextHandler(io.Discard, nil))),
@@ -326,7 +327,7 @@ func TestRecentIndex_DefaultCapacityClamp(t *testing.T) {
 func TestSubscriptionResource_ReadHint(t *testing.T) {
 	t.Setenv("MCP_RES_READ", "res-secret")
 	s, _ := newSubServer(t, []config.MCPAPIKey{{
-		Name: "agent", Key: "${MCP_RES_READ}",
+		Name: "agent", Key: "${MCP_RES_READ}", Tables: []string{"*"},
 	}}, 8, 16, nil)
 
 	ctx := mcp.ContextWithPrincipal(context.Background(), s.Keys()[0])
