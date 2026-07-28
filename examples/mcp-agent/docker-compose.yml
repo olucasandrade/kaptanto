@@ -17,8 +17,7 @@ services:
       dockerfile: examples/shared/Dockerfile.kaptanto
     command: ["--config", "/app/kaptanto.yaml"]
     environment:
-      # Demo key for local Claude Desktop / agent configs. Override in production.
-      MCP_API_KEY: ${MCP_API_KEY:-mcp-demo-key}
+      MCP_API_KEY: ${MCP_API_KEY:?set MCP_API_KEY to your MCP bearer token}
     depends_on:
       - postgres
     ports:

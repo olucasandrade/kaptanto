@@ -1047,6 +1047,7 @@ actions:
 <tr><td><code>url</code></td><td>Yes</td><td>Yes</td><td>Worker HTTPS endpoint URL</td></tr>
 <tr><td><code>auth-header-name</code></td><td>No</td><td>No</td><td>Auth header name (default <code>Authorization</code>)</td></tr>
 <tr><td><code>auth-token</code></td><td>No</td><td>Yes</td><td>Optional static auth token</td></tr>
+<tr><td><code>allow-unauthenticated</code></td><td>No</td><td>No</td><td>Set to <code>true</code> to POST without <code>auth-token</code> (explicit opt-in)</td></tr>
 </tbody></table>
 
 <h3 class="dh3">vercel</h3>
@@ -1128,14 +1129,14 @@ mcp:
 <p class="dp">MCP is disabled by default. When <code>enabled: false</code>, the pipeline pays zero MCP cost (MCP-04). For production, set <code>server-tls</code> and <code>auth-token</code> instead of <code>insecure: true</code> — the MCP listener inherits the same inbound TLS policy as SSE and gRPC.</p>
 
 <h2 class="dh2">Agent config</h2>
-<p class="dp">Merge into Claude Desktop's MCP config (macOS: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>):</p>
+<p class="dp">Merge into Claude Desktop's MCP config (macOS: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>). Replace <code>&lt;MCP_API_KEY&gt;</code> with the same bearer token you set in <code>MCP_API_KEY</code>.</p>
 <div class="dcode">{
   "mcpServers": {
     "kaptanto": {
       "type": "http",
       "url": "http://localhost:7655",
       "headers": {
-        "Authorization": "Bearer mcp-demo-key"
+        "Authorization": "Bearer <MCP_API_KEY>"
       }
     }
   }
