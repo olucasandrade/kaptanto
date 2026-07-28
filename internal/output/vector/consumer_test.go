@@ -134,6 +134,10 @@ func (c *spyCache) Unchanged(id string, hash []byte) bool {
 }
 
 func (c *spyCache) Put(id string, hash []byte) error {
+	return c.PutBatch([]string{id}, [][]byte{hash})
+}
+
+func (c *spyCache) PutBatch(ids []string, hashes [][]byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.skipPut {
@@ -142,17 +146,25 @@ func (c *spyCache) Put(id string, hash []byte) error {
 	if c.putErr != nil {
 		return c.putErr
 	}
-	cp := make([]byte, len(hash))
-	copy(cp, hash)
-	c.puts[id] = cp
+	for i, id := range ids {
+		cp := make([]byte, len(hashes[i]))
+		copy(cp, hashes[i])
+		c.puts[id] = cp
+	}
 	return nil
 }
 
 func (c *spyCache) Del(id string) error {
+	return c.DelBatch([]string{id})
+}
+
+func (c *spyCache) DelBatch(ids []string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.puts, id)
-	c.dels = append(c.dels, id)
+	for _, id := range ids {
+		delete(c.puts, id)
+		c.dels = append(c.dels, id)
+	}
 	return nil
 }
 

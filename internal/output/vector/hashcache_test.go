@@ -87,6 +87,70 @@ func TestHashText_Deterministic(t *testing.T) {
 	assert.Len(t, a, 32)
 }
 
+func TestHashCache_PutBatchDelBatch(t *testing.T) {
+	dir := t.TempDir()
+	cache := vector.OpenHashCache(dir)
+	require.False(t, cache.Disabled())
+	defer func() { require.NoError(t, cache.Close()) }()
+
+	h1 := vector.HashText("one")
+	h2 := vector.HashText("two")
+	h3 := vector.HashText("three")
+	require.NoError(t, cache.PutBatch(
+		[]string{"a", "b", "c"},
+		[][]byte{h1, h2, h3},
+	))
+	assert.True(t, cache.Unchanged("a", h1))
+	assert.True(t, cache.Unchanged("b", h2))
+	assert.True(t, cache.Unchanged("c", h3))
+
+	require.NoError(t, cache.DelBatch([]string{"a", "c"}))
+	_, ok := cache.Get("a")
+	assert.False(t, ok)
+	_, ok = cache.Get("b")
+	assert.True(t, ok)
+	_, ok = cache.Get("c")
+	assert.False(t, ok)
+}
+
+func TestHashCache_LRUServesHotPath(t *testing.T) {
+	dir := t.TempDir()
+	cache := vector.OpenHashCache(dir)
+	require.False(t, cache.Disabled())
+	defer func() { require.NoError(t, cache.Close()) }()
+
+	id := "public.docs:{\"id\":1}"
+	hash := vector.HashText("warm")
+	require.NoError(t, cache.Put(id, hash))
+
+	// Second lookup should hit in-process LRU (still correct after reopen is tested elsewhere).
+	assert.True(t, cache.Unchanged(id, hash))
+	assert.True(t, cache.Unchanged(id, hash))
+}
+
+func BenchmarkHashCache_Unchanged(b *testing.B) {
+	dir := b.TempDir()
+	cache := vector.OpenHashCache(dir)
+	if cache.Disabled() {
+		b.Fatal("cache disabled")
+	}
+	b.Cleanup(func() { _ = cache.Close() })
+
+	id := "public.articles:{\"id\":1}"
+	hash := vector.HashText("title: Hello\nbody: World")
+	if err := cache.Put(id, hash); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if !cache.Unchanged(id, hash) {
+			b.Fatal("expected unchanged")
+		}
+	}
+}
+
 func BenchmarkExtractHash(b *testing.B) {
 	ext, err := vector.NewExtractor(config.VectorSourceConfig{
 		Columns: []string{"title", "body", "summary"},
