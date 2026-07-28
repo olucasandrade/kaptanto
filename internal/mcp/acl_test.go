@@ -34,11 +34,43 @@ func TestACL_AllowTable_SchemaGlob(t *testing.T) {
 	assert.False(t, acl.AllowTable("billing.orders"))
 }
 
-func TestACL_AllowTable_EmptyMeansAll(t *testing.T) {
-	acl, err := CompileACL(config.MCPAPIKey{Name: "admin"})
+func TestACL_AllowTable_StarMeansAll(t *testing.T) {
+	acl, err := CompileACL(config.MCPAPIKey{Name: "admin", Tables: []string{"*"}})
 	require.NoError(t, err)
 	assert.True(t, acl.AllowTable("public.anything"))
 	assert.True(t, acl.AllowTable("x.y"))
+}
+
+func TestCompileACL_EmptyTablesFails(t *testing.T) {
+	_, err := CompileACL(config.MCPAPIKey{Name: "admin"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tables is required")
+}
+
+func TestACL_Apply_RedactsAIContext(t *testing.T) {
+	acl, err := CompileACL(config.MCPAPIKey{
+		Name:   "support",
+		Tables: []string{"public.orders"},
+		Redact: []config.MCPRedactConfig{{
+			Tables:  []string{"public.orders"},
+			Columns: []string{"email"},
+		}},
+	})
+	require.NoError(t, err)
+
+	ev := &event.ChangeEvent{
+		Schema:    "public",
+		Table:     "orders",
+		Operation: event.OpUpdate,
+		After:     json.RawMessage(`{"id":1,"email":"a@b.c"}`),
+		AIContext: json.RawMessage(`{"email":"a@b.c","intent":"fulfill"}`),
+	}
+	out, ok := acl.Apply(ev)
+	require.True(t, ok)
+	require.NotNil(t, out)
+	assert.Nil(t, out.AIContext)
+	assert.Contains(t, string(out.After), redactedValue)
+	assert.Contains(t, string(ev.AIContext), "a@b.c")
 }
 
 func TestACL_FilterTables(t *testing.T) {
@@ -101,7 +133,8 @@ func TestACL_Apply_DeniedTable(t *testing.T) {
 
 func TestACL_IsColumnRedacted(t *testing.T) {
 	acl, err := CompileACL(config.MCPAPIKey{
-		Name: "k",
+		Name:   "k",
+		Tables: []string{"*"},
 		Redact: []config.MCPRedactConfig{{
 			Tables:  []string{"public.*"},
 			Columns: []string{"ssn"},
@@ -115,7 +148,8 @@ func TestACL_IsColumnRedacted(t *testing.T) {
 
 func TestACL_EmptyRedactColumnsSkipped(t *testing.T) {
 	acl, err := CompileACL(config.MCPAPIKey{
-		Name: "k",
+		Name:   "k",
+		Tables: []string{"*"},
 		Redact: []config.MCPRedactConfig{
 			{Tables: []string{"public.*"}, Columns: nil},
 			{Tables: []string{"public.orders"}, Columns: []string{"email"}},
@@ -128,6 +162,7 @@ func TestACL_EmptyRedactColumnsSkipped(t *testing.T) {
 func TestACL_MaskMalformedAndUnchanged(t *testing.T) {
 	acl, err := CompileACL(config.MCPAPIKey{
 		Name:   "k",
+		Tables: []string{"*"},
 		Redact: []config.MCPRedactConfig{{Columns: []string{"missing"}}},
 	})
 	require.NoError(t, err)

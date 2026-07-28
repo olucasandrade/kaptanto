@@ -208,7 +208,7 @@ func TestSchemaTools_ParserSchemaProvider(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_PG_KEY}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_PG_KEY}", Tables: []string{"*"}}},
 			Audit:   config.MCPAuditConfig{Enabled: boolPtr(false)},
 		},
 		DataDir:          t.TempDir(),
@@ -248,7 +248,7 @@ func TestSchemaTools_UnauthenticatedErrors(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_UNAUTH}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_UNAUTH}", Tables: []string{"*"}}},
 		},
 		DataDir: t.TempDir(),
 		Auditor: auditor,

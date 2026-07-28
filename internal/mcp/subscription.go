@@ -522,7 +522,7 @@ func (s *Server) unsubscribe(key *ResolvedKey, subscriptionID string) (string, e
 	}
 	if sub.keyName != key.Name {
 		s.subsMu.Unlock()
-		return OutcomeDenied, fmt.Errorf("subscription not owned by this key")
+		return OutcomeDenied, fmt.Errorf("subscription not found")
 	}
 	s.removeSubscriptionLocked(sub)
 	s.subsMu.Unlock()
@@ -610,7 +610,7 @@ func (s *Server) getRecentEvents(key *ResolvedKey, in getRecentEventsInput) (get
 		return getRecentEventsOutput{}, OutcomeError, fmt.Errorf("subscription not found")
 	}
 	if sub.keyName != key.Name {
-		return getRecentEventsOutput{}, OutcomeDenied, fmt.Errorf("subscription not owned by this key")
+		return getRecentEventsOutput{}, OutcomeDenied, fmt.Errorf("subscription not found")
 	}
 	events, dropped, remaining := sub.drain(max)
 	outEvents := make([]map[string]any, 0, len(events))

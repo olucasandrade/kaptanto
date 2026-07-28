@@ -31,6 +31,9 @@ type ACL struct {
 
 // CompileACL validates and compiles a key's tables + redact rules.
 func CompileACL(key config.MCPAPIKey) (*ACL, error) {
+	if len(key.Tables) == 0 {
+		return nil, fmt.Errorf("mcp: key %q: tables is required (use [\"*\"] to allow all tables)", key.Name)
+	}
 	m, err := routing.Compile(routing.MatchConfig{Tables: key.Tables})
 	if err != nil {
 		return nil, fmt.Errorf("mcp: key %q tables: %w", key.Name, err)
@@ -53,7 +56,7 @@ func CompileACL(key config.MCPAPIKey) (*ACL, error) {
 	return &ACL{
 		name:           key.Name,
 		matcher:        m,
-		allowAllTables: len(key.Tables) == 0,
+		allowAllTables: len(key.Tables) == 1 && key.Tables[0] == "*",
 		rules:          rules,
 	}, nil
 }
@@ -105,6 +108,9 @@ func (a *ACL) Apply(ev *event.ChangeEvent) (*event.ChangeEvent, bool) {
 	}
 	out.Before = maskColumns(out.Before, cols)
 	out.After = maskColumns(out.After, cols)
+	if len(cols) > 0 {
+		out.AIContext = nil
+	}
 	return &out, true
 }
 

@@ -291,7 +291,7 @@ func TestSubscriptionTools_MatrixViaInProcessClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, denyUnsub.IsError)
-	assert.Contains(t, contentText(denyUnsub), "not owned")
+	assert.Contains(t, contentText(denyUnsub), "subscription not found")
 
 	listRes, err := csA.CallTool(ctxA, &sdk.CallToolParams{Name: "list_subscriptions", Arguments: map[string]any{}})
 	require.NoError(t, err)
@@ -392,7 +392,7 @@ func TestSubscription_NudgeDebounceFakeClock(t *testing.T) {
 	t.Setenv("MCP_NUDGE", "nudge-secret")
 	metrics := observability.NewKaptantoMetrics()
 	s, probe := newSubServer(t, []config.MCPAPIKey{
-		{Name: "agent", Key: "${MCP_NUDGE}"},
+		{Name: "agent", Key: "${MCP_NUDGE}", Tables: []string{"*"}},
 	}, 16, 16, metrics)
 	clock := newFakeClock(time.Unix(0, 0))
 	s.SetClock(clock)
@@ -478,7 +478,7 @@ func TestSubscription_SessionCloseLeakMCP02(t *testing.T) {
 	s, err := mcp.New(mcp.Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_LEAK}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_LEAK}", Tables: []string{"*"}}},
 		},
 		DataDir:  t.TempDir(),
 		Auditor:  mcp.NewAuditorWriter(io.Discard, slog.New(slog.NewTextHandler(io.Discard, nil))),

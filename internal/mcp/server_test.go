@@ -41,8 +41,9 @@ func TestResolveConfig_StrictEnvRef(t *testing.T) {
 	_, keys, err := ResolveConfig(config.MCPConfig{
 		Enabled: true,
 		APIKeys: []config.MCPAPIKey{{
-			Name: "agent",
-			Key:  "${MCP_TEST_KEY}",
+			Name:   "agent",
+			Key:    "${MCP_TEST_KEY}",
+			Tables: []string{"*"},
 		}},
 	}, t.TempDir())
 	require.NoError(t, err)
@@ -93,7 +94,7 @@ func TestServer_AuthUnknown401AndAudit(t *testing.T) {
 	s, err := New(Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_AUTH_TEST}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_AUTH_TEST}", Tables: []string{"*"}}},
 		},
 		DataDir:  t.TempDir(),
 		Auditor:  auditor,
@@ -147,7 +148,7 @@ func TestServer_ValidAuthReachesHandler(t *testing.T) {
 	s, err := New(Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_AUTH_OK}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "agent", Key: "${MCP_AUTH_OK}", Tables: []string{"*"}}},
 			Audit:   config.MCPAuditConfig{Enabled: boolPtr(false)},
 		},
 		DataDir:  t.TempDir(),
@@ -209,7 +210,7 @@ func TestServer_RunWithTLS(t *testing.T) {
 	s, err := New(Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_TLS_KEY}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_TLS_KEY}", Tables: []string{"*"}}},
 			Audit:   config.MCPAuditConfig{Enabled: boolPtr(false)},
 		},
 		DataDir:  t.TempDir(),
@@ -251,7 +252,7 @@ func TestServer_RunListen(t *testing.T) {
 		Config: config.MCPConfig{
 			Enabled: true,
 			Port:    port,
-			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_LISTEN}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_LISTEN}", Tables: []string{"*"}}},
 			Audit:   config.MCPAuditConfig{Enabled: boolPtr(false)},
 		},
 		DataDir: t.TempDir(),
@@ -276,7 +277,7 @@ func TestResolveConfig_Defaults(t *testing.T) {
 	t.Setenv("MCP_DEF_KEY", "v")
 	cfg, _, err := ResolveConfig(config.MCPConfig{
 		Enabled: true,
-		APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_DEF_KEY}"}},
+		APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_DEF_KEY}", Tables: []string{"*"}}},
 	}, "/data")
 	require.NoError(t, err)
 	assert.Equal(t, DefaultPort, cfg.Port)

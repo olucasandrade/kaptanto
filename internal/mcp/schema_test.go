@@ -82,7 +82,7 @@ func TestServer_SetSchemaProvider(t *testing.T) {
 	s, err := New(Options{
 		Config: config.MCPConfig{
 			Enabled: true,
-			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_SET_SCHEMA}"}},
+			APIKeys: []config.MCPAPIKey{{Name: "a", Key: "${MCP_SET_SCHEMA}", Tables: []string{"*"}}},
 			Audit:   config.MCPAuditConfig{Enabled: boolPtr(false)},
 		},
 		DataDir:          t.TempDir(),
@@ -106,7 +106,7 @@ func TestServer_SetSchemaProvider(t *testing.T) {
 }
 
 func TestGetTableSchema_EmptyTableError(t *testing.T) {
-	acl, err := CompileACL(config.MCPAPIKey{Name: "k"})
+	acl, err := CompileACL(config.MCPAPIKey{Name: "k", Tables: []string{"*"}})
 	require.NoError(t, err)
 	s := &Server{sourceType: SourcePostgres, keys: []*ResolvedKey{{Name: "k", ACL: acl}}}
 	_, outcome, err := s.getTableSchema(s.keys[0], "  ")
