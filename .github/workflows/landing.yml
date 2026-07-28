@@ -2,15 +2,8 @@ name: Landing
 
 on:
   push:
-    branches: ["main"]
-    paths:
-      - "landing/**"
-      - ".github/workflows/landing.yml"
-  pull_request:
-    branches: ["**"]
-    paths:
-      - "landing/**"
-      - ".github/workflows/landing.yml"
+    tags:
+      - "v*"
 
 # Least-privilege default token.
 permissions:
