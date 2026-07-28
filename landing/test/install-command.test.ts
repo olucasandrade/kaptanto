@@ -50,9 +50,7 @@ describe("install command matches the published get.kaptan.to script", () => {
       path.join(landingRoot, "..", "src", "routes", "index.tsx"),
       "utf8",
     );
-    expect(src).toMatch(
-      /downloadUrl:\s*["']https:\/\/get\.kaptan\.to["']/,
-    );
+    expect(src).toMatch(/downloadUrl:\s*["']https:\/\/get\.kaptan\.to["']/);
   });
 
   it("docs-content.ts quickstart/install docs show the canonical snippet", () => {
