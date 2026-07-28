@@ -7,6 +7,8 @@ on:
       - "packages/kaptanto-events/**"
       - "packages/kaptanto-mastra/**"
       - "n8n-nodes-kaptanto/**"
+      - "internal/event/testdata/changeevent_fixtures.ndjson"
+      - "Makefile"
       - ".github/workflows/ts.yml"
   pull_request:
     branches: ["**"]
@@ -14,12 +16,24 @@ on:
       - "packages/kaptanto-events/**"
       - "packages/kaptanto-mastra/**"
       - "n8n-nodes-kaptanto/**"
+      - "internal/event/testdata/changeevent_fixtures.ndjson"
+      - "Makefile"
       - ".github/workflows/ts.yml"
 
 permissions:
   contents: read
 
 jobs:
+  fixtures:
+    name: fixture drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Copy fixtures and fail on drift
+        run: make fixtures
+
   test-events:
     name: "@kaptanto/events"
     runs-on: ubuntu-latest

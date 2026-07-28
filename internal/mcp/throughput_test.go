@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"runtime"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -172,8 +173,9 @@ func medianThroughputTrial(
 
 // TestMCP04_ThroughputGate measures paired-trial throughput with the always-on
 // recent index plus 4 ring subscriptions alongside a stdout-like primary sink.
-// Honest measurement (no synthetic EventLog pad) shows median retention ~76%;
-// the 0.70 floor guards regressions under CI load. Use -bench for ns/op.
+// Honest measurement (no synthetic EventLog pad) shows median retention ~74%;
+// the CI floor guards regressions under load. The ≥95% design target is checked
+// via go test -bench (BenchmarkMCP04_*), not this wall-clock gate.
 func TestMCP04_ThroughputGate(t *testing.T) {
 	if raceDetectorEnabled {
 		t.Skip("MCP-04 throughput gate is timing-sensitive under -race; covered by make test + go test -bench")
@@ -200,9 +202,41 @@ func TestMCP04_ThroughputGate(t *testing.T) {
 		"logged rates must agree with paired trial ratio")
 	t.Logf("MCP-04 throughput: baseline=%.0f evt/s mcp=%.0f evt/s ratio=%.3f (median of %d paired trials)",
 		trial.baseRate, trial.mcpRate, trial.ratio, trials)
-	const regressionFloor = 0.70
+	const regressionFloor = 0.72
 	require.GreaterOrEqual(t, trial.ratio, regressionFloor,
 		"MCP-04: recent index + 4 subscriptions must retain ≥%.0f%% of baseline (got %.3f)", regressionFloor*100, trial.ratio)
+}
+
+// TestMCP04_ConcurrentDeliverNoRace exercises recent index + ring subscriptions
+// under concurrent Deliver without wall-clock assertions. TSAN catches data races
+// when -race is enabled; the throughput gate remains non-race only.
+func TestMCP04_ConcurrentDeliverNoRace(t *testing.T) {
+	const workers = 8
+	const perWorker = 200
+	s, probe, subIDs := setupMCPSubs(t, 256)
+	defer func() { _ = s.Close() }()
+	mcpConsumers := collectMCPThroughputConsumers(probe, subIDs)
+	require.Len(t, mcpConsumers, 5)
+
+	primary := stdout.NewStdoutWriter(io.Discard)
+	events := makeBenchEvents(workers * perWorker)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(base int) {
+			defer wg.Done()
+			for i := 0; i < perWorker; i++ {
+				idx := base*perWorker + i
+				entry := eventlog.LogEntry{Seq: uint64(idx + 1), Event: events[idx]}
+				_ = primary.Deliver(context.Background(), entry)
+				for _, mc := range mcpConsumers {
+					_ = mc.Deliver(context.Background(), entry)
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	require.Equal(t, 4, s.ActiveSubscriptionCount())
 }
 
 func BenchmarkMCP04_Deliver_Baseline(b *testing.B) {

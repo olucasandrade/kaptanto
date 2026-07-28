@@ -46,6 +46,24 @@ func testEvent(table string, op event.Operation) *event.ChangeEvent {
 // httptest servers; production default remains 150ms (AIC-01).
 const enrichTestTimeout = "10s"
 
+// exactly16KiBJSONObject returns a valid JSON object of exactly maxAIContextBytes
+// (AIC-02 upper bound). Guards off-by-one regressions that accept ≥ instead of >.
+func exactly16KiBJSONObject(t *testing.T) []byte {
+	t.Helper()
+	const max = 16 * 1024
+	prefix := []byte(`{"p":"`)
+	suffix := []byte(`"}`)
+	padLen := max - len(prefix) - len(suffix)
+	require.Greater(t, padLen, 0)
+	body := make([]byte, 0, max)
+	body = append(body, prefix...)
+	body = append(body, bytes.Repeat([]byte("x"), padLen)...)
+	body = append(body, suffix...)
+	require.Equal(t, max, len(body))
+	require.True(t, json.Valid(body))
+	return body
+}
+
 func mustCompile(t testing.TB, cfg config.EnrichmentConfig, m *observability.KaptantoMetrics) *enrich.Enricher {
 	t.Helper()
 	if cfg.Timeout == "" && strings.TrimSpace(cfg.URL) != "" && len(cfg.Tables) > 0 {
@@ -66,11 +84,12 @@ func TestEnrich_ContractMatrix(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name       string
-		handler    http.HandlerFunc
-		wantAI     string // empty = nil AIContext
-		wantReason string // empty = no failure
-		slow       time.Duration
+		name           string
+		handler        http.HandlerFunc
+		wantAI         string // empty = nil AIContext
+		wantExactBytes int    // when set, assert AIContext length (AIC-02 boundary)
+		wantReason     string // empty = no failure
+		slow           time.Duration
 	}{
 		{
 			name: "200-valid",
@@ -107,6 +126,14 @@ func TestEnrich_ContractMatrix(t *testing.T) {
 			},
 			wantReason: enrich.ReasonTimeout,
 			slow:       30 * time.Millisecond,
+		},
+		{
+			name: "exactly-16kib-object",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(exactly16KiBJSONObject(t))
+			},
+			wantExactBytes: 16 * 1024,
 		},
 		{
 			name: "oversize",
@@ -163,7 +190,11 @@ func TestEnrich_ContractMatrix(t *testing.T) {
 			ev := testEvent("orders", event.OpInsert)
 			e.Enrich(context.Background(), ev)
 
-			if tc.wantAI != "" {
+			if tc.wantExactBytes > 0 {
+				require.NotNil(t, ev.AIContext)
+				assert.Equal(t, tc.wantExactBytes, len(ev.AIContext))
+				assert.True(t, json.Valid(ev.AIContext))
+			} else if tc.wantAI != "" {
 				require.NotNil(t, ev.AIContext)
 				assert.JSONEq(t, tc.wantAI, string(ev.AIContext))
 			} else {
