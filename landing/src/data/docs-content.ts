@@ -13,7 +13,7 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 <div class="dcard" onclick="go('docs-schema')"><h4>Event Schema</h4><p>Unified event format across all sources.</p></div>
 </div>
 <h2 class="dh2">How it works</h2>
-<p class="dp">Kaptanto connects to your database's native change log — the WAL for Postgres, the oplog for MongoDB — and emits a unified stream of events. Every insert, update, and delete is captured and delivered via stdout, SSE, or gRPC.</p>
+<p class="dp">Kaptanto connects to your database's native change log — the WAL for Postgres, the oplog for MongoDB — and emits a unified stream of events. Every insert, update, and delete is captured and delivered to stdout, SSE, gRPC, queue sinks, webhook actions, vector stores, or an optional MCP listener — depending on your configured <code>output</code> mode.</p>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://localhost:5432/mydb \\
     --tables orders,payments --output stdout
 
@@ -319,7 +319,7 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 <table class="dtbl"><thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>--source</code></td><td>required</td><td>Database connection string</td></tr>
 <tr><td><code>--tables</code></td><td>required</td><td>Table names — comma-separated (<code>--tables orders,payments</code>) or repeated (<code>--tables orders --tables payments</code>)</td></tr>
-<tr><td><code>--output</code></td><td>stdout</td><td>Output mode: stdout, sse, grpc, nats, sqs, kafka, pubsub, rabbitmq</td></tr>
+<tr><td><code>--output</code></td><td>stdout</td><td>Output mode: <code>none</code>, <code>stdout</code>, <code>sse</code>, <code>grpc</code>, <code>nats</code>, <code>sqs</code>, <code>kafka</code>, <code>pubsub</code>, <code>rabbitmq</code>, <code>webhook</code>, <code>vector</code></td></tr>
 <tr><td><code>--port</code></td><td>7654</td><td>Port for SSE/gRPC server</td></tr>
 <tr><td><code>--cors-origin</code></td><td>-</td><td>SSE <code>Access-Control-Allow-Origin</code> value; empty (default) sends no CORS header, blocking cross-origin browser access</td></tr>
 <tr><td><code>--config</code></td><td>-</td><td>Path to YAML config file</td></tr>
@@ -340,7 +340,7 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 <tr><td><code>--tls-client-ca</code></td><td>-</td><td>Path to CA PEM for client certificate verification (mTLS); requires <code>--tls-cert</code> and <code>--tls-key</code></td></tr>
 <tr><td><code>--all-tables</code></td><td>false</td><td>Capture all tables in the database — explicit opt-in required when <code>--tables</code> is omitted</td></tr>
 </tbody></table>
-<div class="dcall"><p><strong>Startup auth policy:</strong> every network output — <code>sse</code>, <code>grpc</code>, and all five queue sinks — refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) because each one serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>. <code>sse</code> and <code>grpc</code> additionally require <code>--tls-cert</code>/<code>--tls-key</code>. Pass <code>--insecure</code> to bypass both checks for local development only.</p></div>
+<div class="dcall"><p><strong>Startup auth policy:</strong> every network output — <code>sse</code>, <code>grpc</code>, <code>webhook</code>, <code>vector</code>, and all queue sinks — refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) because each one serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>. <code>output: none</code> with actions or MCP enabled follows the same rule. <code>sse</code> and <code>grpc</code> additionally require <code>--tls-cert</code>/<code>--tls-key</code>. Pass <code>--insecure</code> to bypass both checks for local development only.</p></div>
 
 <h2 class="dh2">YAML config (full example)</h2>
 <div class="dcode">source: postgres://user:pass@host:5432/db
@@ -368,12 +368,24 @@ sinks:
     tls:
       ca-file: /etc/ssl/kafka-ca.pem</div>
 
+<h2 class="dh2">AI-native knobs</h2>
+<p class="dp">Group 3 features share the same YAML file but have dedicated reference pages:</p>
+<table class="dtbl"><thead><tr><th>Block</th><th>Purpose</th><th>Details</th></tr></thead><tbody>
+<tr><td><code>mcp:</code></td><td>Agent CDC over MCP</td><td><a onclick="go('docs-mcp')">MCP Server</a> — <code>enabled</code>, <code>port</code>, <code>api-keys</code>, redaction</td></tr>
+<tr><td><code>enrichment:</code></td><td><code>ai_context</code> attachment</td><td><a onclick="go('docs-ai-context')">AI Event Contract</a> — HTTP enricher URL, tables, timeout</td></tr>
+<tr><td><code>sinks.vector:</code></td><td>Embed + upsert to vector DBs</td><td><a onclick="go('docs-vector')">Vector Streaming</a> — embedder, store, batch</td></tr>
+</tbody></table>
+<p class="dp">Use <code>output: none</code> to run actions or MCP without a primary consumer. Use <code>output: vector</code> when the vector sink is the main delivery path.</p>
+
 <h2 class="dh2">CLI flags always win</h2>
 <p class="dp">CLI flags take precedence over YAML config values. This lets you use a shared config file and override specific settings per environment without editing the file.</p>
 
 <h2 class="dh2">See also</h2>
 <div class="dcards">
 <div class="dcard" onclick="go('docs-queue-sinks')"><h4>Queue Sinks</h4><p>YAML reference for NATS, SQS, Kafka, Pub/Sub, and RabbitMQ sinks.</p></div>
+<div class="dcard" onclick="go('docs-vector')"><h4>Vector / RAG</h4><p>Embed row text and upsert into pgvector, Pinecone, or Qdrant.</p></div>
+<div class="dcard" onclick="go('docs-mcp')"><h4>MCP Server</h4><p>Expose live CDC to Claude Desktop and other agents.</p></div>
+<div class="dcard" onclick="go('docs-ai-context')"><h4>AI Event Contract</h4><p>Optional <code>ai_context</code> enrichment before the Event Log write.</p></div>
 <div class="dcard" onclick="go('docs-cluster')"><h4>Cluster Mode</h4><p>Active-active delivery with embedded NATS JetStream.</p></div>
 </div>`,
   },
@@ -476,14 +488,15 @@ GET http://localhost:7654/healthz
     title: "HTTP Endpoints",
     sub: "The HTTP surface kaptanto exposes today.",
     body: `
-<p class="dp">Kaptanto runs a single HTTP server alongside the selected output mode. The endpoints below are everything it serves — there is no dynamic management API yet.</p>
+<p class="dp">Kaptanto runs an HTTP observability server alongside the selected output mode. When MCP is enabled, a separate streamable-HTTP listener serves agent tools on <code>mcp.port</code> (default 7655). There is no dynamic management API yet.</p>
 <h2 class="dh2">Available endpoints</h2>
 <table class="dtbl"><thead><tr><th>Method</th><th>Path</th><th>Mode</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>GET</code></td><td>/events</td><td>sse</td><td>Subscribe to the change stream — filters <code>?tables=</code>, <code>?operations=</code>, <code>?consumer=</code></td></tr>
-<tr><td><code>GET</code></td><td>/metrics</td><td>sse, grpc, sinks</td><td>Prometheus metrics</td></tr>
-<tr><td><code>GET</code></td><td>/healthz</td><td>sse, grpc, sinks</td><td>Health check — 200 healthy, 503 unhealthy</td></tr>
+<tr><td><code>GET</code></td><td>/metrics</td><td>sse, grpc, sinks, webhook, vector, none+actions</td><td>Prometheus metrics</td></tr>
+<tr><td><code>GET</code></td><td>/healthz</td><td>sse, grpc, sinks, webhook, vector, none+actions</td><td>Health check — 200 healthy, 503 unhealthy</td></tr>
+<tr><td><code>GET</code></td><td>/openapi.json</td><td>non-stdout with actions</td><td>OpenAPI 3.0 spec of configured actions — see <a onclick="go('docs-openapi')">OpenAPI Discovery</a></td></tr>
 </tbody></table>
-<p class="dp">In SSE and queue-sink modes these bind to <code>--port</code>; in gRPC mode <code>/metrics</code> and <code>/healthz</code> bind to <code>--port</code> + 1. stdout mode serves no HTTP endpoints. See <a onclick="go('docs-sse')">Server-Sent Events</a> and <a onclick="go('docs-metrics')">Metrics &amp; Monitoring</a>.</p>
+<p class="dp">Observability paths bind to <code>--port</code> in SSE, queue-sink, webhook, vector, and <code>output: none</code> modes; in gRPC mode <code>/metrics</code> and <code>/healthz</code> bind to <code>--port</code> + 1. <code>stdout</code> serves no HTTP endpoints. MCP tools are on a separate listener — see <a onclick="go('docs-mcp')">MCP Server</a>. See also <a onclick="go('docs-sse')">Server-Sent Events</a> and <a onclick="go('docs-metrics')">Metrics &amp; Monitoring</a>.</p>
 
 <h2 class="dh2">Roadmap: management API</h2>
 <p class="dp">A REST API for managing sources, tables, and backfills at runtime is not yet implemented. Today, sources and tables are fixed at startup via <code>--source</code>/<code>--tables</code> or the YAML config, and changing them requires a restart. Programmatic management (<code>/api/sources</code>, <code>/api/backfills</code>, …) is planned but not available in the current binary.</p>`,
@@ -958,6 +971,7 @@ actions:
 
 <h3 class="dh3">vector-upsert</h3>
 <p class="dp">Upserts embedding vectors to Pinecone when rows are inserted or updated. Deletes emit no request (cursor advances).</p>
+<div class="dcall"><p><strong>Not the same as <a onclick="go('docs-vector')">Vector Streaming</a>:</strong> this action pushes a precomputed embedding from a row field to Pinecone only. Use <code>output: vector</code> when kaptanto should embed text and write to pgvector, Pinecone, or Qdrant.</p></div>
 <div class="dcode">- name: sync-embeddings
   type: vector-upsert
   params:
@@ -1099,6 +1113,8 @@ actions:
 
 <h2 class="dh2">Enable</h2>
 <div class="dcode">output: none
+port: 7654
+insecure: true   <span class="tc"># demo only — MCP reuses inbound TLS/auth policy like SSE/gRPC</span>
 mcp:
   enabled: true
   port: 7655
@@ -1109,7 +1125,7 @@ mcp:
       redact:
         - tables: ["public.orders"]
           columns: ["customer"]</div>
-<p class="dp">MCP is disabled by default. When <code>enabled: false</code>, the pipeline pays zero MCP cost (MCP-04).</p>
+<p class="dp">MCP is disabled by default. When <code>enabled: false</code>, the pipeline pays zero MCP cost (MCP-04). For production, set <code>server-tls</code> and <code>auth-token</code> instead of <code>insecure: true</code> — the MCP listener inherits the same inbound TLS policy as SSE and gRPC.</p>
 
 <h2 class="dh2">Agent config</h2>
 <p class="dp">Merge into Claude Desktop's MCP config (macOS: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>):</p>
@@ -1150,9 +1166,12 @@ mcp:
     sub: "Embed CDC row text and upsert into pgvector, Pinecone, or Qdrant for retrieval-augmented generation.",
     body: `
 <p class="dp">Set <code>output: vector</code> to extract text from each event, call an embedder, and upsert/delete vectors. Deletes remove the stable vector ID; unchanged text is skipped via a SHA-256 hash cache.</p>
+<div class="dcall"><p><strong>Not the same as the <code>vector-upsert</code> action:</strong> the vector sink embeds text inside kaptanto and supports pgvector, Pinecone, and Qdrant. The <a onclick="go('docs-actions')">vector-upsert action</a> pushes a precomputed embedding field to Pinecone when you already store vectors in the database.</p></div>
 
 <h2 class="dh2">Local RAG (Ollama + pgvector)</h2>
 <div class="dcode">output: vector
+port: 7654
+insecure: true   <span class="tc"># demo only — vector is a network output; use auth-token in production</span>
 tables:
   public.documents: {}
 sinks:
@@ -1171,7 +1190,7 @@ sinks:
     metadata: [category]
     batch:
       max-events: 16</div>
-<p class="dp">Leave <code>api-key</code> empty for local Ollama. For cloud OpenAI/Cohere, set <code>api-key: \${OPENAI_API_KEY}</code> (or Cohere) with <code>provider: openai | cohere</code>.</p>
+<p class="dp">Vector mode serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>, so it requires <code>auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) unless <code>insecure: true</code> is set — same policy as SSE and queue sinks. Leave embedder <code>api-key</code> empty for local Ollama. For cloud OpenAI/Cohere, set <code>api-key: \${OPENAI_API_KEY}</code> (or Cohere) with <code>provider: openai | cohere</code>.</p>
 
 <h2 class="dh2">Stores</h2>
 <table class="dtbl"><thead><tr><th>Provider</th><th>Required fields</th></tr></thead><tbody>
@@ -1223,18 +1242,20 @@ sinks:
   "custom": {}
 }</div>
 <p class="dp"><code>ai_context</code> is omitted from JSON when empty and never participates in <code>idempotency_key</code>. SDKs expose it as an optional field on <code>ChangeEvent</code>.</p>
-<div class="dcall"><p><strong>Also see:</strong> <a onclick="go('docs-schema')">Event Schema</a>, <a onclick="go('docs-python-sdk')">Python SDK</a>, <a onclick="go('docs-mastra')">Mastra</a>.</p></div>`,
+<div class="dcall"><p><strong>Also see:</strong> <a onclick="go('docs-schema')">Event Schema</a>, <a onclick="go('docs-events-sdk')">TypeScript SDK</a>, <a onclick="go('docs-python-sdk')">Python SDK</a>, <a onclick="go('docs-mastra')">Mastra</a>.</p></div>`,
   },
 
   "docs-python-sdk": {
     title: "Python SDK",
-    sub: "pydantic ChangeEvent models and an httpx SSE client — pip install kaptanto.",
+    sub: "pydantic ChangeEvent models and an httpx SSE client — install from source until the first PyPI release.",
     body: `
 <h2 class="dh2">Install</h2>
-<div class="dcode"><span class="tg">$</span> pip install kaptanto
+<div class="dcall"><p><strong>Registry status:</strong> <code>pip install kaptanto</code> is not yet on PyPI. Install from the repo until the first <code>python-v*</code> tag ships.</p></div>
+<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
+<span class="tg">$</span> pip install ./packages/kaptanto-python
 
 <span class="tc"># Optional LangChain StructuredTool helper:</span>
-<span class="tg">$</span> pip install 'kaptanto[langchain]'</div>
+<span class="tg">$</span> pip install './packages/kaptanto-python[langchain]'</div>
 
 <h2 class="dh2">Models</h2>
 <div class="dcode"><span class="tc">from kaptanto import ChangeEvent, Operation</span>
@@ -1266,17 +1287,51 @@ asyncio.run(main())</div>
 <p class="dp">The client reconnects with exponential backoff, ignores SSE comment pings, and resumes via the stable <code>consumer</code> ID. Sync iteration: <code>stream.iter_events()</code>.</p>
 
 <h2 class="dh2">LangChain</h2>
-<p class="dp">LangChain is an optional extra — core <code>pip install kaptanto</code> never imports it. See <code>packages/kaptanto-python/README.md</code> and <code>examples/langchain/</code>.</p>
-<div class="dcall"><p><strong>Also:</strong> <code>npm i @kaptanto/events</code> for TypeScript types, <code>npm i @kaptanto/mastra</code> for Mastra workflows.</p></div>`,
+<p class="dp">LangChain is an optional extra — the core package never imports it. See <code>packages/kaptanto-python/README.md</code> and <code>examples/langchain/</code>.</p>
+<div class="dcall"><p><strong>Also:</strong> <a onclick="go('docs-events-sdk')">@kaptanto/events</a> for TypeScript types, <a onclick="go('docs-mastra')">@kaptanto/mastra</a> for Mastra workflows.</p></div>`,
+  },
+
+  "docs-events-sdk": {
+    title: "TypeScript SDK",
+    sub: "Wire-format ChangeEvent types and runtime guards — install from source until the first npm release.",
+    body: `
+<h2 class="dh2">Install</h2>
+<div class="dcall"><p><strong>Registry status:</strong> <code>npm i @kaptanto/events</code> is not yet on npm. Install from the repo until the first <code>events-v*</code> tag ships.</p></div>
+<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
+<span class="tg">$</span> npm i ./packages/kaptanto-events</div>
+
+<h2 class="dh2">Usage</h2>
+<div class="dcode"><span class="tc">import { type ChangeEvent, isChangeEvent, isInsert } from "@kaptanto/events";</span>
+
+const raw: unknown = JSON.parse(line);
+
+if (isChangeEvent(raw)) {
+  console.log(raw.table, raw.operation);
+  if (isInsert(raw)) {
+    console.log("new row:", raw.after);
+  }
+}</div>
+<p class="dp">Field names match the Go <code>event.ChangeEvent</code> JSON tags exactly. Optional <code>ai_context</code> is typed as an opaque object when present — see <a onclick="go('docs-ai-context')">AI Event Contract</a>.</p>
+
+<h2 class="dh2">API</h2>
+<table class="dtbl"><thead><tr><th>Export</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>Operation</code></td><td><code>"insert" | "update" | "delete" | "read" | "control"</code></td></tr>
+<tr><td><code>ChangeEvent</code></td><td>Interface matching the wire JSON shape</td></tr>
+<tr><td><code>isChangeEvent(obj)</code></td><td>Runtime type guard for unknown values</td></tr>
+<tr><td><code>isInsert</code> / <code>isUpdate</code> / <code>isDelete</code> / <code>isRead</code> / <code>isControl</code></td><td>Operation narrows</td></tr>
+</tbody></table>
+<div class="dcall"><p><strong>Also:</strong> <a onclick="go('docs-mastra')">@kaptanto/mastra</a> builds on these types for workflow triggers. See <code>packages/kaptanto-events/README.md</code>.</p></div>`,
   },
 
   "docs-mastra": {
     title: "Mastra Integration",
-    sub: "Trigger Mastra workflows from real-time database changes with @kaptanto/mastra.",
+    sub: "Trigger Mastra workflows from real-time database changes — install from source until the first npm release.",
     body: `
 <h2 class="dh2">Install</h2>
-<div class="dcode"><span class="tg">$</span> npm i @kaptanto/mastra @kaptanto/events mastra</div>
-<p class="dp"><code>@kaptanto/events</code> and <code>mastra</code> are peer dependencies.</p>
+<div class="dcall"><p><strong>Registry status:</strong> <code>npm i @kaptanto/mastra</code> is not yet on npm. Install from the repo until the first <code>mastra-v*</code> tag ships.</p></div>
+<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
+<span class="tg">$</span> npm i ./packages/kaptanto-mastra ./packages/kaptanto-events mastra</div>
+<p class="dp"><a onclick="go('docs-events-sdk')">@kaptanto/events</a> and <code>mastra</code> are peer dependencies.</p>
 
 <h2 class="dh2">Trigger a workflow</h2>
 <div class="dcode"><span class="tc">import { kaptantoTrigger, toAgentContext } from "@kaptanto/mastra";</span>
@@ -1620,6 +1675,7 @@ export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
     items: [
       ["docs-mcp", "MCP Server"],
       ["docs-ai-context", "AI Event Contract"],
+      ["docs-events-sdk", "TypeScript SDK"],
       ["docs-python-sdk", "Python SDK"],
       ["docs-mastra", "Mastra"],
     ],
@@ -1680,6 +1736,7 @@ export const DOC_FLOW = [
   "docs-openapi",
   "docs-mcp",
   "docs-ai-context",
+  "docs-events-sdk",
   "docs-python-sdk",
   "docs-mastra",
   "docs-n8n",
