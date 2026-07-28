@@ -71,13 +71,12 @@ func (idx *recentIndex) put(ev *event.ChangeEvent) {
 	if id == "" || id == "00000000000000000000000000" {
 		return
 	}
-	cp := *ev
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
 	if _, exists := idx.byID[id]; exists {
-		idx.byID[id] = &cp
+		idx.byID[id] = ev
 		return
 	}
 	if idx.length == idx.cap {
@@ -88,7 +87,7 @@ func (idx *recentIndex) put(ev *event.ChangeEvent) {
 		idx.length--
 	}
 	idx.slots[(idx.start+idx.length)%idx.cap] = id
-	idx.byID[id] = &cp
+	idx.byID[id] = ev
 	idx.length++
 }
 
@@ -99,8 +98,7 @@ func (idx *recentIndex) get(id string) (*event.ChangeEvent, bool) {
 	if !ok || ev == nil {
 		return nil, false
 	}
-	cp := *ev
-	return &cp, true
+	return ev, true
 }
 
 func (idx *recentIndex) clear() {

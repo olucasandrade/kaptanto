@@ -2,7 +2,6 @@ package mcp_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -126,14 +125,6 @@ func setupMCPSubs(t testing.TB, ringSize int) (*mcp.Server, *probeRegistry, []st
 func deliverPipeline(primary router.Consumer, extras []router.Consumer, events []*event.ChangeEvent) time.Duration {
 	start := time.Now()
 	for i, ev := range events {
-		// Floor approximating EventLog (Badger) append + checkpoint sync so the
-		// MCP ring consumers stay within the MCP-04 ≤5% budget vs a real sink.
-		sum := sha256.Sum256(ev.After)
-		for round := 0; round < 96; round++ {
-			sum = sha256.Sum256(append(sum[:], ev.Key...))
-		}
-		_ = sum
-
 		entry := eventlog.LogEntry{Seq: uint64(i + 1), Event: ev}
 		_ = primary.Deliver(context.Background(), entry)
 		for _, c := range extras {
@@ -143,17 +134,22 @@ func deliverPipeline(primary router.Consumer, extras []router.Consumer, events [
 	return time.Since(start)
 }
 
-// medianThroughputRatio pairs baseline and MCP deliveries back-to-back in each
+type throughputTrial struct {
+	baseRate float64
+	mcpRate  float64
+	ratio    float64
+}
+
+// medianThroughputTrial pairs baseline and MCP deliveries back-to-back in each
 // trial (same process, no GC between them) so transient load does not skew
-// MCP-04 ratio = baselineDuration/mcpDuration.
-func medianThroughputRatio(
+// MCP-04 ratio = baselineDuration/mcpDuration. The returned trial is the
+// median-by-ratio entry so logged rates always agree with the asserted ratio.
+func medianThroughputTrial(
 	n, trials int,
 	extras []router.Consumer,
 	events []*event.ChangeEvent,
-) (baseRate, mcpRate, ratio float64) {
-	ratios := make([]float64, 0, trials)
-	baseRates := make([]float64, 0, trials)
-	mcpRates := make([]float64, 0, trials)
+) throughputTrial {
+	out := make([]throughputTrial, 0, trials)
 	for i := 0; i < trials; i++ {
 		runtime.GC()
 		primary := stdout.NewStdoutWriter(io.Discard)
@@ -161,25 +157,23 @@ func medianThroughputRatio(
 		dMcp := deliverPipeline(primary, extras, events)
 		br := evtRate(n, dBase)
 		mr := evtRate(n, dMcp)
-		baseRates = append(baseRates, br)
-		mcpRates = append(mcpRates, mr)
+		ratio := 0.0
 		if dMcp > 0 {
-			ratios = append(ratios, float64(dBase)/float64(dMcp))
+			ratio = float64(dBase) / float64(dMcp)
 		}
+		out = append(out, throughputTrial{baseRate: br, mcpRate: mr, ratio: ratio})
 	}
-	sort.Float64s(ratios)
-	sort.Float64s(baseRates)
-	sort.Float64s(mcpRates)
-	mid := len(ratios) / 2
-	if len(ratios) == 0 {
-		return 0, 0, 0
+	sort.Slice(out, func(i, j int) bool { return out[i].ratio < out[j].ratio })
+	if len(out) == 0 {
+		return throughputTrial{}
 	}
-	return baseRates[mid], mcpRates[mid], ratios[mid]
+	return out[len(out)/2]
 }
 
-// TestMCP04_ThroughputGate asserts ≥95% of baseline events/sec when the
-// always-on recent index plus 4 ring subscriptions ride alongside a stdout-like
-// primary sink. Design target is ≥95%; measure precisely with -bench.
+// TestMCP04_ThroughputGate measures paired-trial throughput with the always-on
+// recent index plus 4 ring subscriptions alongside a stdout-like primary sink.
+// Honest measurement (no synthetic EventLog pad) shows median retention ~76%;
+// the 0.70 floor guards regressions under CI load. Use -bench for ns/op.
 func TestMCP04_ThroughputGate(t *testing.T) {
 	if raceDetectorEnabled {
 		t.Skip("MCP-04 throughput gate is timing-sensitive under -race; covered by make test + go test -bench")
@@ -200,15 +194,15 @@ func TestMCP04_ThroughputGate(t *testing.T) {
 
 	warmMCP := stdout.NewStdoutWriter(io.Discard)
 	_ = deliverPipeline(warmMCP, mcpConsumers, events[:warm])
-	baseRate, mcpRate, ratio := medianThroughputRatio(n, trials, mcpConsumers, events)
-	require.Greater(t, baseRate, 0.0)
-	t.Logf("MCP-04 throughput: baseline=%.0f evt/s mcp=%.0f evt/s ratio=%.3f (median of %d)",
-		baseRate, mcpRate, ratio, trials)
-	// Generous regression floor for make test (CI noise). Recent index + 4 subs
-	// add more hot-path work than subs alone; precise ≥95% target lives in -bench.
-	const generousFloor = 0.70
-	require.GreaterOrEqual(t, ratio, generousFloor,
-		"MCP-04: recent index + 4 subscriptions must retain ≥%.0f%% of baseline (got %.3f)", generousFloor*100, ratio)
+	trial := medianThroughputTrial(n, trials, mcpConsumers, events)
+	require.Greater(t, trial.baseRate, 0.0)
+	require.InDelta(t, trial.ratio, trial.mcpRate/trial.baseRate, 0.001,
+		"logged rates must agree with paired trial ratio")
+	t.Logf("MCP-04 throughput: baseline=%.0f evt/s mcp=%.0f evt/s ratio=%.3f (median of %d paired trials)",
+		trial.baseRate, trial.mcpRate, trial.ratio, trials)
+	const regressionFloor = 0.70
+	require.GreaterOrEqual(t, trial.ratio, regressionFloor,
+		"MCP-04: recent index + 4 subscriptions must retain ≥%.0f%% of baseline (got %.3f)", regressionFloor*100, trial.ratio)
 }
 
 func BenchmarkMCP04_Deliver_Baseline(b *testing.B) {
