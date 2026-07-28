@@ -12,6 +12,7 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,6 +106,16 @@ type ConsumerCursorStore interface {
 	LoadCursor(ctx context.Context, consumerID string, partitionID uint32) (uint64, error)
 }
 
+// CursorDeleter is an optional interface a ConsumerCursorStore may implement
+// to remove all cursors for a consumer. Router.Unregister uses it (when
+// available) so ephemeral consumers such as MCP session subscriptions do not
+// leak durable cursor rows.
+type CursorDeleter interface {
+	// DeleteCursor removes every persisted cursor for consumerID. It must
+	// tolerate unknown consumer IDs.
+	DeleteCursor(ctx context.Context, consumerID string) error
+}
+
 // noopCursorStore is an in-memory ConsumerCursorStore with no persistence.
 // It is safe only for single-goroutine use per consumer and is used when
 // NewRouter receives a nil cursorStore argument.
@@ -138,6 +149,19 @@ func (n *noopCursorStore) LoadCursor(_ context.Context, consumerID string, parti
 		return 1, nil
 	}
 	return v, nil
+}
+
+// DeleteCursor implements CursorDeleter for the in-memory store.
+func (n *noopCursorStore) DeleteCursor(_ context.Context, consumerID string) error {
+	prefix := consumerID + ":"
+	n.mu.Lock()
+	for k := range n.data {
+		if strings.HasPrefix(k, prefix) {
+			delete(n.data, k)
+		}
+	}
+	n.mu.Unlock()
+	return nil
 }
 
 // consumerState tracks per-consumer runtime state: the last successfully
@@ -313,10 +337,13 @@ func (r *Router) Register(c Consumer) {
 
 // Unregister soft-removes the consumer with the given ID. Indices stay stable
 // so in-flight dispatch phases remain valid. Returns false when no active
-// consumer matched. Used by MCP session cleanup (MCP-02).
+// consumer matched. Used by MCP session cleanup (MCP-02). When the cursor
+// store implements CursorDeleter, the consumer's durable cursors are deleted
+// too — ephemeral consumers (MCP session subscriptions) never resume, so
+// keeping their rows would grow the cursor store without bound.
 func (r *Router) Unregister(id string) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	found := false
 	for i := range r.consumers {
 		cs := &r.consumers[i]
 		if cs.removed || cs.consumer == nil {
@@ -327,10 +354,20 @@ func (r *Router) Unregister(id string) bool {
 			cs.consumer = nil
 			cs.provisionalByPartition = nil
 			cs.skippedSeqs = nil
-			return true
+			found = true
+			break
 		}
 	}
-	return false
+	r.mu.Unlock()
+	if !found {
+		return false
+	}
+	if d, ok := r.cursorStore.(CursorDeleter); ok {
+		if err := d.DeleteCursor(context.Background(), id); err != nil {
+			slog.Warn("router: delete cursors on unregister", "consumer", id, "err", err)
+		}
+	}
+	return true
 }
 
 // ConsumerCount returns the number of active (non-unregistered) consumers.

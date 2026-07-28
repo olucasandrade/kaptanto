@@ -323,3 +323,61 @@ func TestCursorStoreConcurrentSaveAndLoad(t *testing.T) {
 		}
 	}
 }
+
+// TestCursorStoreDeleteCursor verifies DeleteCursor removes both persisted
+// rows and pending dirty-map entries for the target consumer only, and
+// tolerates unknown consumer IDs (router.CursorDeleter contract).
+func TestCursorStoreDeleteCursor(t *testing.T) {
+	db := openTestDB(t)
+	store, err := NewSQLiteCursorStore(db, 5*time.Second)
+	if err != nil {
+		t.Fatalf("NewSQLiteCursorStore: %v", err)
+	}
+
+	ctx := context.Background()
+	for _, tc := range []struct {
+		consumer  string
+		partition uint32
+		seq       uint64
+	}{
+		{"victim", 0, 10},
+		{"victim", 1, 20},
+		{"bystander", 0, 30},
+	} {
+		if err := store.SaveCursor(ctx, tc.consumer, tc.partition, tc.seq); err != nil {
+			t.Fatalf("SaveCursor: %v", err)
+		}
+	}
+	store.flush(ctx)
+
+	// Re-dirty one victim entry after the flush to prove dirty entries are
+	// dropped too (not just persisted rows).
+	if err := store.SaveCursor(ctx, "victim", 0, 11); err != nil {
+		t.Fatalf("SaveCursor re-dirty: %v", err)
+	}
+
+	if err := store.DeleteCursor(ctx, "victim"); err != nil {
+		t.Fatalf("DeleteCursor: %v", err)
+	}
+
+	for _, p := range []uint32{0, 1} {
+		got, err := store.LoadCursor(ctx, "victim", p)
+		if err != nil {
+			t.Fatalf("LoadCursor victim p=%d: %v", p, err)
+		}
+		if got != 1 {
+			t.Errorf("LoadCursor(victim, %d) after delete = %d, want 1 (no-cursor start)", p, got)
+		}
+	}
+	got, err := store.LoadCursor(ctx, "bystander", 0)
+	if err != nil {
+		t.Fatalf("LoadCursor bystander: %v", err)
+	}
+	if got != 30 {
+		t.Errorf("LoadCursor(bystander, 0) = %d, want 30 (untouched)", got)
+	}
+
+	if err := store.DeleteCursor(ctx, "nobody"); err != nil {
+		t.Errorf("DeleteCursor unknown consumer: %v", err)
+	}
+}

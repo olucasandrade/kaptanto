@@ -554,3 +554,32 @@ type stubConsumer struct{ id string }
 
 func (s *stubConsumer) ID() string { return s.id }
 func (s *stubConsumer) Deliver(context.Context, eventlog.LogEntry) error { return nil }
+
+// TestRouter_UnregisterDeletesCursors verifies that Unregister drops the
+// consumer's durable cursors when the store implements CursorDeleter, so
+// ephemeral consumers (MCP session subscriptions) do not leak cursor rows.
+func TestRouter_UnregisterDeletesCursors(t *testing.T) {
+	cs := router.NewNoopCursorStore()
+	rtr := router.NewRouter(&memEventLog{}, 2, cs)
+
+	c := &stubConsumer{id: "eph"}
+	rtr.Register(c)
+
+	ctx := context.Background()
+	require.NoError(t, cs.SaveCursor(ctx, "eph", 0, 42))
+	require.NoError(t, cs.SaveCursor(ctx, "other", 0, 7))
+	got, err := cs.LoadCursor(ctx, "eph", 0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), got)
+
+	assert.True(t, rtr.Unregister("eph"))
+
+	// Deleted consumer cursors fall back to the no-cursor start position (1);
+	// unrelated consumers are untouched.
+	got, err = cs.LoadCursor(ctx, "eph", 0)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), got)
+	got, err = cs.LoadCursor(ctx, "other", 0)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(7), got)
+}

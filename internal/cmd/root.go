@@ -442,8 +442,8 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	for _, ac := range actionConsumers {
 		rtr.Register(ac)
 	}
-	if cfg.Output == "none" && len(actionConsumers) == 0 {
-		return fmt.Errorf("output: none requires at least one configured action")
+	if cfg.Output == "none" && len(actionConsumers) == 0 && !cfg.MCP.Enabled {
+		return fmt.Errorf("output: none requires at least one configured action or mcp.enabled")
 	}
 
 	mcpServer, err := openMCPServer(cfg, metrics)
