@@ -81,6 +81,41 @@ describe("KaptantoStream", () => {
     expect(received.map((e) => e.id)).toEqual(["ev-1", "ev-2", "ev-3"]);
   });
 
+  it("yields ai_context from SSE wire format", async () => {
+    const enriched = makeEvent({
+      id: "ev-ai",
+      ai_context: {
+        intent: "fulfill_order",
+        custom: { priority: "high" },
+      },
+    });
+
+    server = createServer((_req, res) => {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+      res.write(sseFrame(enriched));
+      res.end();
+    });
+    port = await listen(server);
+
+    const stream = new KaptantoStream({
+      url: `http://127.0.0.1:${port}/events`,
+      consumer: "test-svc",
+    });
+
+    const received: ChangeEvent[] = [];
+    for await (const ev of stream) {
+      received.push(ev);
+      stream.close();
+    }
+
+    expect(received).toHaveLength(1);
+    expect(received[0].ai_context).toEqual(enriched.ai_context);
+  });
+
   it("passes consumer, tables, and operations as query params", async () => {
     let requestUrl = "";
     server = createServer((req, res) => {

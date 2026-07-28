@@ -15,6 +15,11 @@ import (
 
 // TestPGVector_Integration exercises auto-create idempotence and upsert/delete
 // round-trip. Skips when POSTGRES_TEST_DSN is unset (repo pattern).
+//
+// Pinecone and Qdrant backends remain httptest/golden unit tests only — CI has
+// no live credentials for those providers. Optional PINECONE_TEST_* / QDRANT_TEST_*
+// env-gated live tests may be added later; pgvector coverage here uses the same
+// POSTGRES_TEST_DSN service as integration.yml (pgvector/pgvector:pg16).
 func TestPGVector_Integration(t *testing.T) {
 	dsn := os.Getenv("POSTGRES_TEST_DSN")
 	if dsn == "" {

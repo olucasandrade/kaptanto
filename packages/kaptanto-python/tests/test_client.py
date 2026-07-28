@@ -110,6 +110,42 @@ async def test_yields_events_in_order(url_builder) -> None:
 
 
 @pytest.mark.asyncio
+async def test_yields_ai_context(url_builder) -> None:
+    enriched = make_event(
+        id="ev-ai",
+        ai_context={
+            "intent": "fulfill_order",
+            "custom": {"priority": "high"},
+        },
+    )
+
+    def factory() -> type[BaseHTTPRequestHandler]:
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(sse_frame(enriched))
+
+            def log_message(self, *_args: Any) -> None:
+                return
+
+        return H
+
+    url = url_builder(factory)
+    stream = KaptantoStream(url, consumer="test-svc")
+    received: list[ChangeEvent] = []
+    async for ev in stream:
+        received.append(ev)
+        await stream.aclose()
+
+    assert len(received) == 1
+    assert received[0].ai_context is not None
+    assert received[0].ai_context.intent == "fulfill_order"
+    assert received[0].ai_context.custom == {"priority": "high"}
+
+
+@pytest.mark.asyncio
 async def test_passes_query_params(url_builder) -> None:
     seen: dict[str, str] = {}
 

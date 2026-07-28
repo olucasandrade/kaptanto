@@ -153,6 +153,37 @@ describe("kaptantoTrigger (integration vs mock SSE)", () => {
     }
   });
 
+  it("starts workflow with ai_context in toAgentContext from SSE", async () => {
+    const ev = makeEvent({
+      id: "ev-ai",
+      idempotency_key: "key-ai",
+      ai_context: {
+        intent: "fulfill_order",
+        custom: { lane: "priority" },
+      },
+    });
+
+    const opened = await openSseServer([ev]);
+    server = opened.server;
+
+    const { workflow, starts } = mockWorkflow();
+    const handle = kaptantoTrigger({
+      url: `http://127.0.0.1:${opened.port}/events`,
+      consumer: "mastra-test",
+      workflow,
+    });
+
+    await vi.waitFor(() => {
+      expect(starts).toHaveLength(1);
+    });
+    handle.close();
+    await handle.done;
+
+    const ctx = JSON.parse(starts[0].inputData.context as string) as Record<string, unknown>;
+    expect(ctx.ai_context).toEqual(ev.ai_context);
+    expect(starts[0].inputData.event).toEqual(ev);
+  });
+
   it("honors mapEvent for custom inputData", async () => {
     const ev = makeEvent({ id: "mapped" });
     const opened = await openSseServer([ev]);

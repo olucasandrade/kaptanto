@@ -27,6 +27,11 @@
 # ~0% — a tooling artifact, not a real coverage gap. Report-only means the
 # *score* doesn't gate; a crashed/erroring gremlins run on this package still
 # fails the target (no continue-on-error, no `|| true`).
+#
+# Group 3 packages (enrich, output/vector, action, mcp) are also report-only
+# until baselines are measured and ratcheted in the Makefile — same pattern as
+# pgoutput's score-only exemption, but those packages are reachable under the
+# pure-Go build and should gain efficacy floors after `gremlins unleash` runs.
 unleash:
   dry-run: false
   # No special build tags: the targeted packages compile and test under the
