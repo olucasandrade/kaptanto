@@ -28,7 +28,9 @@ var (
 type textHashCache interface {
 	Unchanged(id string, hash []byte) bool
 	Put(id string, hash []byte) error
+	PutBatch(ids []string, hashes [][]byte) error
 	Del(id string) error
+	DelBatch(ids []string) error
 	Close() error
 }
 
@@ -374,11 +376,13 @@ func (c *VectorSinkConsumer) isolateDelete(ctx context.Context, items []pendingV
 }
 
 func (c *VectorSinkConsumer) ackDeletes(items []pendingVec) {
-	for _, it := range items {
-		if c.cache != nil {
-			if err := c.cache.Del(it.id); err != nil {
-				slog.Warn("vector: hash cache del failed after store ack", "id", it.id, "err", err)
-			}
+	if c.cache != nil && len(items) > 0 {
+		ids := make([]string, len(items))
+		for i, it := range items {
+			ids[i] = it.id
+		}
+		if err := c.cache.DelBatch(ids); err != nil {
+			slog.Warn("vector: hash cache del batch failed after store ack", "count", len(ids), "err", err)
 		}
 	}
 	if c.m != nil {
@@ -493,10 +497,19 @@ func (c *VectorSinkConsumer) isolateUpsert(ctx context.Context, items []pendingV
 }
 
 func (c *VectorSinkConsumer) ackUpserts(items []pendingVec) {
-	for _, it := range items {
-		if c.cache != nil && len(it.hash) > 0 {
-			if err := c.cache.Put(it.id, it.hash); err != nil {
-				slog.Warn("vector: hash cache put failed after store ack", "id", it.id, "err", err)
+	if c.cache != nil && len(items) > 0 {
+		ids := make([]string, 0, len(items))
+		hashes := make([][]byte, 0, len(items))
+		for _, it := range items {
+			if len(it.hash) == 0 {
+				continue
+			}
+			ids = append(ids, it.id)
+			hashes = append(hashes, it.hash)
+		}
+		if len(ids) > 0 {
+			if err := c.cache.PutBatch(ids, hashes); err != nil {
+				slog.Warn("vector: hash cache put batch failed after store ack", "count", len(ids), "err", err)
 			}
 		}
 	}

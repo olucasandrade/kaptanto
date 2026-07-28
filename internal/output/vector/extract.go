@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/olucasandrade/kaptanto/internal/config"
@@ -20,6 +21,12 @@ const SkipReasonEmpty = "empty"
 // SkipReasonUnchanged is the metric label reason when VEC-01 hash cache skips
 // an event whose extracted text is unchanged.
 const SkipReasonUnchanged = "unchanged"
+
+var afterValuesPool = sync.Pool{
+	New: func() any {
+		return make(map[string]any, 8)
+	},
+}
 
 // Extractor turns a ChangeEvent into embeddable text using either a column
 // list or a compiled go-template (compiled at NewExtractor / Validate).
@@ -70,19 +77,23 @@ func (e *Extractor) extractColumns(ev *event.ChangeEvent) (string, error) {
 	if ev == nil || len(ev.After) == 0 {
 		return "", nil
 	}
-	var after map[string]any
-	if err := json.Unmarshal(ev.After, &after); err != nil {
+	values := afterValuesPool.Get().(map[string]any)
+	clear(values)
+	defer afterValuesPool.Put(values)
+
+	if err := json.Unmarshal(ev.After, &values); err != nil {
 		return "", &ExtractError{Cause: fmt.Errorf("after json: %w", err)}
 	}
 
 	var b strings.Builder
+	b.Grow(len(e.columns) * 16)
 	for i, col := range e.columns {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
 		b.WriteString(col)
 		b.WriteString(": ")
-		b.WriteString(formatValue(after[col]))
+		b.WriteString(formatValue(values[col]))
 	}
 	out := strings.TrimSpace(b.String())
 	return out, nil
