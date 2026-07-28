@@ -1,14 +1,14 @@
-import { component$, useSignal } from '@builder.io/qwik';
-import type { Signal } from '@builder.io/qwik';
+import { component$, useSignal } from "@builder.io/qwik";
+import type { Signal } from "@builder.io/qwik";
 
 interface InstallProps {
   currentDoc: Signal<string | null>;
 }
 
-type Tab = 'curl' | 'docker' | 'src';
+type Tab = "curl" | "docker" | "src";
 
 export const Install = component$<InstallProps>(({ currentDoc }) => {
-  const activeTab = useSignal<Tab>('curl');
+  const activeTab = useSignal<Tab>("curl");
 
   return (
     <div class="ib" id="install">
@@ -23,40 +23,56 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
               <div class="qs-label">Install</div>
               <div style="max-width:540px">
                 <div class="its">
-                  {(['curl', 'docker', 'src'] as Tab[]).map((t) => (
+                  {(["curl", "docker", "src"] as Tab[]).map((t) => (
                     <button
                       key={t}
-                      class={`it${activeTab.value === t ? ' a' : ''}`}
-                      onClick$={() => { activeTab.value = t; }}
+                      class={`it${activeTab.value === t ? " a" : ""}`}
+                      onClick$={() => {
+                        activeTab.value = t;
+                      }}
                     >
-                      {t === 'curl' ? 'curl' : t === 'docker' ? 'Docker' : 'Source'}
+                      {t === "curl"
+                        ? "curl"
+                        : t === "docker"
+                          ? "Docker"
+                          : "Source"}
                     </button>
                   ))}
                 </div>
 
-                {activeTab.value === 'curl' && (
+                {activeTab.value === "curl" && (
                   <div class="ic">
                     <CopyButton />
-                    <span class="tg">$</span> curl -fsSL https://get.kaptan.to | sh
+                    <span class="tg">$</span> curl -fsSL https://get.kaptan.to |
+                    sh
                   </div>
                 )}
-                {activeTab.value === 'docker' && (
+                {activeTab.value === "docker" && (
                   <div class="ic">
                     <CopyButton />
-                    <span class="tg">$</span> docker run olucasandrade/kaptanto \
-                    <br />&nbsp;&nbsp;<span class="tbl">--source</span>{' '}
-                    <span class="ty">postgres://host.docker.internal:5432/mydb</span> \
-                    <br />&nbsp;&nbsp;<span class="tbl">--tables</span>{' '}
-                    <span class="ty">orders</span> <span class="tbl">--output</span>{' '}
+                    <span class="tg">$</span> docker run olucasandrade/kaptanto
+                    \
+                    <br />
+                    &nbsp;&nbsp;<span class="tbl">--source</span>{" "}
+                    <span class="ty">
+                      postgres://host.docker.internal:5432/mydb
+                    </span>{" "}
+                    \
+                    <br />
+                    &nbsp;&nbsp;<span class="tbl">--tables</span>{" "}
+                    <span class="ty">orders</span>{" "}
+                    <span class="tbl">--output</span>{" "}
                     <span class="ty">stdout</span>
                   </div>
                 )}
-                {activeTab.value === 'src' && (
+                {activeTab.value === "src" && (
                   <div class="ic">
                     <CopyButton />
-                    <span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
+                    <span class="tg">$</span> git clone
+                    https://github.com/olucasandrade/kaptanto
                     <br />
-                    <span class="tg">$</span> cd kaptanto &amp;&amp; go build -o kaptanto ./cmd/kaptanto
+                    <span class="tg">$</span> cd kaptanto &amp;&amp; go build -o
+                    kaptanto ./cmd/kaptanto
                   </div>
                 )}
               </div>
@@ -70,27 +86,30 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
               <div class="ic" style="max-width:540px;position:relative">
                 <CopyButton />
                 <span class="tg">$</span> kaptanto \<br />
-                &nbsp;&nbsp;<span class="tbl">--source</span>{' '}
+                &nbsp;&nbsp;<span class="tbl">--source</span>{" "}
                 <span class="ty">postgres://localhost:5432/mydb</span> \<br />
-                &nbsp;&nbsp;<span class="tbl">--tables</span>{' '}
+                &nbsp;&nbsp;<span class="tbl">--tables</span>{" "}
                 <span class="ty">orders,payments</span> \<br />
-                &nbsp;&nbsp;<span class="tbl">--output</span>{' '}
+                &nbsp;&nbsp;<span class="tbl">--output</span>{" "}
                 <span class="ty">stdout</span>
               </div>
               <p class="qs-hint">
-                Use <code>--output sse</code> or <code>--output grpc</code> for multi-consumer setups. Use{' '}
-                <code>--output nats|sqs|kafka|pubsub|rabbitmq</code> to push directly to a queue. All of these
-                require <code>--auth-token</code> (or <code>--insecure</code> for local dev) — see the{' '}
+                Use <code>--output sse</code> or <code>--output grpc</code> for
+                multi-consumer setups. Use{" "}
+                <code>--output nats|sqs|kafka|pubsub|rabbitmq</code> to push
+                directly to a queue. All of these require{" "}
+                <code>--auth-token</code> (or <code>--insecure</code> for local
+                dev) — see the{" "}
                 <a
                   href="/?doc=docs-config"
                   onClick$={(e) => {
                     e.preventDefault();
-                    currentDoc.value = 'docs-config';
+                    currentDoc.value = "docs-config";
                     window.scrollTo(0, 0);
                   }}
                 >
                   Configuration
-                </a>{' '}
+                </a>{" "}
                 docs.
               </p>
             </div>
@@ -99,20 +118,29 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
           <div class="qs-step qs-step-last">
             <div class="qs-num">3</div>
             <div class="qs-body">
-              <div class="qs-label">Events stream out — one JSON line per change</div>
+              <div class="qs-label">
+                Events stream out — one JSON line per change
+              </div>
               <div class="ic qs-out" style="max-width:540px">
                 <span class="to">
-                  {'{"operation":"insert","table":"orders","after":{"id":1,"status":"pending","amount":49.99}}'}
+                  {
+                    '{"operation":"insert","table":"orders","after":{"id":1,"status":"pending","amount":49.99}}'
+                  }
                 </span>
                 <br />
                 <span class="to">
-                  {'{"operation":"update","table":"orders","before":{"status":"pending"},"after":{"status":"shipped"}}'}
+                  {
+                    '{"operation":"update","table":"orders","before":{"status":"pending"},"after":{"status":"shipped"}}'
+                  }
                 </span>
                 <br />
-                <span class="to">{'{"operation":"delete","table":"payments","key":{"id":88}}'}</span>
+                <span class="to">
+                  {'{"operation":"delete","table":"payments","key":{"id":88}}'}
+                </span>
               </div>
               <p class="qs-hint">
-                Pipe to <code>jq</code>, a webhook, a queue, or anything that reads stdin.
+                Pipe to <code>jq</code>, a webhook, a queue, or anything that
+                reads stdin.
               </p>
             </div>
           </div>
@@ -123,7 +151,7 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
             href="/?doc=docs-quickstart"
             onClick$={(e) => {
               e.preventDefault();
-              currentDoc.value = 'docs-quickstart';
+              currentDoc.value = "docs-quickstart";
               window.scrollTo(0, 0);
             }}
             class="bo"
@@ -134,7 +162,7 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
             href="/?doc=docs-config"
             onClick$={(e) => {
               e.preventDefault();
-              currentDoc.value = 'docs-config';
+              currentDoc.value = "docs-config";
               window.scrollTo(0, 0);
             }}
             class="qs-cfg"
@@ -148,17 +176,23 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
 });
 
 const CopyButton = component$(() => {
-  const label = useSignal('copy');
+  const label = useSignal("copy");
 
   return (
     <button
       class="cpb"
       onClick$={(e) => {
         const btn = e.target as HTMLButtonElement;
-        const text = btn.parentElement?.textContent?.replace('copy', '').replace(/\$ /g, '').trim() ?? '';
+        const text =
+          btn.parentElement?.textContent
+            ?.replace("copy", "")
+            .replace(/\$ /g, "")
+            .trim() ?? "";
         navigator.clipboard.writeText(text).then(() => {
-          label.value = 'copied!';
-          setTimeout(() => { label.value = 'copy'; }, 1400);
+          label.value = "copied!";
+          setTimeout(() => {
+            label.value = "copy";
+          }, 1400);
         });
       }}
     >

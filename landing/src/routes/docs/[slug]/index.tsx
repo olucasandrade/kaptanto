@@ -1,7 +1,7 @@
-import { component$ } from '@builder.io/qwik';
-import type { DocumentHead } from '@builder.io/qwik-city';
-import { useLocation } from '@builder.io/qwik-city';
-import { SEO_DOCS, SEO_DOCS_MAP } from '../../../data/docs';
+import { component$ } from "@builder.io/qwik";
+import type { DocumentHead } from "@builder.io/qwik-city";
+import { useLocation } from "@builder.io/qwik-city";
+import { SEO_DOCS, SEO_DOCS_MAP } from "../../../data/docs";
 
 export default component$(() => {
   const loc = useLocation();
@@ -13,7 +13,9 @@ export default component$(() => {
       <main class="seo-docs">
         <div class="seo-wrap">
           <h1>Documentation page not found</h1>
-          <p>Return to the <a href="/docs">documentation index</a>.</p>
+          <p>
+            Return to the <a href="/docs">documentation index</a>.
+          </p>
         </div>
       </main>
     );
@@ -43,8 +45,8 @@ export const head: DocumentHead = ({ params }) => {
   const doc = SEO_DOCS_MAP.get(params.slug);
   if (!doc) {
     return {
-      title: 'Kaptanto Docs | Not Found',
-      meta: [{ name: 'robots', content: 'noindex,follow' }],
+      title: "Kaptanto Docs | Not Found",
+      meta: [{ name: "robots", content: "noindex,follow" }],
     };
   }
 
@@ -52,13 +54,13 @@ export const head: DocumentHead = ({ params }) => {
   return {
     title: `${doc.title} | Kaptanto Docs`,
     meta: [
-      { name: 'description', content: doc.description },
-      { property: 'og:type', content: 'article' },
-      { property: 'og:title', content: `${doc.title} | Kaptanto Docs` },
-      { property: 'og:description', content: doc.description },
-      { property: 'og:url', content: canonical },
-      { property: 'og:image', content: 'https://kaptan.to/logo.png' },
-      { name: 'twitter:card', content: 'summary' },
+      { name: "description", content: doc.description },
+      { property: "og:type", content: "article" },
+      { property: "og:title", content: `${doc.title} | Kaptanto Docs` },
+      { property: "og:description", content: doc.description },
+      { property: "og:url", content: canonical },
+      { property: "og:image", content: "https://kaptan.to/logo.png" },
+      { name: "twitter:card", content: "summary" },
     ],
   };
 };

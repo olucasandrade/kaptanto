@@ -1,6 +1,6 @@
-import { component$ } from '@builder.io/qwik';
-import type { DocumentHead } from '@builder.io/qwik-city';
-import { SEO_DOCS } from '../../data/docs';
+import { component$ } from "@builder.io/qwik";
+import type { DocumentHead } from "@builder.io/qwik-city";
+import { SEO_DOCS } from "../../data/docs";
 
 export default component$(() => {
   return (
@@ -23,11 +23,12 @@ export default component$(() => {
 });
 
 export const head: DocumentHead = {
-  title: 'Kaptanto Docs Index',
+  title: "Kaptanto Docs Index",
   meta: [
     {
-      name: 'description',
-      content: 'Crawlable documentation index for Kaptanto CDC guides and references.',
+      name: "description",
+      content:
+        "Crawlable documentation index for Kaptanto CDC guides and references.",
     },
   ],
 };
