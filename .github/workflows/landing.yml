@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "landing/**"
+      - ".github/workflows/landing.yml"
 
 # Least-privilege default token.
 permissions:
@@ -41,13 +46,8 @@ jobs:
       - name: lint
         run: npm run lint
 
-      # Pre-existing formatting drift on main means this currently fails on
-      # files unrelated to any given change. Kept non-blocking until a
-      # dedicated `prettier --write` normalization PR lands; see the PR
-      # description that introduced this workflow for the follow-up.
       - name: fmt.check
         run: npm run fmt.check
-        continue-on-error: true
 
       - name: build.types
         run: npm run build.types
