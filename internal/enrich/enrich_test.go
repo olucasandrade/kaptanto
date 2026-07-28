@@ -212,6 +212,114 @@ func TestCompile_MissingAuthEnv(t *testing.T) {
 	}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "MISSING_ENRICH_TOKEN_XYZ")
+	assert.NotContains(t, err.Error(), "s3cret")
+}
+
+func TestCompile_LiteralAuthToken_Rejects(t *testing.T) {
+	t.Parallel()
+	_, err := enrich.Compile(config.EnrichmentConfig{
+		URL:       "http://127.0.0.1:9/enrich",
+		Tables:    []string{"public.orders"},
+		AuthToken: "literal-secret",
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "${VAR}")
+}
+
+func TestCompile_BlocksMetadataIP(t *testing.T) {
+	t.Parallel()
+	_, err := enrich.Compile(config.EnrichmentConfig{
+		URL:    "http://169.254.169.254/latest/meta-data/",
+		Tables: []string{"public.orders"},
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blocked")
+}
+
+func TestCompile_BlocksPrivateIPWithoutAllowlist(t *testing.T) {
+	t.Parallel()
+	_, err := enrich.Compile(config.EnrichmentConfig{
+		URL:    "http://10.0.0.5/enrich",
+		Tables: []string{"public.orders"},
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blocked")
+}
+
+func TestCompile_AllowsAllowlistedSidecar(t *testing.T) {
+	t.Parallel()
+	e, err := enrich.Compile(config.EnrichmentConfig{
+		URL:        "http://10.0.0.5/enrich",
+		Tables:     []string{"public.orders"},
+		AllowHosts: []string{"10.0.0.5"},
+	}, nil)
+	require.NoError(t, err)
+	assert.True(t, e.Enabled())
+}
+
+func TestEnrich_CircuitBreaker_FastFail(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"intent":"late"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	m := observability.NewKaptantoMetrics()
+	e := mustCompile(t, config.EnrichmentConfig{
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: "15ms",
+	}, m)
+	enrich.SetCircuitThresholdForTest(e, 3)
+
+	for i := 0; i < 3; i++ {
+		ev := testEvent("orders", event.OpInsert)
+		e.Enrich(context.Background(), ev)
+	}
+
+	start := time.Now()
+	ev := testEvent("orders", event.OpInsert)
+	e.Enrich(context.Background(), ev)
+	elapsed := time.Since(start)
+
+	assert.Nil(t, ev.AIContext)
+	assert.Less(t, elapsed, 10*time.Millisecond, "circuit open must skip HTTP wait")
+	assert.Equal(t, float64(3), failureCount(m, enrich.ReasonTimeout))
+	assert.Equal(t, float64(1), failureCount(m, enrich.ReasonCircuitOpen))
+
+	time.Sleep(120 * time.Millisecond)
+}
+
+func TestWrap_PropagatesCancelContext(t *testing.T) {
+	t.Parallel()
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-block
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"intent":"blocked"}`))
+	}))
+	t.Cleanup(func() {
+		close(block)
+		srv.Close()
+	})
+
+	inner := &memLog{}
+	e := mustCompile(t, config.EnrichmentConfig{
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: enrichTestTimeout,
+	}, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	el := enrich.Wrap(ctx, inner, e)
+
+	ev := testEvent("orders", event.OpInsert)
+	_, err := el.Append(ev)
+	require.NoError(t, err)
+	assert.Nil(t, ev.AIContext)
+	assert.Len(t, inner.appended, 1)
 }
 
 // --- Match scoping ---
@@ -304,6 +412,7 @@ func TestEnrich_TimeoutStorm_FailOpen(t *testing.T) {
 		Tables:  []string{"public.orders"},
 		Timeout: "15ms",
 	}, m)
+	enrich.SetCircuitThresholdForTest(e, 100) // isolate storm from circuit breaker
 
 	var warnCount atomic.Int64
 	enrich.SetWarnForTest(e, func(string, ...any) { warnCount.Add(1) })
@@ -343,7 +452,7 @@ func TestWrap_AppendEnrichesBeforeDurableWrite(t *testing.T) {
 		Tables:  []string{"public.orders"},
 		Timeout: enrichTestTimeout,
 	}, observability.NewKaptantoMetrics())
-	el := enrich.Wrap(inner, e)
+	el := enrich.Wrap(context.Background(), inner, e)
 
 	// Optional interfaces preserved for Badger.
 	_, okNotify := el.(eventlog.PartitionNotifier)
@@ -405,7 +514,7 @@ func TestWrap_AppendBatchSerialEnrich(t *testing.T) {
 		Tables:  []string{"public.orders"},
 		Timeout: enrichTestTimeout,
 	}, nil)
-	el := enrich.Wrap(inner, e)
+	el := enrich.Wrap(context.Background(), inner, e)
 
 	evs := []*event.ChangeEvent{
 		testEvent("orders", event.OpInsert),
@@ -475,19 +584,19 @@ func TestWrap_InterfaceBranches(t *testing.T) {
 		Timeout: enrichTestTimeout,
 	}, nil)
 
-	plain := enrich.Wrap(&memLog{}, e)
+	plain := enrich.Wrap(context.Background(), &memLog{}, e)
 	_, hasN := plain.(eventlog.PartitionNotifier)
 	_, hasO := plain.(eventlog.AppendObservable)
 	assert.False(t, hasN)
 	assert.False(t, hasO)
 	require.NoError(t, plain.Close())
 
-	nOnly := enrich.Wrap(&notifyOnlyLog{ch: make(chan struct{})}, e)
+	nOnly := enrich.Wrap(context.Background(), &notifyOnlyLog{ch: make(chan struct{})}, e)
 	require.NotNil(t, nOnly.(eventlog.PartitionNotifier).NotifyCh(1))
 	_, hasO = nOnly.(eventlog.AppendObservable)
 	assert.False(t, hasO)
 
-	oOnly := enrich.Wrap(&obsOnlyLog{}, e)
+	oOnly := enrich.Wrap(context.Background(), &obsOnlyLog{}, e)
 	unreg := oOnly.(eventlog.AppendObservable).RegisterObserver(&nopObserver{})
 	unreg()
 	_, hasN = oOnly.(eventlog.PartitionNotifier)
@@ -588,7 +697,7 @@ func TestSetWarnHelpers_NilSafe(t *testing.T) {
 func TestWrap_NilEnricher(t *testing.T) {
 	t.Parallel()
 	inner := &memLog{}
-	assert.Same(t, inner, enrich.Wrap(inner, nil))
+	assert.Same(t, inner, enrich.Wrap(context.Background(), inner, nil))
 }
 
 func TestWrap_DisabledReturnsInner(t *testing.T) {
@@ -599,7 +708,7 @@ func TestWrap_DisabledReturnsInner(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Close() })
 
 	e := mustCompile(t, config.EnrichmentConfig{}, nil)
-	wrapped := enrich.Wrap(inner, e)
+	wrapped := enrich.Wrap(context.Background(), inner, e)
 	assert.Same(t, inner, wrapped)
 }
 
@@ -621,7 +730,7 @@ func TestWrap_FailOpenStillAppends(t *testing.T) {
 		Tables:  []string{"public.orders"},
 		Timeout: enrichTestTimeout,
 	}, m)
-	el := enrich.Wrap(inner, e)
+	el := enrich.Wrap(context.Background(), inner, e)
 
 	ev := testEvent("orders", event.OpUpdate)
 	_, err = el.Append(ev)

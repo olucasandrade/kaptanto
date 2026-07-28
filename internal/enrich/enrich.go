@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -42,8 +43,12 @@ const (
 	ReasonError     = "error"
 	ReasonInvalid   = "invalid"
 	ReasonOversize  = "oversize"
-	ReasonNonObject = "non_object"
+	ReasonNonObject   = "non_object"
+	ReasonCircuitOpen = "circuit_open"
 )
+
+// envRefRegex validates STRICT ${VAR} secret references (ACT-02).
+var envRefRegex = regexp.MustCompile(`^\$\{[A-Za-z_][A-Za-z0-9_]*\}$`)
 
 // Enricher optionally attaches AIContext to matching ChangeEvents via HTTP.
 // Enrich never returns an error to the caller — failures fail open (AIC-01).
@@ -105,7 +110,8 @@ func Compile(cfg config.EnrichmentConfig, m *observability.KaptantoMetrics) (*En
 		return nil, fmt.Errorf("enrichment: auth-token: %w", err)
 	}
 
-	client, err := newHTTPEnrichClient(strings.TrimSpace(cfg.URL), timeout, authToken)
+	policy := newURLPolicy(cfg.AllowHosts, cfg.InsecureAllowPrivate)
+	client, err := newHTTPEnrichClient(strings.TrimSpace(cfg.URL), timeout, authToken, policy)
 	if err != nil {
 		return nil, fmt.Errorf("enrichment: %w", err)
 	}
@@ -172,33 +178,34 @@ func (e *Enricher) warnRateLimited(msg string, args ...any) {
 }
 
 func expandAuthToken(s string) (string, error) {
-	if s == "" {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
 		return "", nil
 	}
-	var missing []string
-	out := os.Expand(s, func(name string) string {
-		v, ok := os.LookupEnv(name)
-		if !ok {
-			missing = append(missing, name)
-			return ""
-		}
-		return v
-	})
-	if len(missing) > 0 {
-		return "", fmt.Errorf("missing environment variable(s): %s", strings.Join(missing, ", "))
+	if !envRefRegex.MatchString(trimmed) {
+		return "", fmt.Errorf("must be an environment variable reference like ${VAR}")
 	}
-	return out, nil
+	varName := trimmed[2 : len(trimmed)-1]
+	val, ok := os.LookupEnv(varName)
+	if !ok || val == "" {
+		return "", fmt.Errorf("references ${%s} which is unset", varName)
+	}
+	return val, nil
 }
 
 // Wrap returns an EventLog that runs Enrich before every Append/AppendBatch.
-// When e is nil or disabled, inner is returned unchanged. Optional
+// ctx is propagated into Enrich so shutdown cancellation can abort in-flight
+// HTTP calls. When e is nil or disabled, inner is returned unchanged. Optional
 // PartitionNotifier and AppendObservable interfaces are preserved when the
 // inner log implements them so router notify and watermark observers keep working.
-func Wrap(inner eventlog.EventLog, e *Enricher) eventlog.EventLog {
+func Wrap(ctx context.Context, inner eventlog.EventLog, e *Enricher) eventlog.EventLog {
 	if inner == nil || e == nil || !e.enabled {
 		return inner
 	}
-	base := &enrichingLog{inner: inner, enricher: e}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	base := &enrichingLog{ctx: ctx, inner: inner, enricher: e}
 	_, hasNotify := inner.(eventlog.PartitionNotifier)
 	_, hasObs := inner.(eventlog.AppendObservable)
 	switch {
@@ -215,18 +222,19 @@ func Wrap(inner eventlog.EventLog, e *Enricher) eventlog.EventLog {
 
 // enrichingLog implements eventlog.EventLog, enriching before durable write.
 type enrichingLog struct {
+	ctx      context.Context
 	inner    eventlog.EventLog
 	enricher *Enricher
 }
 
 func (w *enrichingLog) Append(ev *event.ChangeEvent) (uint64, error) {
-	w.enricher.Enrich(context.Background(), ev)
+	w.enricher.Enrich(w.ctx, ev)
 	return w.inner.Append(ev)
 }
 
 func (w *enrichingLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
 	for _, ev := range evs {
-		w.enricher.Enrich(context.Background(), ev)
+		w.enricher.Enrich(w.ctx, ev)
 	}
 	return w.inner.AppendBatch(evs)
 }
@@ -275,4 +283,12 @@ func SetWarnEveryForTest(e *Enricher, d time.Duration) {
 		return
 	}
 	e.warnEvery = d
+}
+
+// SetCircuitThresholdForTest lowers the consecutive-timeout threshold (tests only).
+func SetCircuitThresholdForTest(e *Enricher, n int) {
+	if e == nil || e.client == nil || n <= 0 {
+		return
+	}
+	e.client.circuitThreshold = n
 }

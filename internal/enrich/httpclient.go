@@ -7,10 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"sync"
 	"time"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
+)
+
+const (
+	defaultCircuitThreshold = 5
+	defaultMaxIdleConns     = 10
+	defaultMaxIdlePerHost   = 2
+	defaultIdleConnTimeout  = 90 * time.Second
 )
 
 // httpEnrichClient POSTs ChangeEvents to the enricher endpoint.
@@ -19,23 +26,33 @@ type httpEnrichClient struct {
 	token   string
 	timeout time.Duration
 	client  *http.Client
+
+	circuitMu            sync.Mutex
+	consecutiveTimeouts  int
+	circuitThreshold     int
 }
 
-func newHTTPEnrichClient(rawURL string, timeout time.Duration, authToken string) (*httpEnrichClient, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return nil, fmt.Errorf("url: invalid enricher endpoint %q", rawURL)
+func newHTTPEnrichClient(rawURL string, timeout time.Duration, authToken string, policy *urlPolicy) (*httpEnrichClient, error) {
+	if _, err := validateEnricherURL(rawURL, policy); err != nil {
+		return nil, err
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("url: unsupported scheme %q (want http or https)", u.Scheme)
+
+	transport := &http.Transport{
+		MaxIdleConns:        defaultMaxIdleConns,
+		MaxIdleConnsPerHost: defaultMaxIdlePerHost,
+		IdleConnTimeout:     defaultIdleConnTimeout,
+	}
+	if policy != nil {
+		transport.DialContext = policy.dialContext
 	}
 
 	return &httpEnrichClient{
-		url:     rawURL,
-		token:   authToken,
-		timeout: timeout,
+		url:              rawURL,
+		token:            authToken,
+		timeout:          timeout,
+		circuitThreshold: defaultCircuitThreshold,
 		client: &http.Client{
-			Transport: &http.Transport{DisableKeepAlives: true},
+			Transport: transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -47,6 +64,10 @@ func newHTTPEnrichClient(rawURL string, timeout time.Duration, authToken string)
 // On 204, returns (nil, "", nil) meaning no context.
 // On failure, returns (nil, reason, err) for fail-open handling.
 func (c *httpEnrichClient) post(ctx context.Context, ev *event.ChangeEvent) (json.RawMessage, string, error) {
+	if reason, err := c.checkCircuit(); reason != "" {
+		return nil, reason, err
+	}
+
 	body, err := json.Marshal(ev)
 	if err != nil {
 		return nil, ReasonError, fmt.Errorf("marshal event: %w", err)
@@ -74,6 +95,7 @@ func (c *httpEnrichClient) post(ctx context.Context, ev *event.ChangeEvent) (jso
 	resp, err := c.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil || isTimeout(err) {
+			c.recordTimeout()
 			return nil, ReasonTimeout, err
 		}
 		return nil, ReasonError, err
@@ -82,15 +104,42 @@ func (c *httpEnrichClient) post(ctx context.Context, ev *event.ChangeEvent) (jso
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
+		c.recordSuccess()
 		// Drain and discard; 204 = no context.
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 		return nil, "", nil
 	case http.StatusOK:
-		return readAIContext(resp.Body)
+		aiCtx, reason, readErr := readAIContext(resp.Body)
+		if reason != "" {
+			return nil, reason, readErr
+		}
+		c.recordSuccess()
+		return aiCtx, "", nil
 	default:
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 		return nil, ReasonStatus, fmt.Errorf("enricher HTTP %d", resp.StatusCode)
 	}
+}
+
+func (c *httpEnrichClient) checkCircuit() (string, error) {
+	c.circuitMu.Lock()
+	defer c.circuitMu.Unlock()
+	if c.consecutiveTimeouts >= c.circuitThreshold {
+		return ReasonCircuitOpen, fmt.Errorf("enrichment circuit open after %d consecutive timeouts", c.consecutiveTimeouts)
+	}
+	return "", nil
+}
+
+func (c *httpEnrichClient) recordTimeout() {
+	c.circuitMu.Lock()
+	c.consecutiveTimeouts++
+	c.circuitMu.Unlock()
+}
+
+func (c *httpEnrichClient) recordSuccess() {
+	c.circuitMu.Lock()
+	c.consecutiveTimeouts = 0
+	c.circuitMu.Unlock()
 }
 
 func readAIContext(r io.Reader) (json.RawMessage, string, error) {

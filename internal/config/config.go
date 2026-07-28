@@ -246,11 +246,13 @@ type VectorSinkConfig struct {
 // Empty URL disables enrichment. Empty Tables disables enrichment for every event
 // (explicit table opt-in is required). Empty Operations defaults to insert,update.
 type EnrichmentConfig struct {
-	URL        string   `yaml:"url"`        // enricher endpoint; empty = disabled
-	Tables     []string `yaml:"tables"`     // routing globs; empty = none (explicit opt-in)
-	Operations []string `yaml:"operations"` // default insert,update
-	Timeout    string   `yaml:"timeout"`    // Go duration; default 150ms
-	AuthToken  string   `yaml:"auth-token"` // ${VAR}, optional Bearer token
+	URL                  string   `yaml:"url"`                     // enricher endpoint; empty = disabled
+	Tables               []string `yaml:"tables"`                  // routing globs; empty = none (explicit opt-in)
+	Operations           []string `yaml:"operations"`              // default insert,update
+	Timeout              string   `yaml:"timeout"`                 // Go duration; default 150ms
+	AuthToken            string   `yaml:"auth-token"`              // STRICT ${VAR}, optional Bearer token
+	AllowHosts           []string `yaml:"allow-hosts"`             // optional SSRF allowlist for private sidecars
+	InsecureAllowPrivate bool     `yaml:"insecure-allow-private"`  // dev-only: skip private/link-local blocks
 }
 
 // SinksConfig holds connection settings for all supported queue sinks.
