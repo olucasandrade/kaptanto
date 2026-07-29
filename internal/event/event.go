@@ -72,4 +72,10 @@ type ChangeEvent struct {
 
 	// Metadata contains source-specific fields (e.g., LSN, checkpoint, snapshot flag).
 	Metadata map[string]any `json:"metadata"`
+
+	// AIContext carries optional AI-generated metadata attached by the enrichment
+	// stage. Kaptanto treats it as opaque JSON; the documented shape:
+	// {intent?: string, entities?: [{type, value, field?}], suggested_actions?: [string],
+	//  embedding?: {model: string, vector: [float...]}, custom?: object}
+	AIContext json.RawMessage `json:"ai_context,omitempty"`
 }

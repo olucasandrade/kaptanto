@@ -39,14 +39,14 @@ jobs:
       # Both databases need non-default startup args (Postgres: logical
       # replication; Mongo: a replica set for Change Streams), which the GitHub
       # `services:` block cannot pass reliably. Run them as explicit containers.
-      - name: Start Postgres (logical replication)
+      - name: Start Postgres (logical replication + pgvector)
         run: |
           docker run -d --name postgres \
             -e POSTGRES_USER=postgres \
             -e POSTGRES_PASSWORD=postgres \
             -e POSTGRES_DB=postgres \
             -p 5432:5432 \
-            postgres:16 \
+            pgvector/pgvector:pg16 \
             -c wal_level=logical \
             -c max_replication_slots=10 \
             -c max_wal_senders=10
@@ -137,7 +137,7 @@ jobs:
       # Scoped (not ./...) to the packages actually gated by those env vars,
       # to keep the added wall time bounded.
       - name: Run integration tests with -race
-        run: CGO_ENABLED=1 go test ./internal/cmd/... ./internal/checkpoint/... ./internal/ha/... ./internal/source/mongodb/... -race -count=1 -timeout 300s
+        run: CGO_ENABLED=1 go test ./internal/cmd/... ./internal/checkpoint/... ./internal/ha/... ./internal/source/mongodb/... ./internal/output/vector/... -race -count=1 -timeout 300s
 
       - name: Container logs on failure
         if: failure()

@@ -1,0 +1,2 @@
+# requirements.txt — pin loosely; prefer the PyPI extra when published.
+kaptanto[langchain]>=0.1.0

@@ -39,3 +39,13 @@ func (e *epochCursorStore) SaveCursor(ctx context.Context, consumerID string, pa
 func (e *epochCursorStore) LoadCursor(ctx context.Context, consumerID string, partitionID uint32) (uint64, error) {
 	return e.inner.LoadCursor(ctx, consumerID, partitionID)
 }
+
+// DeleteCursor delegates unconditionally to the inner store when it supports
+// deletion, so Router.Unregister can drop ephemeral consumers' cursors in
+// cluster mode too.
+func (e *epochCursorStore) DeleteCursor(ctx context.Context, consumerID string) error {
+	if d, ok := e.inner.(router.CursorDeleter); ok {
+		return d.DeleteCursor(ctx, consumerID)
+	}
+	return nil
+}

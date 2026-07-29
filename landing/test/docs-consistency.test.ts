@@ -20,14 +20,11 @@ describe("docs sidebar resolves to real content", () => {
     expect(sidebarSlugs.length).toBeGreaterThan(0);
   });
 
-  it.each(sidebarSlugs)(
-    "sidebar slug %s has a DOCS_CONTENT entry",
-    (slug) => {
-      expect(DOCS_CONTENT[slug]).toBeDefined();
-      expect(DOCS_CONTENT[slug].title).toBeTruthy();
-      expect(DOCS_CONTENT[slug].body).toBeTruthy();
-    },
-  );
+  it.each(sidebarSlugs)("sidebar slug %s has a DOCS_CONTENT entry", (slug) => {
+    expect(DOCS_CONTENT[slug]).toBeDefined();
+    expect(DOCS_CONTENT[slug].title).toBeTruthy();
+    expect(DOCS_CONTENT[slug].body).toBeTruthy();
+  });
 
   it("has no duplicate slugs across sections", () => {
     expect(new Set(sidebarSlugs).size).toBe(sidebarSlugs.length);
@@ -41,6 +38,23 @@ describe("DOC_FLOW resolves to real content", () => {
 
   it.each(DOC_FLOW)("flow slug %s has a DOCS_CONTENT entry", (slug) => {
     expect(DOCS_CONTENT[slug]).toBeDefined();
+  });
+});
+
+describe("Group 3 invariant documentation needles", () => {
+  const invariantDocs: Array<{ slug: string; needles: string[] }> = [
+    { slug: "docs-ai-context", needles: ["AIC-01", "AIC-02"] },
+    { slug: "docs-mcp", needles: ["MCP-01", "MCP-04"] },
+    { slug: "docs-vector", needles: ["VEC-01", "VEC-02", "VEC-03"] },
+    { slug: "docs-serverless", needles: ["ACT-01"] },
+  ];
+
+  it.each(invariantDocs)("$slug documents $needles", ({ slug, needles }) => {
+    const doc = DOCS_CONTENT[slug];
+    expect(doc).toBeDefined();
+    for (const needle of needles) {
+      expect(doc.body).toContain(needle);
+    }
   });
 });
 

@@ -277,8 +277,14 @@ func TestSSEServer_IndependentConsumers(t *testing.T) {
 		errs <- err
 	}()
 
-	// Give handlers time to register, then cancel both contexts.
-	time.Sleep(100 * time.Millisecond)
+	// Wait until both handlers register (fixed sleep is flaky under parallel test load).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(fr.Registered()) >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	cancel1()
 	cancel2()
 

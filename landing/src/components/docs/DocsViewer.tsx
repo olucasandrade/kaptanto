@@ -1,6 +1,6 @@
-import { component$, useVisibleTask$ } from '@builder.io/qwik';
-import type { Signal } from '@builder.io/qwik';
-import { DOCS_CONTENT, SIDEBAR, DOC_FLOW } from '../../data/docs-content';
+import { component$, useVisibleTask$ } from "@builder.io/qwik";
+import type { Signal } from "@builder.io/qwik";
+import { DOCS_CONTENT, SIDEBAR, DOC_FLOW } from "../../data/docs-content";
 
 interface DocsViewerProps {
   currentDoc: Signal<string | null>;
@@ -17,7 +17,7 @@ function docLabel(id: string): string {
 
 function buildNextSteps(id: string): string {
   const i = DOC_FLOW.indexOf(id);
-  if (i === -1) return '';
+  if (i === -1) return "";
   const next1 = DOC_FLOW[(i + 1) % DOC_FLOW.length];
   const next2 = DOC_FLOW[(i + 2) % DOC_FLOW.length];
   return `<h2 class="dh2">Next steps</h2><div class="dcards">
@@ -32,7 +32,7 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
   useVisibleTask$(() => {
     const go = (id: string) => {
       currentDoc.value = id;
-      window.history.pushState({}, '', `/?doc=${id}`);
+      window.history.pushState({}, "", `/?doc=${id}`);
       window.scrollTo(0, 0);
       return false;
     };
@@ -43,14 +43,17 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
   useVisibleTask$(({ track }) => {
     track(() => currentDoc.value);
     requestAnimationFrame(() => {
-      document.querySelectorAll('.dcards .dcard').forEach((card, i) => {
-        (card as HTMLElement).style.setProperty('--stagger', `${(i % 8) * 70}ms`);
-        card.classList.add('ani');
+      document.querySelectorAll(".dcards .dcard").forEach((card, i) => {
+        (card as HTMLElement).style.setProperty(
+          "--stagger",
+          `${(i % 8) * 70}ms`,
+        );
+        card.classList.add("ani");
       });
     });
   });
 
-  const id = currentDoc.value ?? 'docs-intro';
+  const id = currentDoc.value ?? "docs-intro";
   const doc = DOCS_CONTENT[id];
 
   if (!doc) {
@@ -72,7 +75,7 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
         <button
           class="mob-sb-close"
           onClick$={() => {
-            document.getElementById('docSidebar')?.classList.remove('mob-open');
+            document.getElementById("docSidebar")?.classList.remove("mob-open");
           }}
         >
           ✕ Close menu
@@ -84,12 +87,12 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
               {section.items.map(([slug, label]) => (
                 <a
                   key={slug}
-                  class={`dsa${slug === id ? ' act' : ''}`}
+                  class={`dsa${slug === id ? " act" : ""}`}
                   href={`/docs/${slug}`}
                   onClick$={(e) => {
                     e.preventDefault();
                     currentDoc.value = slug;
-                    window.history.pushState({}, '', `/?doc=${slug}`);
+                    window.history.pushState({}, "", `/?doc=${slug}`);
                     window.scrollTo(0, 0);
                   }}
                 >
@@ -104,7 +107,7 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
         <button
           class="mob-docs-toggle"
           onClick$={() => {
-            document.getElementById('docSidebar')?.classList.toggle('mob-open');
+            document.getElementById("docSidebar")?.classList.toggle("mob-open");
           }}
         >
           ☰ Contents

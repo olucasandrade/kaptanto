@@ -1,7 +1,7 @@
-import { component$ } from '@builder.io/qwik';
-import type { Signal } from '@builder.io/qwik';
-import { Hero } from '../hero/Hero';
-import { Install } from '../install/Install';
+import { component$ } from "@builder.io/qwik";
+import type { Signal } from "@builder.io/qwik";
+import { Hero } from "../hero/Hero";
+import { Install } from "../install/Install";
 
 interface LandingPageProps {
   currentDoc: Signal<string | null>;
@@ -17,71 +17,76 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
         <div class="sl sr">Features</div>
         <div class="stt sr">Production CDC. Minus the complexity.</div>
         <div class="sd sr">
-          Backfills, crash recovery, per-key ordering, and HA — built in. Nothing extra to operate.
+          Backfills, crash recovery, per-key ordering, and HA — built in.
+          Nothing extra to operate.
         </div>
         <div class="fg sr">
           <div class="fc">
             <div class="fc-i">latency</div>
             <h3>Low-latency streaming</h3>
             <p>
-              Events flow from the WAL as each transaction commits. Burst p50 latency: 2.3s at ~2.1k eps.
-              No polling interval.
+              Events flow from the WAL as each transaction commits. Burst p50
+              latency: 2.3s at ~2.1k eps. No polling interval.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">schema</div>
             <h3>One event schema</h3>
             <p>
-              The same JSON format across every source. Write your consumer once and connect to any
-              database.
+              The same JSON format across every source. Write your consumer once
+              and connect to any database.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">checkpoint</div>
             <h3>Crash-safe cursors</h3>
             <p>
-              Per-consumer positions persist on every event. Reconnect and resume from exactly where you
-              stopped.
+              Per-consumer positions persist on every event. Reconnect and
+              resume from exactly where you stopped.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">backfill</div>
             <h3>Consistent backfills</h3>
             <p>
-              Snapshot and stream run concurrently. Watermark coordination prevents stale or duplicate
-              rows.
+              Snapshot and stream run concurrently. Watermark coordination
+              prevents stale or duplicate rows.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">ordering</div>
             <h3>Per-key ordering</h3>
             <p>
-              Events for the same primary key always arrive in commit order. Slow consumers never block
-              other partitions.
+              Events for the same primary key always arrive in commit order.
+              Slow consumers never block other partitions.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">ha</div>
             <h3>Built-in HA</h3>
             <p>
-              Two instances, one leader. Advisory lock election — session-scoped, no clock skew, ~5-second
-              failover.
+              Two instances, one leader. Advisory lock election —
+              session-scoped, no clock skew, ~5-second failover.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">sinks</div>
             <h3>5 queue sinks</h3>
             <p>
-              Push CDC events directly to NATS, SQS, Kafka, Pub/Sub, or RabbitMQ. At-least-once delivery
-              with per-key ordering end-to-end.
+              Push CDC events directly to NATS, SQS, Kafka, Pub/Sub, or
+              RabbitMQ. At-least-once delivery with per-key ordering end-to-end.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">routing</div>
             <h3>Per-table routing</h3>
             <p>
-              Route events from different tables to different topics or queues via a Go template —{' '}
-              <code style="font-size:.78em">{'cdc.{{.Schema}}.{{.Table}}'}</code>.
+              Route events from different tables to different topics or queues
+              via a Go template —{" "}
+              <code style="font-size:.78em">
+                {"cdc.{{.Schema}}.{{.Table}}"}
+              </code>
+              .
             </p>
           </div>
         </div>
@@ -90,37 +95,44 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
       {/* Use Cases */}
       <section class="sec" id="use-cases">
         <div class="sl sr">Use Cases</div>
-        <div class="stt sr">Built for event-driven pipelines at product scale.</div>
+        <div class="stt sr">
+          Built for event-driven pipelines at product scale.
+        </div>
         <div class="sd sr">
-          Best fit: notification fan-out, search index sync, cache invalidation, audit trails. Up to ~3.5k eps large-batch throughput.
+          Best fit: notification fan-out, search index sync, cache invalidation,
+          audit trails. Up to ~3.5k eps large-batch throughput.
         </div>
         <div class="fg sr">
           <div class="fc">
             <div class="fc-i">notify</div>
             <h3>Notification pipelines</h3>
             <p>
-              Order inserted → push notification fan-out in under 2 seconds. No polling, no webhook delay.
+              Order inserted → push notification fan-out in under 2 seconds. No
+              polling, no webhook delay.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">search</div>
             <h3>Live search sync</h3>
             <p>
-              Product catalog change → Elasticsearch or Typesense index update within seconds, automatically.
+              Product catalog change → Elasticsearch or Typesense index update
+              within seconds, automatically.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">cache</div>
             <h3>Cache invalidation</h3>
             <p>
-              Row updated → Redis key evicted before the next read hits the database. Consistent by design.
+              Row updated → Redis key evicted before the next read hits the
+              database. Consistent by design.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">audit</div>
             <h3>Audit trail</h3>
             <p>
-              Every insert, update, and delete captured in order, with idempotency keys. Append-only and crash-safe.
+              Every insert, update, and delete captured in order, with
+              idempotency keys. Append-only and crash-safe.
             </p>
           </div>
         </div>
@@ -134,7 +146,10 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
           <div class="cc">
             <h3>Database sources</h3>
             <div class="ci">
-              <div class="ci-i" style="background:rgba(110,125,247,.1);color:var(--bl)">
+              <div
+                class="ci-i"
+                style="background:rgba(110,125,247,.1);color:var(--bl)"
+              >
                 PG
               </div>
               <div>
@@ -152,12 +167,16 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               </div>
             </div>
             <div class="ci ci-dim">
-              <div class="ci-i" style="background:rgba(255,178,36,.08);color:var(--am)">
+              <div
+                class="ci-i"
+                style="background:rgba(255,178,36,.08);color:var(--am)"
+              >
                 MY
               </div>
               <div>
                 <div class="ci-n">
-                  MySQL <span style="font-size:.6rem;color:var(--am)">soon</span>
+                  MySQL{" "}
+                  <span style="font-size:.6rem;color:var(--am)">soon</span>
                 </div>
                 <div class="ci-d">binlog · GTID</div>
               </div>
@@ -175,7 +194,10 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               </div>
             </div>
             <div class="ci">
-              <div class="ci-i" style="background:rgba(255,92,138,.08);color:var(--ro)">
+              <div
+                class="ci-i"
+                style="background:rgba(255,92,138,.08);color:var(--ro)"
+              >
                 SE
               </div>
               <div>
@@ -184,7 +206,10 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               </div>
             </div>
             <div class="ci">
-              <div class="ci-i" style="background:rgba(110,125,247,.1);color:var(--bl)">
+              <div
+                class="ci-i"
+                style="background:rgba(110,125,247,.1);color:var(--bl)"
+              >
                 gR
               </div>
               <div>
@@ -195,56 +220,79 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
           </div>
           <div class="cc">
             <h3>
-              Queue sinks{' '}
-              <span
-                style="font-size:.6rem;padding:.1rem .35rem;background:rgba(101,196,140,.1);color:var(--g);border-radius:3px;margin-left:.3rem;vertical-align:middle"
-              >
+              Queue sinks{" "}
+              <span style="font-size:.6rem;padding:.1rem .35rem;background:rgba(101,196,140,.1);color:var(--g);border-radius:3px;margin-left:.3rem;vertical-align:middle">
                 v0.2.0
               </span>
             </h3>
             <div class="ci">
-              <div class="ci-i" style="background:rgba(101,196,140,.08);color:var(--g)">
+              <div
+                class="ci-i"
+                style="background:rgba(101,196,140,.08);color:var(--g)"
+              >
                 NA
               </div>
               <div>
                 <div class="ci-n">NATS JetStream</div>
-                <div class="ci-d">at-least-once · PubAck · per-table subjects</div>
+                <div class="ci-d">
+                  at-least-once · PubAck · per-table subjects
+                </div>
               </div>
             </div>
             <div class="ci">
-              <div class="ci-i" style="background:rgba(255,178,36,.08);color:var(--am)">
+              <div
+                class="ci-i"
+                style="background:rgba(255,178,36,.08);color:var(--am)"
+              >
                 SQ
               </div>
               <div>
                 <div class="ci-n">AWS SQS FIFO</div>
-                <div class="ci-d">MessageGroupId ordering · mTLS · per-table queues</div>
+                <div class="ci-d">
+                  MessageGroupId ordering · mTLS · per-table queues
+                </div>
               </div>
             </div>
             <div class="ci">
-              <div class="ci-i" style="background:rgba(110,125,247,.1);color:var(--bl)">
+              <div
+                class="ci-i"
+                style="background:rgba(110,125,247,.1);color:var(--bl)"
+              >
                 KF
               </div>
               <div>
                 <div class="ci-n">Kafka</div>
-                <div class="ci-d">franz-go · SASL/TLS · record key ordering</div>
+                <div class="ci-d">
+                  franz-go · SASL/TLS · record key ordering
+                </div>
               </div>
             </div>
             <div class="ci">
-              <div class="ci-i" style="background:rgba(255,92,138,.08);color:var(--ro)">
+              <div
+                class="ci-i"
+                style="background:rgba(255,92,138,.08);color:var(--ro)"
+              >
                 PS
               </div>
               <div>
                 <div class="ci-n">Google Pub/Sub</div>
-                <div class="ci-d">ordering key · ResumePublish · TopicTemplate</div>
+                <div class="ci-d">
+                  ordering key · ResumePublish · TopicTemplate
+                </div>
               </div>
             </div>
             <div class="ci">
-              <div class="ci-i" style="background:rgba(255,178,36,.08);color:var(--am)">
+              <div
+                class="ci-i"
+                style="background:rgba(255,178,36,.08);color:var(--am)"
+              >
                 RQ
               </div>
               <div>
                 <div class="ci-n">RabbitMQ</div>
-                <div class="ci-d">AMQP · publisher confirms · auto-reconnect</div>
+                <div class="ci-d">
+                  AMQP · publisher confirms · auto-reconnect
+                </div>
               </div>
             </div>
           </div>
@@ -256,7 +304,9 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
       {/* Compare */}
       <section class="sec" id="compare">
         <div class="sl sr">Why kaptanto</div>
-        <div class="stt sr">A complete CDC stack that fits in a single binary.</div>
+        <div class="stt sr">
+          A complete CDC stack that fits in a single binary.
+        </div>
         <div class="cw sr">
           <table class="cmp">
             <thead>
@@ -343,34 +393,39 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             </div>
             <ul class="chlist">
               <li>
-                Bearer-token authentication for the SSE and gRPC data plane —{' '}
-                <code>auth-token</code> config or <code>KAPTANTO_AUTH_TOKEN</code> env var, enforced
-                on every network output; <code>--insecure</code> opts out with a startup warning
+                Bearer-token authentication for the SSE and gRPC data plane —{" "}
+                <code>auth-token</code> config or{" "}
+                <code>KAPTANTO_AUTH_TOKEN</code> env var, enforced on every
+                network output; <code>--insecure</code> opts out with a startup
+                warning
               </li>
               <li>
-                Server-side TLS and mTLS for inbound SSE and gRPC (<code>server-tls</code>),
-                separate from per-sink outbound TLS
+                Server-side TLS and mTLS for inbound SSE and gRPC (
+                <code>server-tls</code>), separate from per-sink outbound TLS
               </li>
               <li>
-                Postgres fails closed when no tables are configured — capturing everything now
-                requires an explicit <code>--all-tables</code> opt-in
+                Postgres fails closed when no tables are configured — capturing
+                everything now requires an explicit <code>--all-tables</code>{" "}
+                opt-in
               </li>
               <li>
-                Backfill correctness: real primary-key column discovery (no more assumed{' '}
-                <code>id</code>), quoted identifiers in snapshot SQL, WAL-canonical PK forms so
-                watermark hashes match (BKF-02)
+                Backfill correctness: real primary-key column discovery (no more
+                assumed <code>id</code>), quoted identifiers in snapshot SQL,
+                WAL-canonical PK forms so watermark hashes match (BKF-02)
               </li>
               <li>
-                Router correctness: cursor floor for blocked message groups, per-partition pending
-                buffers, per-consumer cursor gating (RTR-04)
+                Router correctness: cursor floor for blocked message groups,
+                per-partition pending buffers, per-consumer cursor gating
+                (RTR-04)
               </li>
               <li>
-                Performance: raw-bytes fan-out passthrough (no per-consumer re-marshal),
-                event-driven dispatch replacing the 10 ms poll loop, batched MongoDB and backfill
-                appends
+                Performance: raw-bytes fan-out passthrough (no per-consumer
+                re-marshal), event-driven dispatch replacing the 10 ms poll
+                loop, batched MongoDB and backfill appends
               </li>
               <li>
-                Log hygiene: DSN passwords and raw primary-key values redacted from all logs
+                Log hygiene: DSN passwords and raw primary-key values redacted
+                from all logs
               </li>
             </ul>
           </div>
@@ -382,38 +437,42 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             </div>
             <ul class="chlist">
               <li>
-                5 new output sinks: NATS JetStream, AWS SQS FIFO, Kafka, Google Pub/Sub, RabbitMQ —
-                select with <code>--output nats|sqs|kafka|pubsub|rabbitmq</code>
+                5 new output sinks: NATS JetStream, AWS SQS FIFO, Kafka, Google
+                Pub/Sub, RabbitMQ — select with{" "}
+                <code>--output nats|sqs|kafka|pubsub|rabbitmq</code>
               </li>
               <li>
-                At-least-once delivery — cursor never advances before the broker acknowledges receipt
-                (CHK-01 preserved)
+                At-least-once delivery — cursor never advances before the broker
+                acknowledges receipt (CHK-01 preserved)
               </li>
               <li>
-                Per-key ordering end-to-end: <code>MessageGroupId</code> (SQS), record key (Kafka),
-                ordering key (Pub/Sub), subject routing (NATS)
+                Per-key ordering end-to-end: <code>MessageGroupId</code> (SQS),
+                record key (Kafka), ordering key (Pub/Sub), subject routing
+                (NATS)
               </li>
               <li>
-                Per-table topic/queue routing via Go template:{' '}
-                <code>{'cdc.{{.Schema}}.{{.Table}}'}</code> — supported on all five sinks
-                (subject, queue-URL, topic, and routing-key templates)
+                Per-table topic/queue routing via Go template:{" "}
+                <code>{"cdc.{{.Schema}}.{{.Table}}"}</code> — supported on all
+                five sinks (subject, queue-URL, topic, and routing-key
+                templates)
               </li>
               <li>
-                SQS: CA pinning and mTLS (CertFile + KeyFile) wired into AWS SDK HTTP transport; startup
-                validation for incomplete mTLS config
+                SQS: CA pinning and mTLS (CertFile + KeyFile) wired into AWS SDK
+                HTTP transport; startup validation for incomplete mTLS config
               </li>
               <li>
-                Prometheus metrics (<code>queue_publish_total</code>,{' '}
-                <code>queue_publish_errors_total</code>, <code>queue_publish_latency_seconds</code>) and{' '}
+                Prometheus metrics (<code>queue_publish_total</code>,{" "}
+                <code>queue_publish_errors_total</code>,{" "}
+                <code>queue_publish_latency_seconds</code>) and{" "}
                 <code>/healthz</code> probe for each active sink
               </li>
               <li>
-                RabbitMQ: publisher confirms, 64-partition channel pool, exponential-backoff reconnect
-                loop
+                RabbitMQ: publisher confirms, 64-partition channel pool,
+                exponential-backoff reconnect loop
               </li>
               <li>
-                Distributed mode — embedded NATS JetStream replicated event log, 64-partition
-                active/active delivery, epoch fencing
+                Distributed mode — embedded NATS JetStream replicated event log,
+                64-partition active/active delivery, epoch fencing
               </li>
             </ul>
           </div>
@@ -425,27 +484,32 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             </div>
             <ul class="chlist">
               <li>
-                Postgres WAL CDC via pgoutput — insert, update, delete, TOAST handling, schema evolution
+                Postgres WAL CDC via pgoutput — insert, update, delete, TOAST
+                handling, schema evolution
               </li>
               <li>
-                MongoDB Change Streams — BSON normalization, resume tokens, automatic re-snapshot on
-                token expiry
+                MongoDB Change Streams — BSON normalization, resume tokens,
+                automatic re-snapshot on token expiry
               </li>
               <li>
-                Three output modes: stdout NDJSON, SSE with per-consumer cursors and Last-Event-ID, gRPC
-                streaming
+                Three output modes: stdout NDJSON, SSE with per-consumer cursors
+                and Last-Event-ID, gRPC streaming
               </li>
               <li>
-                Consistent backfills — keyset cursors, watermark dedup, crash-resumable snapshot
-                progress
+                Consistent backfills — keyset cursors, watermark dedup,
+                crash-resumable snapshot progress
               </li>
               <li>
-                High availability — Postgres advisory lock leader election, ~5s failover, shared
-                checkpoint store
+                High availability — Postgres advisory lock leader election, ~5s
+                failover, shared checkpoint store
               </li>
-              <li>Optional Rust FFI acceleration for pgoutput decoding and JSON serialization</li>
               <li>
-                Benchmark suite — Docker Compose harness vs. Debezium, Sequin, PeerDB across 5 scenarios
+                Optional Rust FFI acceleration for pgoutput decoding and JSON
+                serialization
+              </li>
+              <li>
+                Benchmark suite — Docker Compose harness vs. Debezium, Sequin,
+                PeerDB across 5 scenarios
               </li>
             </ul>
           </div>
@@ -464,7 +528,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             href="/?doc=docs-intro"
             onClick$={(e) => {
               e.preventDefault();
-              currentDoc.value = 'docs-intro';
+              currentDoc.value = "docs-intro";
               window.scrollTo(0, 0);
             }}
             class="bo"
@@ -484,7 +548,8 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
                 kaptanto
               </div>
               <p class="fdesc">
-                Simple, fast CDC for Postgres and MongoDB. One binary. Open source, Apache 2.0.
+                Simple, fast CDC for Postgres and MongoDB. One binary. Open
+                source, Apache 2.0.
               </p>
               <p class="fesp">"kaptanto" — who captures (Esperanto)</p>
             </div>
@@ -502,7 +567,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
                 href="/?doc=docs-intro"
                 onClick$={(e) => {
                   e.preventDefault();
-                  currentDoc.value = 'docs-intro';
+                  currentDoc.value = "docs-intro";
                   window.scrollTo(0, 0);
                 }}
               >
@@ -512,7 +577,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
                 href="/?doc=docs-quickstart"
                 onClick$={(e) => {
                   e.preventDefault();
-                  currentDoc.value = 'docs-quickstart';
+                  currentDoc.value = "docs-quickstart";
                   window.scrollTo(0, 0);
                 }}
               >
@@ -522,7 +587,7 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
                 href="/?doc=docs-config"
                 onClick$={(e) => {
                   e.preventDefault();
-                  currentDoc.value = 'docs-config';
+                  currentDoc.value = "docs-config";
                   window.scrollTo(0, 0);
                 }}
               >
@@ -532,14 +597,18 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fcol">
               <h4>Community</h4>
               <a href="https://github.com/olucasandrade/kaptanto">GitHub</a>
-              <a href="https://github.com/olucasandrade/kaptanto/issues">Issues</a>
-              <a href="https://github.com/olucasandrade/kaptanto/pulls">Contributing</a>
+              <a href="https://github.com/olucasandrade/kaptanto/issues">
+                Issues
+              </a>
+              <a href="https://github.com/olucasandrade/kaptanto/pulls">
+                Contributing
+              </a>
             </div>
           </div>
           <div class="fbot">
             <span>&copy; 2026 Kaptanto. Apache 2.0 License.</span>
             <span>
-              Made in Brazil &middot;{' '}
+              Made in Brazil &middot;{" "}
               <a href="https://github.com/olucasandrade/kaptanto">Source</a>
             </span>
           </div>

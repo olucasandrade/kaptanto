@@ -1,53 +1,53 @@
-import { component$, useSignal, useVisibleTask$ } from '@builder.io/qwik';
-import type { DocumentHead } from '@builder.io/qwik-city';
-import { Nav } from '../components/nav/Nav';
-import { LandingPage } from '../components/landing/LandingPage';
-import { DocsViewer } from '../components/docs/DocsViewer';
+import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
+import type { DocumentHead } from "@builder.io/qwik-city";
+import { Nav } from "../components/nav/Nav";
+import { LandingPage } from "../components/landing/LandingPage";
+import { DocsViewer } from "../components/docs/DocsViewer";
 
 const jsonLd = {
-  '@context': 'https://schema.org',
-  '@graph': [
+  "@context": "https://schema.org",
+  "@graph": [
     {
-      '@type': 'WebSite',
-      name: 'Kaptanto',
-      url: 'https://kaptan.to/',
-      inLanguage: 'en',
+      "@type": "WebSite",
+      name: "Kaptanto",
+      url: "https://kaptan.to/",
+      inLanguage: "en",
     },
     {
-      '@type': 'Organization',
-      name: 'Kaptanto',
-      url: 'https://kaptan.to',
-      logo: 'https://kaptan.to/logo.png',
-      sameAs: ['https://github.com/olucasandrade/kaptanto'],
+      "@type": "Organization",
+      name: "Kaptanto",
+      url: "https://kaptan.to",
+      logo: "https://kaptan.to/logo.png",
+      sameAs: ["https://github.com/olucasandrade/kaptanto"],
     },
     {
-      '@type': 'SoftwareApplication',
-      name: 'Kaptanto',
-      applicationCategory: 'DeveloperApplication',
-      operatingSystem: 'Linux, macOS, Windows',
+      "@type": "SoftwareApplication",
+      name: "Kaptanto",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Linux, macOS, Windows",
       description:
-        'Universal change data capture for Postgres and MongoDB with real-time event streaming.',
-      license: 'https://opensource.org/licenses/MIT',
-      downloadUrl: 'https://get.kaptan.to',
-      softwareVersion: '0.3.0',
+        "Universal change data capture for Postgres and MongoDB with real-time event streaming.",
+      license: "https://opensource.org/licenses/MIT",
+      downloadUrl: "https://get.kaptan.to",
+      softwareVersion: "0.3.0",
     },
     {
-      '@type': 'FAQPage',
+      "@type": "FAQPage",
       mainEntity: [
         {
-          '@type': 'Question',
-          name: 'Does Kaptanto require Kafka?',
+          "@type": "Question",
+          name: "Does Kaptanto require Kafka?",
           acceptedAnswer: {
-            '@type': 'Answer',
-            text: 'No. Kaptanto can run as a standalone binary without Kafka.',
+            "@type": "Answer",
+            text: "No. Kaptanto can run as a standalone binary without Kafka.",
           },
         },
         {
-          '@type': 'Question',
-          name: 'Which databases are supported?',
+          "@type": "Question",
+          name: "Which databases are supported?",
           acceptedAnswer: {
-            '@type': 'Answer',
-            text: 'Kaptanto supports Postgres and MongoDB.',
+            "@type": "Answer",
+            text: "Kaptanto supports Postgres and MongoDB.",
           },
         },
       ],
@@ -65,17 +65,17 @@ export default component$(() => {
     const readUrl = () => {
       const path = window.location.pathname;
       const qs = new URLSearchParams(window.location.search);
-      if (path.startsWith('/docs/')) {
-        const slug = path.split('/docs/')[1].replace(/\/$/, '');
+      if (path.startsWith("/docs/")) {
+        const slug = path.split("/docs/")[1].replace(/\/$/, "");
         currentDoc.value = slug || null;
       } else {
-        currentDoc.value = qs.get('doc');
+        currentDoc.value = qs.get("doc");
       }
     };
 
     readUrl();
-    window.addEventListener('popstate', readUrl);
-    return () => window.removeEventListener('popstate', readUrl);
+    window.addEventListener("popstate", readUrl);
+    return () => window.removeEventListener("popstate", readUrl);
   });
 
   // Scroll reveal: observe all .sr elements that haven't been revealed yet.
@@ -86,14 +86,14 @@ export default component$(() => {
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            entry.target.classList.add('v');
+            entry.target.classList.add("v");
             obs.unobserve(entry.target);
           }
         });
       },
       { threshold: 0.06 },
     );
-    document.querySelectorAll('.sr:not(.v)').forEach((el) => obs.observe(el));
+    document.querySelectorAll(".sr:not(.v)").forEach((el) => obs.observe(el));
     return () => obs.disconnect();
   });
 
@@ -110,65 +110,69 @@ export default component$(() => {
 });
 
 export const head: DocumentHead = {
-  title: 'Kaptanto — Universal Database CDC',
+  title: "Kaptanto — Universal Database CDC",
   meta: [
-    { name: 'author', content: 'Kaptanto' },
-    { name: 'application-name', content: 'Kaptanto' },
-    { name: 'theme-color', content: '#050505' },
-    { name: 'format-detection', content: 'telephone=no' },
+    { name: "author", content: "Kaptanto" },
+    { name: "application-name", content: "Kaptanto" },
+    { name: "theme-color", content: "#050505" },
+    { name: "format-detection", content: "telephone=no" },
     {
-      name: 'description',
+      name: "description",
       content:
-        'Open-source universal CDC for Postgres and MongoDB. Stream real-time database changes via stdout, SSE, gRPC, or push directly to NATS, SQS, Kafka, Pub/Sub, and RabbitMQ — one binary, no infrastructure.',
+        "Open-source universal CDC for Postgres and MongoDB. Stream real-time database changes via stdout, SSE, gRPC, or push directly to NATS, SQS, Kafka, Pub/Sub, and RabbitMQ — one binary, no infrastructure.",
     },
     {
-      name: 'robots',
-      content: 'index,follow,max-image-preview:large,max-snippet:-1',
+      name: "robots",
+      content: "index,follow,max-image-preview:large,max-snippet:-1",
     },
     {
-      name: 'keywords',
+      name: "keywords",
       content:
-        'change data capture, cdc postgres, cdc mongodb, realtime database events, open source cdc, wal logical replication, kafka cdc, sqs cdc, nats cdc, pubsub cdc, rabbitmq cdc, queue sink',
+        "change data capture, cdc postgres, cdc mongodb, realtime database events, open source cdc, wal logical replication, kafka cdc, sqs cdc, nats cdc, pubsub cdc, rabbitmq cdc, queue sink",
     },
-    { property: 'og:type', content: 'website' },
-    { property: 'og:locale', content: 'en_US' },
-    { property: 'og:site_name', content: 'Kaptanto' },
-    { property: 'og:title', content: 'Kaptanto — Universal Database CDC' },
+    { property: "og:type", content: "website" },
+    { property: "og:locale", content: "en_US" },
+    { property: "og:site_name", content: "Kaptanto" },
+    { property: "og:title", content: "Kaptanto — Universal Database CDC" },
     {
-      property: 'og:description',
+      property: "og:description",
       content:
-        'Stream every insert, update, and delete from Postgres and MongoDB with one binary.',
+        "Stream every insert, update, and delete from Postgres and MongoDB with one binary.",
     },
-    { property: 'og:url', content: 'https://kaptan.to/' },
-    { property: 'og:image', content: 'https://kaptan.to/logo.png' },
-    { property: 'og:image:alt', content: 'Kaptanto logo' },
-    { property: 'og:image:type', content: 'image/png' },
-    { name: 'twitter:card', content: 'summary_large_image' },
-    { name: 'twitter:site', content: '@kaptanto' },
-    { name: 'twitter:title', content: 'Kaptanto — Universal Database CDC' },
+    { property: "og:url", content: "https://kaptan.to/" },
+    { property: "og:image", content: "https://kaptan.to/logo.png" },
+    { property: "og:image:alt", content: "Kaptanto logo" },
+    { property: "og:image:type", content: "image/png" },
+    { name: "twitter:card", content: "summary_large_image" },
+    { name: "twitter:site", content: "@kaptanto" },
+    { name: "twitter:title", content: "Kaptanto — Universal Database CDC" },
     {
-      name: 'twitter:description',
+      name: "twitter:description",
       content:
-        'Open-source CDC with 8 output modes: stdout, SSE, gRPC, NATS, SQS, Kafka, Pub/Sub, and RabbitMQ.',
+        "Open-source CDC with 8 output modes: stdout, SSE, gRPC, NATS, SQS, Kafka, Pub/Sub, and RabbitMQ.",
     },
-    { name: 'twitter:image', content: 'https://kaptan.to/logo.png' },
+    { name: "twitter:image", content: "https://kaptan.to/logo.png" },
   ],
   links: [
-    { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-    { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous' },
+    { rel: "preconnect", href: "https://fonts.googleapis.com" },
     {
-      rel: 'stylesheet',
-      href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap',
+      rel: "preconnect",
+      href: "https://fonts.gstatic.com",
+      crossorigin: "anonymous",
     },
-    { rel: 'stylesheet', href: '/legacy.css' },
-    { rel: 'icon', type: 'image/png', href: '/logo.png' },
-    { rel: 'alternate', hreflang: 'en', href: 'https://kaptan.to/' },
-    { rel: 'alternate', hreflang: 'x-default', href: 'https://kaptan.to/' },
-    { rel: 'sitemap', type: 'application/xml', href: '/sitemap.xml' },
+    {
+      rel: "stylesheet",
+      href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap",
+    },
+    { rel: "stylesheet", href: "/legacy.css" },
+    { rel: "icon", type: "image/png", href: "/logo.png" },
+    { rel: "alternate", hreflang: "en", href: "https://kaptan.to/" },
+    { rel: "alternate", hreflang: "x-default", href: "https://kaptan.to/" },
+    { rel: "sitemap", type: "application/xml", href: "/sitemap.xml" },
   ],
   scripts: [
     {
-      props: { type: 'application/ld+json' },
+      props: { type: "application/ld+json" },
       script: JSON.stringify(jsonLd),
     },
   ],

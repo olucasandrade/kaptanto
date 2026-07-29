@@ -89,9 +89,14 @@ export class KaptantoStream implements AsyncIterable<ChangeEvent> {
           throw new Error("SSE response has no body");
         }
 
+        let sawHealthyEvent = false;
         yield* this.parseStream(res.body, () => {
+          sawHealthyEvent = true;
           attempt = 0;
         });
+        if (!sawHealthyEvent) {
+          throw new Error("SSE stream ended without a healthy event");
+        }
       } catch (err: unknown) {
         if (this.closed || err instanceof KaptantoStreamTerminalError) {
           return;

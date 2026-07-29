@@ -13,8 +13,8 @@
 // landing/** change. Revisit if a future assertion needs real DOM/JS
 // execution (e.g. client-side hydration behavior).
 
-import { spawn } from 'node:child_process';
-import process from 'node:process';
+import { spawn } from "node:child_process";
+import process from "node:process";
 
 const PORT = 4173 + Math.floor(Math.random() * 1000); // avoid clashing with a stray local server
 const BASE = `http://localhost:${PORT}`;
@@ -22,12 +22,13 @@ const START_TIMEOUT_MS = 30_000;
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: 'inherit' });
-    child.on('exit', (code) => {
+    const child = spawn(cmd, args, { stdio: "inherit" });
+    child.on("exit", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`${cmd} ${args.join(' ')} exited with code ${code}`));
+      else
+        reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`));
     });
-    child.on('error', reject);
+    child.on("error", reject);
   });
 }
 
@@ -48,44 +49,58 @@ async function waitForServer(url, timeoutMs) {
 
 async function assertPageRenders(path, mustContain) {
   const url = `${BASE}${path}`;
-  const res = await fetch(url, { redirect: 'follow' });
+  const res = await fetch(url, { redirect: "follow" });
   if (!res.ok) {
     throw new Error(`GET ${url} returned ${res.status}`);
   }
   const body = await res.text();
   for (const needle of mustContain) {
     if (!body.includes(needle)) {
-      throw new Error(`GET ${url} response missing expected content: ${JSON.stringify(needle)}`);
+      throw new Error(
+        `GET ${url} response missing expected content: ${JSON.stringify(needle)}`,
+      );
     }
   }
-  console.log(`ok  ${path}  (${res.status}, ${body.length} bytes, contains ${mustContain.length} expected anchors)`);
+  console.log(
+    `ok  ${path}  (${res.status}, ${body.length} bytes, contains ${mustContain.length} expected anchors)`,
+  );
 }
 
 async function main() {
-  console.log('--- building preview bundle (build.client + build.preview) ---');
-  await run('npx', ['vite', 'build']);
-  await run('npx', ['vite', 'build', '--ssr', 'src/entry.preview.tsx']);
+  console.log("--- building preview bundle (build.client + build.preview) ---");
+  await run("npx", ["vite", "build"]);
+  await run("npx", ["vite", "build", "--ssr", "src/entry.preview.tsx"]);
 
   console.log(`--- starting preview server on port ${PORT} ---`);
-  const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], {
-    stdio: 'inherit',
-  });
+  const server = spawn(
+    "npx",
+    ["vite", "preview", "--port", String(PORT), "--strictPort"],
+    {
+      stdio: "inherit",
+    },
+  );
 
   let exitCode = 0;
   try {
     await waitForServer(BASE, START_TIMEOUT_MS);
 
-    await assertPageRenders('/', ['Kaptanto', 'get.kaptan.to']);
-    await assertPageRenders('/docs/', ['Documentation index', '/docs/docs-intro']);
-    await assertPageRenders('/docs/docs-intro', ['Kaptanto Docs', 'docs-intro']);
+    await assertPageRenders("/", ["Kaptanto", "get.kaptan.to"]);
+    await assertPageRenders("/docs/", [
+      "Documentation index",
+      "/docs/docs-intro",
+    ]);
+    await assertPageRenders("/docs/docs-intro", [
+      "Kaptanto Docs",
+      "docs-intro",
+    ]);
 
-    console.log('--- rendered smoke check passed ---');
+    console.log("--- rendered smoke check passed ---");
   } catch (err) {
-    console.error('--- rendered smoke check FAILED ---');
+    console.error("--- rendered smoke check FAILED ---");
     console.error(err);
     exitCode = 1;
   } finally {
-    server.kill('SIGTERM');
+    server.kill("SIGTERM");
   }
 
   process.exit(exitCode);

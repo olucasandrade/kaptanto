@@ -7,6 +7,9 @@
           "after": {
             "description": "Row state after the change; null for deletes"
           },
+          "ai_context": {
+            "description": "Optional opaque AI-generated metadata attached by enrichment. Documented shape: {intent?: string, entities?: [{type, value, field?}], suggested_actions?: [string], embedding?: {model: string, vector: [float...]}, custom?: object}"
+          },
           "before": {
             "description": "Row state before the change; null for inserts and reads"
           },

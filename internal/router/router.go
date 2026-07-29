@@ -12,6 +12,7 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,6 +106,16 @@ type ConsumerCursorStore interface {
 	LoadCursor(ctx context.Context, consumerID string, partitionID uint32) (uint64, error)
 }
 
+// CursorDeleter is an optional interface a ConsumerCursorStore may implement
+// to remove all cursors for a consumer. Router.Unregister uses it (when
+// available) so ephemeral consumers such as MCP session subscriptions do not
+// leak durable cursor rows.
+type CursorDeleter interface {
+	// DeleteCursor removes every persisted cursor for consumerID. It must
+	// tolerate unknown consumer IDs.
+	DeleteCursor(ctx context.Context, consumerID string) error
+}
+
 // noopCursorStore is an in-memory ConsumerCursorStore with no persistence.
 // It is safe only for single-goroutine use per consumer and is used when
 // NewRouter receives a nil cursorStore argument.
@@ -140,12 +151,29 @@ func (n *noopCursorStore) LoadCursor(_ context.Context, consumerID string, parti
 	return v, nil
 }
 
+// DeleteCursor implements CursorDeleter for the in-memory store.
+func (n *noopCursorStore) DeleteCursor(_ context.Context, consumerID string) error {
+	prefix := consumerID + ":"
+	n.mu.Lock()
+	for k := range n.data {
+		if strings.HasPrefix(k, prefix) {
+			delete(n.data, k)
+		}
+	}
+	n.mu.Unlock()
+	return nil
+}
+
 // consumerState tracks per-consumer runtime state: the last successfully
 // delivered seq per partition. Blocked message group state is owned by
 // RetryScheduler (rs field on Router), not by consumerState.
 type consumerState struct {
 	consumer          Consumer
 	cursorByPartition map[uint32]uint64
+
+	// removed marks a soft-unregistered consumer. Indices stay stable so
+	// in-flight dispatch phases remain valid; dispatch skips removed slots.
+	removed bool
 
 	// isBatchFlusher and provisionalByPartition implement the
 	// queue-sink-flushbatch-loss fix: for consumers that implement
@@ -277,9 +305,9 @@ func allPartitions(n uint32) []uint32 {
 	return s
 }
 
-// Register adds a Consumer to the Router. Register must be called before Run.
-// The initial delivery cursor for each partition is loaded from the
-// ConsumerCursorStore.
+// Register adds a Consumer to the Router. Safe to call while Run is active
+// (e.g. SSE / MCP session-scoped consumers). The initial delivery cursor for
+// each partition is loaded from the ConsumerCursorStore.
 func (r *Router) Register(c Consumer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -305,6 +333,54 @@ func (r *Router) Register(c Consumer) {
 	}
 
 	r.consumers = append(r.consumers, cs)
+}
+
+// Unregister soft-removes the consumer with the given ID. Indices stay stable
+// so in-flight dispatch phases remain valid. Returns false when no active
+// consumer matched. Used by MCP session cleanup (MCP-02). When the cursor
+// store implements CursorDeleter, the consumer's durable cursors are deleted
+// too — ephemeral consumers (MCP session subscriptions) never resume, so
+// keeping their rows would grow the cursor store without bound.
+func (r *Router) Unregister(id string) bool {
+	r.mu.Lock()
+	found := false
+	for i := range r.consumers {
+		cs := &r.consumers[i]
+		if cs.removed || cs.consumer == nil {
+			continue
+		}
+		if cs.consumer.ID() == id {
+			cs.removed = true
+			cs.consumer = nil
+			cs.provisionalByPartition = nil
+			cs.skippedSeqs = nil
+			found = true
+			break
+		}
+	}
+	r.mu.Unlock()
+	if !found {
+		return false
+	}
+	if d, ok := r.cursorStore.(CursorDeleter); ok {
+		if err := d.DeleteCursor(context.Background(), id); err != nil {
+			slog.Warn("router: delete cursors on unregister", "consumer", id, "err", err)
+		}
+	}
+	return true
+}
+
+// ConsumerCount returns the number of active (non-unregistered) consumers.
+func (r *Router) ConsumerCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	n := 0
+	for _, cs := range r.consumers {
+		if !cs.removed && cs.consumer != nil {
+			n++
+		}
+	}
+	return n
 }
 
 // Run starts one goroutine per owned partition and blocks until ctx is
@@ -472,6 +548,9 @@ func (r *Router) flushBatchConsumers(ctx context.Context, partitionID uint32, ba
 	r.mu.RLock()
 	flushers := make([]flusherEntry, 0, len(r.consumers))
 	for i, cs := range r.consumers {
+		if cs.removed || cs.consumer == nil {
+			continue
+		}
 		if bf, ok := cs.consumer.(BatchFlusher); ok {
 			flushers = append(flushers, flusherEntry{bf: bf, idx: i})
 		}
@@ -532,6 +611,10 @@ func (r *Router) handlePoisonFlush(ctx context.Context, idx int, partitionID uin
 		return false
 	}
 	cs := &r.consumers[idx]
+	if cs.removed || cs.consumer == nil {
+		r.mu.Unlock()
+		return false
+	}
 	streak := 0
 	if cs.poisonStreak != nil {
 		streak = cs.poisonStreak[partitionID]
@@ -692,9 +775,8 @@ func (r *Router) resetPoisonStreak(idx int, partitionID uint32) {
 // promoteProvisional promotes consumer index idx's provisional cursor advance
 // for partitionID into its durable cursor and persists it via cursorStore.
 // Called by runPartition after FlushBatch returns nil for a BatchFlusher
-// consumer (queue-sink-flushbatch-loss fix). No-op if idx is out of range
-// (consumer state was somehow removed — Router never unregisters, so this is
-// purely defensive) or there is no pending provisional advance.
+// consumer (queue-sink-flushbatch-loss fix). No-op if idx is out of range or
+// the consumer was Unregister'd, or there is no pending provisional advance.
 func (r *Router) promoteProvisional(ctx context.Context, idx int, partitionID uint32) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -702,6 +784,9 @@ func (r *Router) promoteProvisional(ctx context.Context, idx int, partitionID ui
 		return
 	}
 	cs := &r.consumers[idx]
+	if cs.removed || cs.consumer == nil || cs.provisionalByPartition == nil {
+		return
+	}
 	provisional, ok := cs.provisionalByPartition[partitionID]
 	if !ok {
 		return
@@ -737,8 +822,8 @@ func (r *Router) promoteProvisional(ctx context.Context, idx int, partitionID ui
 // discardProvisional discards consumer index idx's pending provisional cursor
 // advance for partitionID after a failed FlushBatch, so the next
 // ReadPartition call naturally re-reads and re-delivers the same window
-// (queue-sink-flushbatch-loss fix). No-op if idx is out of range (defensive
-// only — see promoteProvisional).
+// (queue-sink-flushbatch-loss fix). No-op if idx is out of range or the
+// consumer was Unregister'd.
 func (r *Router) discardProvisional(idx int, partitionID uint32) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -746,7 +831,12 @@ func (r *Router) discardProvisional(idx int, partitionID uint32) {
 		return
 	}
 	cs := &r.consumers[idx]
-	delete(cs.provisionalByPartition, partitionID)
+	if cs.removed || cs.consumer == nil {
+		return
+	}
+	if cs.provisionalByPartition != nil {
+		delete(cs.provisionalByPartition, partitionID)
+	}
 	if r.metrics != nil {
 		r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Add(1)
 	}
@@ -761,6 +851,9 @@ func (r *Router) minCursorForPartition(partitionID uint32) uint64 {
 
 	min := uint64(0)
 	for _, cs := range r.consumers {
+		if cs.removed || cs.consumer == nil {
+			continue
+		}
 		cur := cs.cursorByPartition[partitionID]
 		if min == 0 || cur < min {
 			min = cur
@@ -796,37 +889,8 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 		groupKey = string(entry.Event.Key)
 	}
 
-	// Phase 1: snapshot consumer list and blocked state under RLock.
-	// r.consumers only grows (no Unregister), so indices captured here
-	// remain valid for Phase 3's write lock.
-	r.mu.RLock()
-	n := len(r.consumers)
-	// Grow scratch slices if needed; reuse existing capacity otherwise.
-	snaps := (*snapsPtr)[:0]
-	if cap(snaps) < n {
-		snaps = make([]consumerSnap, n)
-	} else {
-		snaps = snaps[:n]
-	}
-	for i, cs := range r.consumers {
-		blocked := false
-		if hasBlocked {
-			// IsBlocked acquires its own mutex — safe to call under RLock.
-			blocked = r.rs.IsBlocked(cs.consumer.ID(), groupKey)
-		}
-		skipped := false
-		if m := cs.skippedSeqs[partitionID]; m != nil {
-			_, skipped = m[entry.Seq]
-		}
-		snaps[i] = consumerSnap{
-			consumer: cs.consumer,
-			blocked:  blocked,
-			cursor:   cs.cursorByPartition[partitionID],
-			skipped:  skipped,
-		}
-	}
-	r.mu.RUnlock()
-	*snapsPtr = snaps
+	snaps := r.snapshotConsumers(partitionID, entry.Seq, groupKey, hasBlocked, snapsPtr)
+	n := len(snaps)
 
 	// Phase 2: deliver outside the lock. Concurrent partitions can deliver
 	// independently; SSE flush latency no longer serialises all goroutines.
@@ -841,13 +905,12 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 		errs = make([]error, n)
 	} else {
 		errs = errs[:n]
-		// Clear stale errors from previous event.
 		for i := range errs {
 			errs[i] = nil
 		}
 	}
 	for i, snap := range snaps {
-		if snap.blocked || ctx.Err() != nil {
+		if snap.consumer == nil || snap.blocked || ctx.Err() != nil {
 			continue
 		}
 		if entry.Seq < snap.cursor {
@@ -877,17 +940,61 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 		}
 	}
 
-	// Phase 3: update in-memory cursors and persist them under write lock.
+	r.applyDispatchCursors(ctx, partitionID, entry, groupKey, snaps, errs)
+}
+
+// snapshotConsumers is Phase 1 of dispatch: copy consumer state under RLock.
+// Soft-Unregister leaves tombstones so indices remain valid for Phase 3.
+func (r *Router) snapshotConsumers(partitionID uint32, seq uint64, groupKey string, hasBlocked bool, snapsPtr *[]consumerSnap) []consumerSnap {
+	r.mu.RLock()
+	n := len(r.consumers)
+	snaps := (*snapsPtr)[:0]
+	if cap(snaps) < n {
+		snaps = make([]consumerSnap, n)
+	} else {
+		snaps = snaps[:n]
+	}
+	for i, cs := range r.consumers {
+		if cs.removed || cs.consumer == nil {
+			snaps[i] = consumerSnap{}
+			continue
+		}
+		blocked := false
+		if hasBlocked {
+			blocked = r.rs.IsBlocked(cs.consumer.ID(), groupKey)
+		}
+		skipped := false
+		if m := cs.skippedSeqs[partitionID]; m != nil {
+			_, skipped = m[seq]
+		}
+		snaps[i] = consumerSnap{
+			consumer: cs.consumer,
+			blocked:  blocked,
+			cursor:   cs.cursorByPartition[partitionID],
+			skipped:  skipped,
+		}
+	}
+	r.mu.RUnlock()
+	*snapsPtr = snaps
+	return snaps
+}
+
+// applyDispatchCursors is Phase 3 of dispatch: persist cursors under write lock.
+func (r *Router) applyDispatchCursors(ctx context.Context, partitionID uint32, entry eventlog.LogEntry, groupKey string, snaps []consumerSnap, errs []error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	for i, snap := range snaps {
+		if snap.consumer == nil {
+			continue
+		}
 		if i >= len(r.consumers) {
-			break // guard against consumers added between Phase 1 and Phase 3
+			break
 		}
 		cs := &r.consumers[i]
-		// RTR-07: a skipped (already-DLQ'd) seq must advance the cursor before
-		// the blocked-group follow-on path can re-queue it as a new retry.
+		if cs.removed || cs.consumer == nil || cs.consumer.ID() != snap.consumer.ID() {
+			continue
+		}
 		if snap.skipped {
 			r.advanceCursorLocked(ctx, cs, partitionID, entry.Seq+1)
 			continue
@@ -1070,7 +1177,7 @@ func (r *Router) handleFloorRelease(consumerID string, partitionID uint32, floor
 	defer r.mu.Unlock()
 	for i := range r.consumers {
 		cs := &r.consumers[i]
-		if cs.consumer.ID() != consumerID {
+		if cs.removed || cs.consumer == nil || cs.consumer.ID() != consumerID {
 			continue
 		}
 		seq := cs.cursorByPartition[partitionID]

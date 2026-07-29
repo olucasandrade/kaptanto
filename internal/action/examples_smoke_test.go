@@ -7,7 +7,10 @@ import (
 	"testing"
 
 	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/enrich"
+	"github.com/olucasandrade/kaptanto/internal/mcp"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	vectorsink "github.com/olucasandrade/kaptanto/internal/output/vector"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,17 +31,52 @@ func TestExamplesConfigsLoad(t *testing.T) {
 			if name == "trigger-dev" {
 				t.Setenv("TRIGGERDEV_API_KEY", "tr_dev_test_key")
 			}
+			if name == "lambda" {
+				t.Setenv("LAMBDA_FUNCTION_URL", "https://example.lambda-url.us-east-1.on.aws/")
+				t.Setenv("AWS_REGION", "us-east-1")
+				// SigV4 needs resolvable credentials at webhook sink construction.
+				t.Setenv("AWS_ACCESS_KEY_ID", "AKIATESTEXAMPLE")
+				t.Setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
+			}
+			if name == "mcp-agent" {
+				t.Setenv("MCP_API_KEY", "smoke-mcp-key")
+			}
+			if name == "rag-pgvector" {
+				t.Setenv("VECTOR_DSN", "postgres://postgres:postgres@127.0.0.1:5432/rag?sslmode=disable")
+			}
 
 			cfg, err := config.Load(path)
 			require.NoError(t, err, "load %s", path)
 
-			if len(cfg.Actions) == 0 {
-				return
-			}
-
-			_, err = BuildConsumers(cfg, observability.NewKaptantoMetrics())
-			require.NoError(t, err, "build consumers for %s", path)
+			validateExampleConfig(t, name, cfg)
 		})
+	}
+}
+
+func validateExampleConfig(t *testing.T, name string, cfg *config.Config) {
+	t.Helper()
+	dataDir := t.TempDir()
+	metrics := observability.NewKaptantoMetrics()
+
+	if cfg.MCP.Enabled {
+		_, _, err := mcp.ResolveConfig(cfg.MCP, dataDir)
+		require.NoError(t, err, "mcp resolve %s", name)
+	}
+
+	if strings.TrimSpace(cfg.Enrichment.URL) != "" {
+		_, err := enrich.Compile(cfg.Enrichment, metrics)
+		require.NoError(t, err, "enrich compile %s", name)
+	}
+
+	if cfg.Output == "vector" {
+		require.NotNil(t, cfg.Sinks.Vector, "output vector requires sinks.vector (%s)", name)
+		vecCfg := *cfg.Sinks.Vector
+		require.NoError(t, vectorsink.Validate(&vecCfg), "vector validate %s", name)
+	}
+
+	if len(cfg.Actions) > 0 {
+		_, err := BuildConsumers(cfg, metrics)
+		require.NoError(t, err, "build consumers for %s", name)
 	}
 }
 
