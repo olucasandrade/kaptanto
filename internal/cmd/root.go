@@ -22,10 +22,12 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/cluster"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/dlq"
+	"github.com/olucasandrade/kaptanto/internal/enrich"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/ha"
 	"github.com/olucasandrade/kaptanto/internal/logging"
+	"github.com/olucasandrade/kaptanto/internal/mcp"
 	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/router"
 	postgres "github.com/olucasandrade/kaptanto/internal/source/postgres"
@@ -337,13 +339,21 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		cursorStore = cluster.NewEpochCursorStore(cursorStore, pm)
 	}
 
+	metrics := observability.NewKaptantoMetrics()
+
+	// Optional fail-open HTTP enricher (AIC-01/02). Wrap EventLog so every
+	// Append/AppendBatch path (WAL + backfill) enriches before the durable
+	// write — connectors and EventLog backends stay untouched.
+	enricher, err := enrich.Compile(cfg.Enrichment, metrics)
+	if err != nil {
+		return err
+	}
+	el = enrich.Wrap(ctx, el, enricher)
+
 	rtr := router.NewRouter(el, numEventLogPartitions, cursorStore)
 	if cfg.Cluster {
 		pm.SetRouter(rtr)
 	}
-
-	metrics := observability.NewKaptantoMetrics()
-
 	// Open the DLQ store. Enabled by default (nil/true); an explicit false
 	// restores pre-DLQ log-and-drop behavior.
 	var dlqStore dlq.Store
@@ -432,12 +442,21 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	for _, ac := range actionConsumers {
 		rtr.Register(ac)
 	}
-	if cfg.Output == "none" && len(actionConsumers) == 0 {
-		return fmt.Errorf("output: none requires at least one configured action")
+	if cfg.Output == "none" && len(actionConsumers) == 0 && !cfg.MCP.Enabled {
+		return fmt.Errorf("output: none requires at least one configured action or mcp.enabled")
+	}
+
+	mcpServer, err := openMCPServer(cfg, metrics)
+	if err != nil {
+		return err
+	}
+	if mcpServer != nil {
+		mcpServer.SetRouter(rtr)
+		defer func() { _ = mcpServer.Close() }()
 	}
 
 	if cfg.SourceType() == "mongodb" {
-		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, cursorRun, heartbeater, pm, outputServer, metrics)
+		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, cursorRun, heartbeater, pm, outputServer, metrics, mcpServer)
 	}
 
 	tables := make([]string, 0, len(cfg.Tables))
@@ -461,6 +480,9 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	connector.SetMetrics(metrics)
 	if walElector != nil {
 		connector.SetEpochGetter(walElector.EpochGetter)
+	}
+	if mcpServer != nil {
+		mcpServer.SetSchemaProvider(&mcp.ParserSchemaProvider{Parser: connector.Parser()})
 	}
 
 	var bkStore backfill.BackfillStore
@@ -515,11 +537,15 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	bkEng.SetWatermark(backfill.NewWatermarkChecker(el, numEventLogPartitions))
 	connector.SetBackfillEngine(bkEng)
 
+	// MCP already opened above (shared with mongo path).
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { cursorRun(gctx); return nil })
 	g.Go(func() error { return connector.Run(gctx) })
 	g.Go(func() error { return rtr.Run(gctx) })
 	g.Go(func() error { return outputServer(gctx) })
+	if mcpServer != nil {
+		g.Go(func() error { return mcpServer.Run(gctx) })
+	}
 	if cfg.Cluster {
 		g.Go(func() error { heartbeater.Run(gctx); return nil })
 		g.Go(func() error { return pm.Run(gctx) })

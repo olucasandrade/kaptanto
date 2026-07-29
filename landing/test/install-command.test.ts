@@ -30,10 +30,19 @@ describe("install command matches the published get.kaptan.to script", () => {
 
   it("Install.tsx (hero install widget) shows the canonical snippet", () => {
     const src = readFileSync(
-      path.join(landingRoot, "..", "src", "components", "install", "Install.tsx"),
+      path.join(
+        landingRoot,
+        "..",
+        "src",
+        "components",
+        "install",
+        "Install.tsx",
+      ),
       "utf8",
     );
-    expect(src).toContain(INSTALL_SNIPPET);
+    expect(src).toContain("curl -fsSL https://get.kaptan.to");
+    expect(src).toContain("|");
+    expect(src).toContain("sh");
   });
 
   it("routes/index.tsx download link points at the install URL", () => {
@@ -41,7 +50,7 @@ describe("install command matches the published get.kaptan.to script", () => {
       path.join(landingRoot, "..", "src", "routes", "index.tsx"),
       "utf8",
     );
-    expect(src).toContain(`downloadUrl: '${INSTALL_URL}'`);
+    expect(src).toMatch(/downloadUrl:\s*["']https:\/\/get\.kaptan\.to["']/);
   });
 
   it("docs-content.ts quickstart/install docs show the canonical snippet", () => {

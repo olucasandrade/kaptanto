@@ -1,0 +1,18 @@
+source: postgres://postgres:postgres@postgres:5432/app?sslmode=disable
+output: sse
+port: 7654
+data-dir: /data
+source-id: enricher_spacy_demo
+# Local demo only — allows curl without a bearer token.
+insecure: true
+
+tables:
+  public.tickets: {}
+
+# Fail-open HTTP enricher (AIC-01). Timeout raised above the 150ms default so
+# spaCy NER on CPU can finish under load; scope tables narrowly in production.
+enrichment:
+  url: "http://enricher:8090/enrich"
+  tables: [public.tickets]
+  operations: [insert, update]
+  timeout: 2s

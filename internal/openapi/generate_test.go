@@ -26,6 +26,7 @@ func TestReflectChangeEventSchema(t *testing.T) {
 	want := []string{
 		"id", "idempotency_key", "timestamp", "source", "operation",
 		"database", "schema", "table", "key", "before", "after", "metadata",
+		"ai_context",
 	}
 	sort.Strings(want)
 	sort.Strings(names)
@@ -36,17 +37,17 @@ func TestReflectChangeEventSchema(t *testing.T) {
 
 	// Check required fields do NOT include omitempty fields
 	for _, r := range s.Required {
-		if r == "database" || r == "schema" {
+		if r == "database" || r == "schema" || r == "ai_context" {
 			t.Errorf("%q should NOT be required (has omitempty)", r)
 		}
 	}
 
-	// Verify database and schema are not in required
+	// Verify omitempty fields are not in required
 	reqSet := make(map[string]bool)
 	for _, r := range s.Required {
 		reqSet[r] = true
 	}
-	if reqSet["database"] || reqSet["schema"] {
+	if reqSet["database"] || reqSet["schema"] || reqSet["ai_context"] {
 		t.Error("omitempty fields appeared in required list")
 	}
 

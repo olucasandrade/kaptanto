@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5440:5432"
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/001-seed.sql:ro
+
+  kaptanto:
+    build:
+      context: ../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    environment:
+      MCP_API_KEY: ${MCP_API_KEY:?set MCP_API_KEY to your MCP bearer token}
+    depends_on:
+      - postgres
+    ports:
+      - "7660:7654" # /metrics /healthz
+      - "7655:7655" # MCP streamable-HTTP
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro

@@ -29,6 +29,9 @@ ON CONFLICT(consumer_id, partition_id) DO UPDATE
 const selectCursorSQL = `
 SELECT seq FROM consumer_cursors WHERE consumer_id = ? AND partition_id = ?;`
 
+const deleteCursorSQL = `
+DELETE FROM consumer_cursors WHERE consumer_id = ?;`
+
 // cursorKey uniquely identifies a (consumerID, partitionID) pair in the dirty map.
 type cursorKey struct {
 	consumerID  string
@@ -112,6 +115,24 @@ func (s *SQLiteCursorStore) LoadCursor(ctx context.Context, consumerID string, p
 		return 0, fmt.Errorf("checkpoint: load cursor %q p=%d: %w", consumerID, partitionID, err)
 	}
 	return seq, nil
+}
+
+// DeleteCursor removes all cursors for consumerID: pending entries are dropped
+// from the dirty map and persisted rows are deleted immediately (deletions are
+// rare, so they are not batched). Unknown consumer IDs are a no-op.
+// Implements router.CursorDeleter; used by Router.Unregister (MCP-02).
+func (s *SQLiteCursorStore) DeleteCursor(ctx context.Context, consumerID string) error {
+	s.mu.Lock()
+	for k := range s.dirty {
+		if k.consumerID == consumerID {
+			delete(s.dirty, k)
+		}
+	}
+	s.mu.Unlock()
+	if _, err := s.db.ExecContext(ctx, deleteCursorSQL, consumerID); err != nil {
+		return fmt.Errorf("checkpoint: delete cursors %q: %w", consumerID, err)
+	}
+	return nil
 }
 
 // Run starts the periodic flush loop. It blocks until ctx is cancelled, at

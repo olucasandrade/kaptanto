@@ -123,10 +123,19 @@ type WebhookSinkConfig struct {
 	TLS             TLSConfig         `yaml:"tls"`
 }
 
-// WebhookAuthConfig holds bearer or basic auth for the webhook sink.
+// WebhookAuthConfig holds bearer, basic, or AWS SigV4 auth for the webhook sink.
+// At most one of BearerToken, Basic, or AWSSigV4 may be set.
 type WebhookAuthConfig struct {
 	BearerToken string           `yaml:"bearer-token"` // supports ${VAR}
 	Basic       WebhookBasicAuth `yaml:"basic"`
+	AWSSigV4    *WebhookSigV4    `yaml:"aws-sigv4"` // nil = unset; mutually exclusive with bearer/basic/HMAC
+}
+
+// WebhookSigV4 holds AWS Signature Version 4 settings for the webhook sink.
+// Credentials come from the standard AWS provider chain (env, shared config, IMDS/IRSA).
+type WebhookSigV4 struct {
+	Region  string `yaml:"region"`  // required
+	Service string `yaml:"service"` // default "lambda"
 }
 
 // WebhookBasicAuth holds HTTP basic-auth credentials for the webhook sink.
@@ -187,6 +196,65 @@ type MatchConfig struct {
 	Where      string   `yaml:"where"`
 }
 
+// VectorSourceConfig selects how text is extracted from a ChangeEvent.
+// Exactly one of Columns or Template must be set.
+type VectorSourceConfig struct {
+	Columns  []string `yaml:"columns"`  // joined "col: value\n" in listed order from After
+	Template string   `yaml:"template"` // go-template over ChangeEvent (text/template)
+}
+
+// VectorEmbedderConfig configures the embedding provider.
+type VectorEmbedderConfig struct {
+	Provider   string `yaml:"provider"`   // openai | cohere
+	BaseURL    string `yaml:"base-url"`   // openai default https://api.openai.com/v1; Ollama: http://localhost:11434/v1
+	APIKey     string `yaml:"api-key"`    // STRICT ${VAR} when set; MAY be empty (local endpoints)
+	Model      string `yaml:"model"`      // required
+	Dimensions int    `yaml:"dimensions"` // optional (openai dimensions param)
+}
+
+// VectorStoreConfig configures the vector store backend.
+// Provider selects which fields are required:
+//   - pgvector: dsn (${VAR}), table (default "kaptanto_vectors")
+//   - pinecone: api-key (${VAR}), index-host, namespace (optional)
+//   - qdrant: url, collection, api-key (${VAR}, optional)
+type VectorStoreConfig struct {
+	Provider   string `yaml:"provider"` // pgvector | pinecone | qdrant
+	DSN        string `yaml:"dsn"`
+	Table      string `yaml:"table"`
+	APIKey     string `yaml:"api-key"`
+	IndexHost  string `yaml:"index-host"`
+	Namespace  string `yaml:"namespace"`
+	URL        string `yaml:"url"`
+	Collection string `yaml:"collection"`
+}
+
+// VectorBatchConfig controls how many events are flushed per embed+upsert call.
+type VectorBatchConfig struct {
+	MaxEvents int `yaml:"max-events"` // default 96; clamped to embedder Cap() at runtime
+}
+
+// VectorSinkConfig holds settings for the vector store sink (output: vector).
+type VectorSinkConfig struct {
+	Source   VectorSourceConfig   `yaml:"source"`
+	Embedder VectorEmbedderConfig `yaml:"embedder"`
+	Store    VectorStoreConfig    `yaml:"store"`
+	Metadata []string             `yaml:"metadata"` // After column names copied into Record.Metadata
+	Batch    VectorBatchConfig    `yaml:"batch"`
+}
+
+// EnrichmentConfig configures the optional fail-open HTTP enricher stage (AIC-01/02).
+// Empty URL disables enrichment. Empty Tables disables enrichment for every event
+// (explicit table opt-in is required). Empty Operations defaults to insert,update.
+type EnrichmentConfig struct {
+	URL                  string   `yaml:"url"`                     // enricher endpoint; empty = disabled
+	Tables               []string `yaml:"tables"`                  // routing globs; empty = none (explicit opt-in)
+	Operations           []string `yaml:"operations"`              // default insert,update
+	Timeout              string   `yaml:"timeout"`                 // Go duration; default 150ms
+	AuthToken            string   `yaml:"auth-token"`              // STRICT ${VAR}, optional Bearer token
+	AllowHosts           []string `yaml:"allow-hosts"`             // optional SSRF allowlist for private sidecars
+	InsecureAllowPrivate bool     `yaml:"insecure-allow-private"`  // dev-only: skip private/link-local blocks
+}
+
 // SinksConfig holds connection settings for all supported queue sinks.
 // Only the active sink's sub-block needs to be populated.
 type SinksConfig struct {
@@ -196,6 +264,7 @@ type SinksConfig struct {
 	PubSub   *PubSubSinkConfig   `yaml:"pubsub"`
 	RabbitMQ *RabbitMQSinkConfig `yaml:"rabbitmq"`
 	Webhook  *WebhookSinkConfig  `yaml:"webhook"`
+	Vector   *VectorSinkConfig   `yaml:"vector"`
 }
 
 // ServerTLSConfig holds TLS settings for Kaptanto's own inbound servers
@@ -237,6 +306,41 @@ type Config struct {
 	Insecure        bool                   `yaml:"insecure"`          // allow plaintext/unauthenticated sse/grpc (loud warning at startup; not for production)
 	DLQ             DLQConfig              `yaml:"dlq"`               // router-level dead-letter queue (enabled by default when Enabled is nil)
 	Actions         []ActionConfig         `yaml:"actions"`           // configured action instances
+	MCP             MCPConfig              `yaml:"mcp"`               // MCP server (disabled by default; MCP-04)
+	Enrichment      EnrichmentConfig       `yaml:"enrichment"`        // optional fail-open HTTP AI enricher (AIC-01/02)
+}
+
+// MCPConfig holds settings for the optional Model Context Protocol server.
+// Disabled by default (MCP-04: zero pipeline cost when Enabled is false).
+type MCPConfig struct {
+	Enabled          bool           `yaml:"enabled"`
+	Port             int            `yaml:"port"`              // default 7655; own listener, reuses ServerTLS
+	APIKeys          []MCPAPIKey    `yaml:"api-keys"`          // ≥1 required when enabled
+	MaxSubscriptions int            `yaml:"max-subscriptions"` // per key; default 16
+	RingSize         int            `yaml:"ring-size"`         // events per subscription; default 1024
+	Audit            MCPAuditConfig `yaml:"audit"`             // enabled default true; path default <data-dir>/mcp-audit.ndjson
+}
+
+// MCPAPIKey is one authenticated MCP client identity with ACL + redaction.
+type MCPAPIKey struct {
+	Name   string            `yaml:"name"`   // unique, appears in audit lines
+	Key    string            `yaml:"key"`    // secret: must be ${VAR} (strict ref rule); unset = startup error
+	Tables []string          `yaml:"tables"` // routing glob syntax; empty = all
+	Redact []MCPRedactConfig `yaml:"redact"` // {tables: [globs], columns: [names]}
+}
+
+// MCPRedactConfig masks column values for matching tables (schema stays visible).
+type MCPRedactConfig struct {
+	Tables  []string `yaml:"tables"`  // routing globs; empty = all tables
+	Columns []string `yaml:"columns"` // column names whose values are masked
+}
+
+// MCPAuditConfig controls the NDJSON audit log for MCP tool calls (MCP-03).
+// Enabled is a pointer so YAML can distinguish unset (nil → on by default)
+// from an explicit false.
+type MCPAuditConfig struct {
+	Enabled *bool  `yaml:"enabled"` // nil/true = on (default); false = disable audit writes
+	Path    string `yaml:"path"`    // default <data-dir>/mcp-audit.ndjson
 }
 
 // SourceType returns the detected source database type based on the DSN prefix.
