@@ -25,8 +25,8 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">latency</div>
             <h3>Low-latency streaming</h3>
             <p>
-              Events flow from the WAL as each transaction commits. Burst p50
-              latency: 2.3s at ~2.1k eps. No polling interval.
+              Events flow from the WAL as each transaction commits. Burst p50 latency: ~3.5s at ~2.3k eps
+              for the default Go build (2.3s with the optional Rust FFI build). No polling interval.
             </p>
           </div>
           <div class="fc">

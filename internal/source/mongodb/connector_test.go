@@ -124,6 +124,12 @@ type fakeIter struct {
 	// behavior.
 	noLookahead  bool
 	tryNextCalls int
+
+	// failDecodeAt contains event indices (0-based into f.events) for which
+	// Decode should return an error, simulating an unparseable change-stream
+	// document. The index is still advanced so the iterator behaves as if the
+	// document was consumed.
+	failDecodeAt map[int]struct{}
 }
 
 func (f *fakeIter) Next(ctx context.Context) bool {
@@ -161,7 +167,12 @@ func (f *fakeIter) Decode(v any) error {
 		return errors.New("no more events")
 	}
 	raw := f.events[f.idx]
+	// Advance idx even on a simulated decode failure: the real driver has
+	// consumed the document even if it could not decode it.
 	f.idx++
+	if _, fail := f.failDecodeAt[f.idx-1]; fail {
+		return errors.New("simulated decode failure")
+	}
 	// decode into the target; the connector expects bson.Raw
 	if rp, ok := v.(*bson.Raw); ok {
 		*rp = raw
@@ -540,4 +551,46 @@ func TestAppendAndQueueBatch_EmptyBatch_NoOp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, store.saveCalls)
 	assert.Equal(t, 0, el.BatchCalls())
+}
+// TestConsumeStream_DecodeFailureAdvancesCheckpoint verifies that a single
+// unparseable change-stream document does not stall the connector: its resume
+// token is still captured and the checkpoint advances past it, so subsequent
+// valid documents are processed.
+func TestConsumeStream_DecodeFailureAdvancesCheckpoint(t *testing.T) {
+	store := newFakeStore()
+	idGen := event.NewIDGenerator()
+	el := &fakeEventLog{}
+
+	oidGood := bson.NewObjectID()
+	docBad := buildInsertChangeDoc(t, "BAD01", bson.NewObjectID(), "bad")
+	docGood := buildInsertChangeDoc(t, "GOOD01", oidGood, "good")
+
+	iter := &fakeIter{
+		events:       []bson.Raw{docBad, docGood},
+		failDecodeAt: map[int]struct{}{0: {}},
+		noLookahead:  true,
+	}
+	watchFn := func(_ context.Context, _ string, _ bson.Raw) (mongodb.ChangeStreamIter, error) {
+		return iter, nil
+	}
+
+	cfg := mongodb.Config{Database: "db", Collections: []string{"c1"}, SourceID: "src"}
+	c, err := mongodb.NewWithWatchFn(cfg, store, idGen, el, watchFn)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	_ = c.Run(ctx)
+
+	// The bad document should not produce an event, but the checkpoint must
+	// advance past it so the good document is still delivered. fakeStore keeps
+	// only the latest token, so we verify the final token is the good document
+	// and that two saves occurred (one for the failed doc, one for the good).
+	assert.Equal(t, 2, store.saveCalls, "checkpoint must be saved for failed doc and again for good doc")
+	assert.Contains(t, store.saved["src"], "GOOD01", "final checkpoint must be the good document")
+
+	ch := c.Events()
+	ev := readTestEvent(t, ch)
+	assert.Contains(t, string(ev.After), "good")
 }

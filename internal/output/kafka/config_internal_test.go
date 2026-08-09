@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -46,6 +47,7 @@ func TestBuildTLSConfig_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.RootCAs)
 	assert.Empty(t, cfg.Certificates)
+	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
 }
 
 func TestBuildTLSConfig_CAFile(t *testing.T) {

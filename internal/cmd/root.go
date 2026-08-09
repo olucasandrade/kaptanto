@@ -148,8 +148,21 @@ func ExecuteWithArgs(args []string, out io.Writer) error {
 // (0o700). The directory holds the Badger event log and the SQLite
 // checkpoint/cursor/backfill stores, all of which contain captured row data
 // (potential PII at rest), so it must not be traversable by other local users.
+// If the directory already exists with looser permissions, it is tightened.
 func ensureDataDir(dir string) error {
-	return os.MkdirAll(dir, 0o700)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() != 0o700 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 //nolint:gocyclo // pipeline assembly wires many optional components; splitting it would obscure the linear startup sequence. Tracked for incremental refactor.

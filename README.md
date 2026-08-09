@@ -32,7 +32,7 @@ Kaptanto tails your database's transaction log — Postgres WAL (logical replica
 - **Filtering** — table, column, operation, and SQL `WHERE` condition filters
 - **High availability** — leader election via Postgres advisory lock (`--ha`), ~5s failover; optional cluster mode (`--cluster`) shares consumer cursor state across nodes
 - **Security** — TLS/mTLS and bearer-token auth on the SSE/gRPC data plane (`--insecure` to explicitly opt out)
-- **Observability** — Prometheus metrics and health check on `--port + 1`
+- **Observability** — Prometheus metrics and health check on `--port` for SSE and queue sinks, `--port + 1` for gRPC (stdout serves no HTTP endpoints)
 
 ## Quick start
 
