@@ -27,7 +27,7 @@ const jsonLd = {
       operatingSystem: "Linux, macOS, Windows",
       description:
         "Universal change data capture for Postgres and MongoDB with real-time event streaming.",
-      license: "https://opensource.org/licenses/MIT",
+      license: "https://opensource.org/licenses/Apache-2.0",
       downloadUrl: "https://get.kaptan.to",
       softwareVersion: "0.3.0",
     },
@@ -119,7 +119,7 @@ export const head: DocumentHead = {
     {
       name: "description",
       content:
-        "Open-source universal CDC for Postgres and MongoDB. Stream real-time database changes via stdout, SSE, gRPC, or push directly to NATS, SQS, Kafka, Pub/Sub, and RabbitMQ — one binary, no infrastructure.",
+        "Open-source universal CDC for Postgres and MongoDB. Stream real-time database changes via stdout, SSE, gRPC, or push to NATS, SQS, Kafka, Pub/Sub, and RabbitMQ — one static binary for stream outputs, ready to connect to your existing brokers.",
     },
     {
       name: "robots",

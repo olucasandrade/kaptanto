@@ -290,9 +290,8 @@ func (c *MongoDBConnector) AppendAndQueueBatch(ctx context.Context, evs []*event
 
 	// CHK-01: save the LAST event's token only after the durable write
 	// succeeds. Saved once per batch, not once per event.
-	tokenStr := tokenToString(lastToken)
-	if err := c.store.Save(ctx, c.cfg.SourceID, tokenStr); err != nil {
-		return fmt.Errorf("mongodb: save checkpoint: %w", err)
+	if err := c.saveResumeToken(ctx, lastToken); err != nil {
+		return err
 	}
 
 	// Forward to channel: drain-or-drop per event, looped rather than bulk
@@ -306,6 +305,17 @@ func (c *MongoDBConnector) AppendAndQueueBatch(ctx context.Context, evs []*event
 
 	c.batchesFlushed.Add(1)
 	c.eventsFlushed.Add(uint64(len(evs)))
+	return nil
+}
+
+// saveResumeToken persists the given resume token to the checkpoint store.
+// It is used both by the batch path and when advancing past documents that
+// could not be decoded or normalized.
+func (c *MongoDBConnector) saveResumeToken(ctx context.Context, token bson.Raw) error {
+	tokenStr := tokenToString(token)
+	if err := c.store.Save(ctx, c.cfg.SourceID, tokenStr); err != nil {
+		return fmt.Errorf("mongodb: save checkpoint: %w", err)
+	}
 	return nil
 }
 
@@ -442,12 +452,18 @@ func (c *MongoDBConnector) runCollection(ctx context.Context, collName string) (
 // matching the token to the document that was just consumed.
 func (c *MongoDBConnector) decodeNext(collName string, iter ChangeStreamIter) (ev *event.ChangeEvent, token bson.Raw, ok bool) {
 	var rawDoc bson.Raw
-	if decErr := iter.Decode(&rawDoc); decErr != nil {
-		slog.Warn("mongodb: decode change stream doc", "collection", collName, "error", decErr)
-		return nil, nil, false
-	}
+	decErr := iter.Decode(&rawDoc)
 
+	// Capture the resume token that corresponds to the document the iterator
+	// just consumed, regardless of whether decoding or normalization succeeds.
+	// This lets the caller advance the checkpoint past documents that cannot be
+	// parsed, preventing a single bad document from stalling the change stream.
 	token = iter.ResumeToken()
+
+	if decErr != nil {
+		slog.Warn("mongodb: decode change stream doc", "collection", collName, "error", decErr)
+		return nil, token, false
+	}
 
 	ev, normErr := mongoparser.NormalizeChangeEvent(rawDoc, c.cfg.SourceID, c.idGen)
 	if normErr != nil {
@@ -485,11 +501,18 @@ func (c *MongoDBConnector) consumeStream(ctx context.Context, collName string, i
 		if ev, token, ok := c.decodeNext(collName, iter); ok {
 			batch = append(batch, ev)
 			lastToken = token
+		} else if token != nil {
+			// Document was consumed but could not be decoded/normalized.
+			// Remember its token so we can advance the checkpoint past it.
+			lastToken = token
 		}
 
 		for len(batch) < maxChangeStreamBatchSize && iter.TryNext(ctx) {
 			ev, token, ok := c.decodeNext(collName, iter)
 			if !ok {
+				if token != nil {
+					lastToken = token
+				}
 				continue
 			}
 			batch = append(batch, ev)
@@ -499,6 +522,12 @@ func (c *MongoDBConnector) consumeStream(ctx context.Context, collName string, i
 		if len(batch) > 0 {
 			if aqErr := c.AppendAndQueueBatch(ctx, batch, lastToken); aqErr != nil {
 				return false, aqErr
+			}
+		} else if lastToken != nil {
+			// All documents in this batch failed parsing; still advance the
+			// checkpoint so a persistently bad document cannot stall progress.
+			if saveErr := c.saveResumeToken(ctx, lastToken); saveErr != nil {
+				return false, saveErr
 			}
 		}
 	}

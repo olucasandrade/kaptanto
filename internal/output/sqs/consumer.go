@@ -331,17 +331,17 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 	c.mu.Lock()
 	// Ensure the batch ID is unique within the current partition's pending slice. If a
 	// collision occurs (two events with the same idempotency key prefix in the
-	// same batch), append a counter suffix.
+	// same batch), append a counter suffix. Use a map for O(1) lookups instead of
+	// the previous O(n) scan.
+	used := make(map[string]struct{}, len(c.pending[entry.PartitionID]))
+	for _, p := range c.pending[entry.PartitionID] {
+		if p.entry.Id != nil {
+			used[*p.entry.Id] = struct{}{}
+		}
+	}
 	finalID := batchID
 	for i := 0; ; i++ {
-		collision := false
-		for _, p := range c.pending[entry.PartitionID] {
-			if p.entry.Id != nil && *p.entry.Id == finalID {
-				collision = true
-				break
-			}
-		}
-		if !collision {
+		if _, collision := used[finalID]; !collision {
 			break
 		}
 		finalID = fmt.Sprintf("%s%x", batchID[:14], i)

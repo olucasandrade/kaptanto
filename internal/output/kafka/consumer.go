@@ -322,7 +322,7 @@ func buildSASLMechanism(cfg config.KafkaSinkConfig) (sasl.Mechanism, error) {
 //   - If CAFile is set, loads the CA certificate pool from the file.
 //   - If CertFile and KeyFile are both set, loads the client key pair for mTLS.
 func buildTLSConfig(tlsCfg config.TLSConfig) (*tls.Config, error) {
-	cfg := &tls.Config{}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 
 	if tlsCfg.CAFile != "" {
 		pem, err := os.ReadFile(tlsCfg.CAFile)

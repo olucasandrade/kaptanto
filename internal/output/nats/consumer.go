@@ -45,6 +45,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/redact"
 	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
@@ -115,7 +116,7 @@ func NewNATSSinkConsumer(id string, cfg config.NATSSinkConfig) (*NATSSinkConsume
 	// 3. Connect to the user-configured external NATS server.
 	nc, err := natsgo.Connect(cfg.URL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("nats sink: connect to %q: %w", cfg.URL, err)
+		return nil, fmt.Errorf("nats sink: connect to %q: %w", redact.URL(cfg.URL), err)
 	}
 
 	// 4. Create JetStream context.

@@ -10,6 +10,9 @@ REPO="olucasandrade/kaptanto"
 BINARY="kaptanto"
 INSTALL_DIR="/usr/local/bin"
 
+# Default to the version advertised on the landing page and docs.
+DEFAULT_VERSION="v0.3.0"
+
 # Allow pinning a specific version via env var or --version flag.
 VERSION="${KAPTANTO_VERSION:-}"
 while [ $# -gt 0 ]; do
@@ -19,11 +22,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Resolve the latest release tag if no version was specified.
+# Resolve the latest release tag only if no version was specified and no
+# default is pinned above. Pinning keeps the install script aligned with the
+# documented version on kaptan.to.
 if [ -z "$VERSION" ]; then
-  VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' \
-    | sed 's/.*"tag_name": *"\(.*\)".*/\1/')
+  VERSION="${DEFAULT_VERSION}"
 fi
 
 if [ -z "$VERSION" ]; then
