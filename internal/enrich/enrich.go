@@ -292,3 +292,11 @@ func SetCircuitThresholdForTest(e *Enricher, n int) {
 	}
 	e.client.circuitThreshold = n
 }
+
+// SetCircuitCooldownForTest shortens the open-circuit cool-down (tests only).
+func SetCircuitCooldownForTest(e *Enricher, d time.Duration) {
+	if e == nil || e.client == nil || d <= 0 {
+		return
+	}
+	e.client.circuitCooldown = d
+}

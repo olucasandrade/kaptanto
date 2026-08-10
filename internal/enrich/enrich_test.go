@@ -322,6 +322,47 @@ func TestEnrich_CircuitBreaker_FastFail(t *testing.T) {
 	time.Sleep(120 * time.Millisecond)
 }
 
+func TestEnrich_CircuitBreaker_RecoversAfterCooldown(t *testing.T) {
+	var fast atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !fast.Load() {
+			time.Sleep(200 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"intent":"late"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"intent":"ok"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	m := observability.NewKaptantoMetrics()
+	e := mustCompile(t, config.EnrichmentConfig{
+		URL:     srv.URL,
+		Tables:  []string{"public.orders"},
+		Timeout: "15ms",
+	}, m)
+	enrich.SetCircuitThresholdForTest(e, 3)
+	enrich.SetCircuitCooldownForTest(e, 20*time.Millisecond)
+
+	for i := 0; i < 3; i++ {
+		ev := testEvent("orders", event.OpInsert)
+		e.Enrich(context.Background(), ev)
+	}
+
+	ev := testEvent("orders", event.OpInsert)
+	e.Enrich(context.Background(), ev)
+	assert.Nil(t, ev.AIContext)
+
+	fast.Store(true)
+	time.Sleep(25 * time.Millisecond)
+
+	ev2 := testEvent("orders", event.OpInsert)
+	e.Enrich(context.Background(), ev2)
+	assert.NotNil(t, ev2.AIContext)
+	assert.JSONEq(t, `{"intent":"ok"}`, string(ev2.AIContext))
+}
+
 func TestWrap_PropagatesCancelContext(t *testing.T) {
 	t.Parallel()
 	block := make(chan struct{})
