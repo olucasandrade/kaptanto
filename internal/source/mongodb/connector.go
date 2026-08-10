@@ -34,6 +34,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
 	mongoparser "github.com/olucasandrade/kaptanto/internal/parser/mongodb"
 )
 
@@ -140,6 +141,8 @@ type MongoDBConnector struct {
 	// batches).
 	batchesFlushed atomic.Uint64
 	eventsFlushed  atomic.Uint64
+
+	metrics *observability.KaptantoMetrics
 }
 
 // New creates a MongoDBConnector without a durable EventLog. Delegates to
@@ -197,6 +200,17 @@ func NewWithWatchFn(
 	}
 	c.watchFn = watchFn
 	return c, nil
+}
+
+// SetMetrics wires Prometheus counters for skip-and-advance observability.
+func (c *MongoDBConnector) SetMetrics(m *observability.KaptantoMetrics) {
+	c.metrics = m
+}
+
+func (c *MongoDBConnector) recordSkipped(reason string) {
+	if c.metrics != nil {
+		c.metrics.MongoSkippedDocsTotal.WithLabelValues(reason).Inc()
+	}
 }
 
 // HasEventLog reports whether a durable EventLog was provided. Exposed for
@@ -510,12 +524,14 @@ func (c *MongoDBConnector) decodeNext(collName string, iter ChangeStreamIter) (e
 	token = iter.ResumeToken()
 
 	if decErr != nil {
+		c.recordSkipped("decode")
 		slog.Warn("mongodb: decode change stream doc", "collection", collName, "error", decErr)
 		return nil, token, false
 	}
 
 	ev, normErr := mongoparser.NormalizeChangeEvent(rawDoc, c.cfg.SourceID, c.idGen)
 	if normErr != nil {
+		c.recordSkipped("normalize")
 		slog.Warn("mongodb: normalize change event", "collection", collName, "error", normErr)
 		return nil, token, false
 	}
