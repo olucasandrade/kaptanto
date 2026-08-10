@@ -59,7 +59,7 @@ COVERAGE_EXCLUDE="${COVERAGE_EXCLUDE:-internal/(ha|source/postgres|source/mongod
 # checkpoint (38.5%), backfill (40.9%) and output/grpc (45.5%). Set the
 # floor here — not just in a comment — so raising it later is a visible
 # diff. Ratchet upward as the Unit fix plan raises those packages.
-PER_PACKAGE_FLOOR="${PER_PACKAGE_FLOOR:-35.0}"
+PER_PACKAGE_FLOOR="${PER_PACKAGE_FLOOR:-38.0}"
 
 # ---- Step 1: filter the profile ----------------------------------------
 
