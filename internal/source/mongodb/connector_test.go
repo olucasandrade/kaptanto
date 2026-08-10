@@ -3,6 +3,7 @@ package mongodb_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -291,7 +292,7 @@ func TestAppendAndQueue_CHK01_AppendFailPreventsTokenSave(t *testing.T) {
 
 func TestRun_TokenLoadedOnStart(t *testing.T) {
 	store := newFakeStore()
-	store.saved["mongo_token"] = `{"_data":"resumehere"}`
+	store.saved["mongo_token:c1"] = `{"_data":"resumehere"}`
 
 	idGen := event.NewIDGenerator()
 
@@ -443,9 +444,9 @@ func TestConsumeStream_BatchesBufferedEvents_SingleAppendBatchCall(t *testing.T)
 	// Token saved exactly once, and it is doc3's token (the LAST event), not
 	// doc1's or doc2's.
 	assert.Equal(t, 1, store.saveCalls, "checkpoint token must be saved once per batch, not once per event")
-	assert.Contains(t, store.saved["src"], "82AA03", "saved token must be the LAST event's token")
-	assert.NotContains(t, store.saved["src"], "82AA01", "saved token must not be an earlier event's token")
-	assert.NotContains(t, store.saved["src"], "82AA02", "saved token must not be an earlier event's token")
+	assert.Contains(t, store.saved["src:c1"], "82AA03", "saved token must be the LAST event's token")
+	assert.NotContains(t, store.saved["src:c1"], "82AA01", "saved token must not be an earlier event's token")
+	assert.NotContains(t, store.saved["src:c1"], "82AA02", "saved token must not be an earlier event's token")
 
 	// Event order preserved on the channel.
 	ch := c.Events()
@@ -532,7 +533,7 @@ func TestAppendAndQueueBatch_CHK01_AppendBatchFailPreventsTokenSave(t *testing.T
 	}
 	lastToken := bson.Raw(`{"_data":"last"}`)
 
-	batchErr := c.AppendAndQueueBatch(context.Background(), evs, lastToken)
+	batchErr := c.AppendAndQueueBatch(context.Background(), "c1", evs, lastToken)
 	require.Error(t, batchErr)
 	assert.Equal(t, 0, store.saveCalls, "store.Save must NOT be called if AppendBatch fails (CHK-01)")
 }
@@ -547,7 +548,7 @@ func TestAppendAndQueueBatch_EmptyBatch_NoOp(t *testing.T) {
 	c, err := mongodb.NewWithEventLog(mongodb.Config{Database: "db", Collections: []string{"c1"}}, store, idGen, el)
 	require.NoError(t, err)
 
-	err = c.AppendAndQueueBatch(context.Background(), nil, nil)
+	err = c.AppendAndQueueBatch(context.Background(), "c1", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, store.saveCalls)
 	assert.Equal(t, 0, el.BatchCalls())
@@ -588,9 +589,77 @@ func TestConsumeStream_DecodeFailureAdvancesCheckpoint(t *testing.T) {
 	// only the latest token, so we verify the final token is the good document
 	// and that two saves occurred (one for the failed doc, one for the good).
 	assert.Equal(t, 2, store.saveCalls, "checkpoint must be saved for failed doc and again for good doc")
-	assert.Contains(t, store.saved["src"], "GOOD01", "final checkpoint must be the good document")
+	assert.Contains(t, store.saved["src:c1"], "GOOD01", "final checkpoint must be the good document")
 
 	ch := c.Events()
 	ev := readTestEvent(t, ch)
 	assert.Contains(t, string(ev.After), "good")
+}
+
+func TestRun_PerCollectionCheckpointKeys(t *testing.T) {
+	store := newFakeStore()
+	idGen := event.NewIDGenerator()
+
+	var c1Token, c2Token bson.Raw
+	watchFn := func(_ context.Context, coll string, token bson.Raw) (mongodb.ChangeStreamIter, error) {
+		switch coll {
+		case "c1":
+			c1Token = token
+		case "c2":
+			c2Token = token
+		}
+		return &fakeIter{}, nil
+	}
+
+	store.saved["src:c1"] = `{"_data":"token_c1"}`
+	store.saved["src:c2"] = `{"_data":"token_c2"}`
+
+	cfg := mongodb.Config{
+		Database:    "db",
+		Collections: []string{"c1", "c2"},
+		SourceID:    "src",
+	}
+	c, err := mongodb.NewWithWatchFn(cfg, store, idGen, nil, watchFn)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_ = c.Run(ctx)
+
+	assert.NotNil(t, c1Token)
+	assert.NotNil(t, c2Token)
+	assert.Contains(t, string(c1Token), "token_c1")
+	assert.Contains(t, string(c2Token), "token_c2")
+}
+
+func TestRun_ReconnectUsesUpdatedResumeToken(t *testing.T) {
+	store := newFakeStore()
+	idGen := event.NewIDGenerator()
+	el := &fakeEventLog{}
+
+	openCount := 0
+	watchFn := func(_ context.Context, _ string, token bson.Raw) (mongodb.ChangeStreamIter, error) {
+		openCount++
+		if openCount == 1 {
+			return &fakeIter{err: errors.New("stream reset")}, nil
+		}
+		if !strings.Contains(string(token), "updated") {
+			t.Fatalf("reconnect got stale token %q", token)
+		}
+		return &fakeIter{}, nil
+	}
+
+	cfg := mongodb.Config{Database: "db", Collections: []string{"c1"}, SourceID: "src"}
+	c, err := mongodb.NewWithWatchFn(cfg, store, idGen, el, watchFn)
+	require.NoError(t, err)
+
+	updated := bson.Raw(`{"_data":"updated_token"}`)
+	ev := &event.ChangeEvent{ID: idGen.New(), Operation: event.OpInsert, Table: "c1", IdempotencyKey: "k"}
+	require.NoError(t, c.AppendAndQueueBatch(context.Background(), "c1", []*event.ChangeEvent{ev}, updated))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = c.Run(ctx)
+
+	assert.GreaterOrEqual(t, openCount, 2, "expected reconnect after stream error")
 }

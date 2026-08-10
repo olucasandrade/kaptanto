@@ -120,9 +120,11 @@ type MongoDBConnector struct {
 	needsSnapshot bool
 	mu            sync.Mutex // guards needsSnapshot
 
-	// resumeToken is loaded from the checkpoint store on construction and
-	// passed as the ResumeAfter option when opening each change stream.
-	resumeToken bson.Raw
+	// resumeTokens holds the last persisted resume token per collection, keyed
+	// by collection name. Loaded from the checkpoint store on construction and
+	// updated after each successful saveResumeToken call.
+	resumeTokens map[string]bson.Raw
+	tokenMu      sync.RWMutex
 
 	// watchFn opens a change stream cursor for the given collection. It is
 	// set to realWatchFn in New/NewWithEventLog and replaced by tests.
@@ -156,27 +158,21 @@ func NewWithEventLog(cfg Config, store checkpoint.CheckpointStore, idGen *event.
 	}
 
 	c := &MongoDBConnector{
-		cfg:      cfg,
-		store:    store,
-		idGen:    idGen,
-		eventLog: el,
-		events:   make(chan *event.ChangeEvent, 1024),
+		cfg:          cfg,
+		store:        store,
+		idGen:        idGen,
+		eventLog:     el,
+		events:       make(chan *event.ChangeEvent, 1024),
+		resumeTokens: make(map[string]bson.Raw),
 	}
 
-	// Load the last persisted resume token from the checkpoint store.
-	tokenStr, err := store.Load(context.Background(), cfg.SourceID)
-	if err != nil {
-		return nil, fmt.Errorf("mongodb: load checkpoint: %w", err)
-	}
-	if tokenStr != "" {
-		// The token is stored as a JSON/BSON hex string representation.
-		// Reconstruct as bson.Raw from the stored string.
-		raw, parseErr := tokenFromString(tokenStr)
-		if parseErr != nil {
-			slog.Warn("mongodb: could not parse stored resume token, starting from head",
-				"err", parseErr, "stored", tokenStr)
-		} else {
-			c.resumeToken = raw
+	for _, coll := range cfg.Collections {
+		raw, loadErr := c.loadResumeTokenFromStore(context.Background(), coll)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if len(raw) > 0 {
+			c.resumeTokens[coll] = raw
 		}
 	}
 
@@ -250,9 +246,12 @@ func (c *MongoDBConnector) AppendAndQueue(ctx context.Context, ev *event.ChangeE
 	}
 
 	// CHK-01: save token only after durable write.
-	tokenStr := tokenToString(token)
-	if err := c.store.Save(ctx, c.cfg.SourceID, tokenStr); err != nil {
-		return fmt.Errorf("mongodb: save checkpoint: %w", err)
+	coll := c.collectionForEvent(ev)
+	if coll == "" {
+		return errors.New("mongodb: no collection configured")
+	}
+	if err := c.saveResumeToken(ctx, coll, token); err != nil {
+		return err
 	}
 
 	// Forward to channel: drain-or-drop (Router reads from EventLog, not this
@@ -277,7 +276,7 @@ func (c *MongoDBConnector) AppendAndQueue(ctx context.Context, ev *event.ChangeE
 // only token saved to the checkpoint store for this batch (CHK-01 batch
 // granularity — see the package doc comment). If AppendBatch fails, none of
 // the events are forwarded and the token is NOT saved.
-func (c *MongoDBConnector) AppendAndQueueBatch(ctx context.Context, evs []*event.ChangeEvent, lastToken bson.Raw) error {
+func (c *MongoDBConnector) AppendAndQueueBatch(ctx context.Context, collName string, evs []*event.ChangeEvent, lastToken bson.Raw) error {
 	if len(evs) == 0 {
 		return nil
 	}
@@ -290,7 +289,7 @@ func (c *MongoDBConnector) AppendAndQueueBatch(ctx context.Context, evs []*event
 
 	// CHK-01: save the LAST event's token only after the durable write
 	// succeeds. Saved once per batch, not once per event.
-	if err := c.saveResumeToken(ctx, lastToken); err != nil {
+	if err := c.saveResumeToken(ctx, collName, lastToken); err != nil {
 		return err
 	}
 
@@ -308,15 +307,65 @@ func (c *MongoDBConnector) AppendAndQueueBatch(ctx context.Context, evs []*event
 	return nil
 }
 
-// saveResumeToken persists the given resume token to the checkpoint store.
-// It is used both by the batch path and when advancing past documents that
-// could not be decoded or normalized.
-func (c *MongoDBConnector) saveResumeToken(ctx context.Context, token bson.Raw) error {
+// saveResumeToken persists the given resume token for collName to the
+// checkpoint store and updates the in-memory token used on reconnect.
+func (c *MongoDBConnector) saveResumeToken(ctx context.Context, collName string, token bson.Raw) error {
 	tokenStr := tokenToString(token)
-	if err := c.store.Save(ctx, c.cfg.SourceID, tokenStr); err != nil {
+	if err := c.store.Save(ctx, c.checkpointKey(collName), tokenStr); err != nil {
 		return fmt.Errorf("mongodb: save checkpoint: %w", err)
 	}
+	c.tokenMu.Lock()
+	c.resumeTokens[collName] = token
+	c.tokenMu.Unlock()
 	return nil
+}
+
+func (c *MongoDBConnector) checkpointKey(collName string) string {
+	return c.cfg.SourceID + ":" + collName
+}
+
+func (c *MongoDBConnector) loadResumeTokenFromStore(ctx context.Context, collName string) (bson.Raw, error) {
+	tokenStr, err := c.store.Load(ctx, c.checkpointKey(collName))
+	if err != nil {
+		return nil, fmt.Errorf("mongodb: load checkpoint: %w", err)
+	}
+	if tokenStr == "" {
+		legacy, legacyErr := c.store.Load(ctx, c.cfg.SourceID)
+		if legacyErr != nil {
+			return nil, fmt.Errorf("mongodb: load legacy checkpoint: %w", legacyErr)
+		}
+		tokenStr = legacy
+	}
+	if tokenStr == "" {
+		return nil, nil
+	}
+	raw, parseErr := tokenFromString(tokenStr)
+	if parseErr != nil {
+		slog.Warn("mongodb: could not parse stored resume token, starting from head",
+			"collection", collName, "err", parseErr, "stored", tokenStr)
+		return nil, nil
+	}
+	return raw, nil
+}
+
+func (c *MongoDBConnector) resumeTokenForCollection(collName string) bson.Raw {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.resumeTokens[collName]
+}
+
+func (c *MongoDBConnector) collectionForEvent(ev *event.ChangeEvent) string {
+	if ev != nil && ev.Table != "" {
+		for _, coll := range c.cfg.Collections {
+			if coll == ev.Table {
+				return coll
+			}
+		}
+	}
+	if len(c.cfg.Collections) > 0 {
+		return c.cfg.Collections[0]
+	}
+	return ""
 }
 
 // Run starts the outer reconnect loop for all configured collections. For each
@@ -398,7 +447,7 @@ func (c *MongoDBConnector) runCollection(ctx context.Context, collName string) (
 			return false, ctx.Err()
 		}
 
-		iter, openErr := c.watchFn(ctx, collName, c.resumeToken)
+		iter, openErr := c.watchFn(ctx, collName, c.resumeTokenForCollection(collName))
 		if openErr != nil {
 			if isInvalidResumeToken(openErr) {
 				return true, nil
@@ -520,13 +569,13 @@ func (c *MongoDBConnector) consumeStream(ctx context.Context, collName string, i
 		}
 
 		if len(batch) > 0 {
-			if aqErr := c.AppendAndQueueBatch(ctx, batch, lastToken); aqErr != nil {
+			if aqErr := c.AppendAndQueueBatch(ctx, collName, batch, lastToken); aqErr != nil {
 				return false, aqErr
 			}
 		} else if lastToken != nil {
 			// All documents in this batch failed parsing; still advance the
 			// checkpoint so a persistently bad document cannot stall progress.
-			if saveErr := c.saveResumeToken(ctx, lastToken); saveErr != nil {
+			if saveErr := c.saveResumeToken(ctx, collName, lastToken); saveErr != nil {
 				return false, saveErr
 			}
 		}
