@@ -272,7 +272,7 @@ func TestAppendAndQueue_SkipsEventLogWhenNil(t *testing.T) {
 	assert.Equal(t, 1, store.saveCalls)
 }
 
-func TestAppendAndQueue_CHK01_AppendFailPreventsTokenSave(t *testing.T) {
+func TestAppendAndQueue_AppendFailPreventsTokenSave(t *testing.T) {
 	store := newFakeStore()
 	idGen := event.NewIDGenerator()
 	el := &fakeEventLog{appendErr: errors.New("disk full")}
@@ -518,11 +518,11 @@ func TestConsumeStream_NoLookahead_BehavesLikePerEventPath(t *testing.T) {
 	assert.GreaterOrEqual(t, store.saveCalls, 2, "token must be saved once per event when batches are size 1")
 }
 
-// TestAppendAndQueueBatch_CHK01_AppendBatchFailPreventsTokenSave extends the
-// single-event CHK-01 test (TestAppendAndQueue_CHK01_AppendFailPreventsTokenSave)
+// TestAppendAndQueueBatch_AppendFailPreventsTokenSave extends the
+// single-event CHK-01 test (TestAppendAndQueue_AppendFailPreventsTokenSave)
 // to the batch path (Test Plan a): if AppendBatch fails, the checkpoint
 // token must NOT be saved, regardless of batch size.
-func TestAppendAndQueueBatch_CHK01_AppendBatchFailPreventsTokenSave(t *testing.T) {
+func TestAppendAndQueueBatch_AppendFailPreventsTokenSave(t *testing.T) {
 	store := newFakeStore()
 	idGen := event.NewIDGenerator()
 	el := &fakeEventLog{appendErr: errors.New("disk full")}

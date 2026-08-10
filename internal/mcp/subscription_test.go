@@ -466,7 +466,7 @@ func TestSubscription_NudgeDebounceFakeClock(t *testing.T) {
 	assert.Equal(t, 2.0, testutil.ToFloat64(metrics.MCPNudgesTotal))
 }
 
-func TestSubscription_SessionCloseLeakMCP02(t *testing.T) {
+func TestSubscription_SessionCloseLeak(t *testing.T) {
 	t.Setenv("MCP_LEAK", "leak-secret")
 	metrics := observability.NewKaptantoMetrics()
 	rtr := router.NewRouter(&memEventLog{}, 2, nil)

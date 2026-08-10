@@ -144,7 +144,7 @@ type throughputTrial struct {
 
 // medianThroughputTrial pairs baseline and MCP deliveries back-to-back in each
 // trial (same process, no GC between them) so transient load does not skew
-// MCP-04 ratio = baselineDuration/mcpDuration. The returned trial is the
+// ratio = baselineDuration/mcpDuration. The returned trial is the
 // median-by-ratio entry so logged rates always agree with the asserted ratio.
 func medianThroughputTrial(
 	n, trials int,
@@ -172,17 +172,17 @@ func medianThroughputTrial(
 	return out[len(out)/2]
 }
 
-// TestMCP04_ThroughputGate measures paired-trial throughput with the always-on
+// TestThroughputGate measures paired-trial throughput with the always-on
 // recent index plus 4 ring subscriptions alongside a stdout-like primary sink.
 // Honest measurement (no synthetic EventLog pad) shows median retention ~74%;
 // the CI floor guards regressions under load. The ≥95% design target is checked
-// via go test -bench (BenchmarkMCP04_*), not this wall-clock gate.
-func TestMCP04_ThroughputGate(t *testing.T) {
+// via go test -bench (BenchmarkDeliver_*), not this wall-clock gate.
+func TestThroughputGate(t *testing.T) {
 	if raceDetectorEnabled {
-		t.Skip("MCP-04 throughput gate is timing-sensitive under -race; covered by make test + go test -bench")
+		t.Skip("MCP throughput gate is timing-sensitive under -race; covered by make test + go test -bench")
 	}
 	if os.Getenv("GITHUB_JOB") == "integration" {
-		t.Skip("MCP-04 throughput gate is wall-clock sensitive on the integration job's shared runner + live DB load; use go test -bench BenchmarkMCP04_*")
+		t.Skip("MCP throughput gate is wall-clock sensitive on the integration job's shared runner + live DB load; use go test -bench BenchmarkDeliver_*")
 	}
 	const n = 5000
 	const trials = 9
@@ -204,20 +204,20 @@ func TestMCP04_ThroughputGate(t *testing.T) {
 	require.Greater(t, trial.baseRate, 0.0)
 	require.InDelta(t, trial.ratio, trial.mcpRate/trial.baseRate, 0.001,
 		"logged rates must agree with paired trial ratio")
-	t.Logf("MCP-04 throughput: baseline=%.0f evt/s mcp=%.0f evt/s ratio=%.3f (median of %d paired trials)",
+	t.Logf("MCP throughput: baseline=%.0f evt/s mcp=%.0f evt/s ratio=%.3f (median of %d paired trials)",
 		trial.baseRate, trial.mcpRate, trial.ratio, trials)
 	// CI runners vary widely under parallel load (coverage job ~0.57, integration ~0.65).
-	// Precise ns/op/allocs regression is guarded by BenchmarkMCP04_Deliver_*; this gate
+	// Precise ns/op/allocs regression is guarded by BenchmarkDeliver_*; this gate
 	// only catches large accidental regressions.
 	const regressionFloor = 0.55
 	require.GreaterOrEqual(t, trial.ratio, regressionFloor,
-		"MCP-04: recent index + 4 subscriptions must retain ≥%.0f%% of baseline (got %.3f)", regressionFloor*100, trial.ratio)
+		"recent index + 4 subscriptions must retain ≥%.0f%% of baseline (got %.3f)", regressionFloor*100, trial.ratio)
 }
 
-// TestMCP04_ConcurrentDeliverNoRace exercises recent index + ring subscriptions
+// TestConcurrentDeliverNoRace exercises recent index + ring subscriptions
 // under concurrent Deliver without wall-clock assertions. TSAN catches data races
 // when -race is enabled; the throughput gate remains non-race only.
-func TestMCP04_ConcurrentDeliverNoRace(t *testing.T) {
+func TestConcurrentDeliverNoRace(t *testing.T) {
 	const workers = 8
 	const perWorker = 200
 	s, probe, subIDs := setupMCPSubs(t, 256)
@@ -246,7 +246,7 @@ func TestMCP04_ConcurrentDeliverNoRace(t *testing.T) {
 	require.Equal(t, 4, s.ActiveSubscriptionCount())
 }
 
-func BenchmarkMCP04_Deliver_Baseline(b *testing.B) {
+func BenchmarkDeliver_Baseline(b *testing.B) {
 	events := makeBenchEvents(max(b.N, 1))
 	c := stdout.NewStdoutWriter(io.Discard)
 	b.ReportAllocs()
@@ -256,7 +256,7 @@ func BenchmarkMCP04_Deliver_Baseline(b *testing.B) {
 	}
 }
 
-func BenchmarkMCP04_Deliver_With4Subs(b *testing.B) {
+func BenchmarkDeliver_With4Subs(b *testing.B) {
 	s, probe, subIDs := setupMCPSubs(b, 1024)
 	defer func() { _ = s.Close() }()
 	mcpConsumers := collectMCPThroughputConsumers(probe, subIDs)

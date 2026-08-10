@@ -239,7 +239,7 @@ func TestDeliver_EmptyTextSkipped(t *testing.T) {
 	assert.Equal(t, float64(1), testutil.ToFloat64(c.MetricsForTest().VectorSkippedTotal.WithLabelValues(vector.SkipReasonEmpty)))
 }
 
-func TestDeliver_UnchangedHashSkip_VEC01(t *testing.T) {
+func TestDeliver_UnchangedHashSkip(t *testing.T) {
 	emb := &fakeEmbedder{cap: 96}
 	store := &fakeStore{}
 	cache := newSpyCache()
@@ -264,7 +264,7 @@ func TestDeliver_UnchangedHashSkip_VEC01(t *testing.T) {
 	assert.Equal(t, float64(1), testutil.ToFloat64(c.MetricsForTest().VectorSkippedTotal.WithLabelValues(vector.SkipReasonUnchanged)))
 }
 
-func TestFlushBatch_InsertThenDeleteOrder_VEC02(t *testing.T) {
+func TestFlushBatch_InsertThenDeleteOrder(t *testing.T) {
 	store := &fakeStore{}
 	c := newTestConsumer(t, nil, store, nil)
 
@@ -278,7 +278,7 @@ func TestFlushBatch_InsertThenDeleteOrder_VEC02(t *testing.T) {
 	assert.Equal(t, store.ops[0].ids[0], store.ops[1].ids[0])
 }
 
-func TestFlushBatch_InterleavingProperty_VEC02(t *testing.T) {
+func TestFlushBatch_InterleavingProperty(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 	for trial := 0; trial < 20; trial++ {
 		store := &fakeStore{}
@@ -597,7 +597,7 @@ func TestStatusErrorMethods(t *testing.T) {
 	assert.False(t, vector.IsPoison(nil))
 }
 
-func TestDeliver_HashSkipRespectsPendingDelete_VEC01(t *testing.T) {
+func TestDeliver_HashSkipRespectsPendingDelete(t *testing.T) {
 	emb := &fakeEmbedder{cap: 96}
 	store := &fakeStore{}
 	cache := newSpyCache()
@@ -617,7 +617,7 @@ func TestDeliver_HashSkipRespectsPendingDelete_VEC01(t *testing.T) {
 	assert.Equal(t, "upsert", store.ops[len(store.ops)-1].kind)
 }
 
-func TestDeliver_HashSkipRespectsPendingUpsertRevert_VEC01(t *testing.T) {
+func TestDeliver_HashSkipRespectsPendingUpsertRevert(t *testing.T) {
 	emb := &fakeEmbedder{cap: 96}
 	store := &fakeStore{}
 	cache := newSpyCache()
@@ -639,7 +639,7 @@ func TestDeliver_HashSkipRespectsPendingUpsertRevert_VEC01(t *testing.T) {
 	assert.InDelta(t, float32(len("title: hello\nbody: world")), final.Vector[0], 0.001)
 }
 
-func TestFlushBatch_SameIDDifferentTextEmbedsBoth_VEC02(t *testing.T) {
+func TestFlushBatch_SameIDDifferentTextEmbedsBoth(t *testing.T) {
 	emb := &fakeEmbedder{cap: 96}
 	store := &fakeStore{}
 	c := newTestConsumer(t, emb, store, nil)
