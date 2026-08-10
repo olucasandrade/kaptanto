@@ -115,6 +115,23 @@ func decodeAndSerializeRow(
 	return mergeToastColumns(rel, cols, prevRow, result)
 }
 
+// decodeSerializeAndRow returns the decoded row map and JSON bytes from one FFI decode.
+func decodeSerializeAndRow(
+	rel *pglogrepl.RelationMessageV2,
+	cols []*pglogrepl.TupleDataColumn,
+	prevRow map[string]any,
+) (map[string]any, []byte, error) {
+	afterJSON, err := decodeAndSerializeRow(rel, cols, prevRow)
+	if err != nil {
+		return nil, nil, err
+	}
+	var row map[string]any
+	if err := json.Unmarshal(afterJSON, &row); err != nil {
+		return nil, nil, fmt.Errorf("rust: unmarshal decoded row: %w", err)
+	}
+	return row, afterJSON, nil
+}
+
 // hasToastColumn reports whether cols contains at least one unchanged-TOAST
 // ('u') column, the only case decodeAndSerializeRow needs the Go-side merge
 // post-processing pass for.

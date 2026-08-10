@@ -92,6 +92,7 @@ type SQSSinkConsumer struct {
 	validatedQueues map[string]bool    // set of FIFO-validated queue URLs
 	mu              sync.RWMutex       // protects validatedQueues and pending
 	pending         map[uint32][]pendingSQSMessage // buffered messages for FlushBatch
+	usedBatchIDs    map[uint32]map[string]struct{} // per-partition SQS batch entry IDs
 	m               *observability.KaptantoMetrics
 }
 
@@ -208,6 +209,7 @@ func newConsumerWithClient(id string, queueURL string, client sqsAPI, queueURLT 
 		queueURLT:       queueURLT,
 		validatedQueues: map[string]bool{queueURL: true},
 		pending:         make(map[uint32][]pendingSQSMessage),
+		usedBatchIDs:    make(map[uint32]map[string]struct{}),
 	}, nil
 }
 
@@ -329,16 +331,13 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 
 	// 5. Append to pending buffer — FlushBatch performs the actual network call.
 	c.mu.Lock()
-	// Ensure the batch ID is unique within the current partition's pending slice. If a
-	// collision occurs (two events with the same idempotency key prefix in the
-	// same batch), append a counter suffix. Use a map for O(1) lookups instead of
-	// the previous O(n) scan.
-	used := make(map[string]struct{}, len(c.pending[entry.PartitionID]))
-	for _, p := range c.pending[entry.PartitionID] {
-		if p.entry.Id != nil {
-			used[*p.entry.Id] = struct{}{}
-		}
+	if c.usedBatchIDs == nil {
+		c.usedBatchIDs = make(map[uint32]map[string]struct{})
 	}
+	if c.usedBatchIDs[entry.PartitionID] == nil {
+		c.usedBatchIDs[entry.PartitionID] = make(map[string]struct{})
+	}
+	used := c.usedBatchIDs[entry.PartitionID]
 	finalID := batchID
 	for i := 0; ; i++ {
 		if _, collision := used[finalID]; !collision {
@@ -346,6 +345,7 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 		}
 		finalID = fmt.Sprintf("%s%x", batchID[:14], i)
 	}
+	used[finalID] = struct{}{}
 	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingSQSMessage{
 		queueURL: targetURL,
 		entry: types.SendMessageBatchRequestEntry{
@@ -381,6 +381,7 @@ func (c *SQSSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) er
 	}
 	batch := c.pending[partitionID]
 	delete(c.pending, partitionID)
+	delete(c.usedBatchIDs, partitionID)
 	c.mu.Unlock()
 
 	// Group messages by target queue URL.
