@@ -260,18 +260,6 @@ func (c *VectorSinkConsumer) incSkipped(reason string) {
 	}
 }
 
-// pendingHasID reports whether partitionID already buffers an upsert or delete
-// for id. Hash-skip (VEC-01) must not ignore in-flight pending for the same id.
-func (c *VectorSinkConsumer) pendingHasID(partitionID uint32, id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if ids := c.pendingIDs[partitionID]; ids != nil {
-		_, ok := ids[id]
-		return ok
-	}
-	return false
-}
-
 func buildMetadata(ev *event.ChangeEvent, cols []string) map[string]any {
 	meta := map[string]any{
 		"table":     ev.Table,

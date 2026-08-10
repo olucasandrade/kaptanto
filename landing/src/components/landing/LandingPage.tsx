@@ -25,8 +25,9 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">latency</div>
             <h3>Low-latency streaming</h3>
             <p>
-              Events flow from the WAL as each transaction commits. Burst p50 latency: ~3.5s at ~2.3k eps
-              for the default Go build (2.3s with the optional Rust FFI build). No polling interval.
+              Events flow from the WAL as each transaction commits. Burst p50
+              latency: ~3.5s at ~2.3k eps for the default Go build (2.3s with
+              the optional Rust FFI build). No polling interval.
             </p>
           </div>
           <div class="fc">
@@ -73,16 +74,18 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">sinks</div>
             <h3>Ten output modes</h3>
             <p>
-              stdout, SSE, gRPC, webhook, vector, and five broker sinks — NATS, SQS, Kafka,
-              Pub/Sub, and RabbitMQ. At-least-once delivery with per-key ordering end-to-end.
+              stdout, SSE, gRPC, webhook, vector, and five broker sinks — NATS,
+              SQS, Kafka, Pub/Sub, and RabbitMQ. At-least-once delivery with
+              per-key ordering end-to-end.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">ai</div>
             <h3>Actions &amp; AI-native</h3>
             <p>
-              Route CDC to webhook actions, optional MCP subscriptions with ACL, and fail-open
-              HTTP enrichment that attaches opaque <code>ai_context</code> before durable append.
+              Route CDC to webhook actions, optional MCP subscriptions with ACL,
+              and fail-open HTTP enrichment that attaches opaque{" "}
+              <code>ai_context</code> before durable append.
             </p>
           </div>
           <div class="fc">

@@ -11,7 +11,12 @@ describe("benchmark docs parity", () => {
     readFileSync(join(fixtureDir, "benchmark-summary.json"), "utf8"),
   ) as Record<
     string,
-    { steady_eps: number; peak_eps: number; burst_p50_s: number; recovery_s: number }
+    {
+      steady_eps: number;
+      peak_eps: number;
+      burst_p50_s: number;
+      recovery_s: number;
+    }
   >;
 
   it("docs-benchmarks steady/peak eps match golden fixture", () => {
