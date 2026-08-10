@@ -443,7 +443,11 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 	}()
 
 	// 12. ReceiveMessage loop (SRC-03).
-	return c.receiveLoop(ctx, replConn)
+	var lastSavedLSN pglogrepl.LSN
+	if startLSN > 0 {
+		lastSavedLSN = startLSN - 1
+	}
+	return c.receiveLoop(ctx, replConn, lastSavedLSN)
 }
 
 // receiveLoop runs the core WAL message receive loop using pgconn.ReceiveMessage
@@ -460,6 +464,7 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 func (c *PostgresConnector) receiveLoop(
 	ctx context.Context,
 	replConn *pgconn.PgConn,
+	lastSavedLSN pglogrepl.LSN,
 ) error {
 	var clientXLogPos pglogrepl.LSN
 	nextHeartbeat := time.Now().Add(c.cfg.StandbyTimeout)
@@ -504,7 +509,8 @@ func (c *PostgresConnector) receiveLoop(
 		if err != nil {
 			if pgconn.Timeout(err) {
 				// Heartbeat deadline exceeded — send standby status update (SRC-03).
-				if sendErr := c.sendStandbyStatus(ctx, replConn, clientXLogPos); sendErr != nil {
+				// CHK-01: never ack past the last durably checkpointed LSN.
+				if sendErr := c.sendStandbyStatus(ctx, replConn, ackLSN(clientXLogPos, lastSavedLSN)); sendErr != nil {
 					return fmt.Errorf("postgres: send standby heartbeat: %w", sendErr)
 				}
 				nextHeartbeat = time.Now().Add(c.cfg.StandbyTimeout)
@@ -539,7 +545,7 @@ func (c *PostgresConnector) receiveLoop(
 			}
 			// If server requests a reply, send status immediately (SRC-03).
 			if pkm.ReplyRequested {
-				if sendErr := c.sendStandbyStatus(ctx, replConn, clientXLogPos); sendErr != nil {
+				if sendErr := c.sendStandbyStatus(ctx, replConn, ackLSN(clientXLogPos, lastSavedLSN)); sendErr != nil {
 					return fmt.Errorf("postgres: send standby on request: %w", sendErr)
 				}
 				nextHeartbeat = time.Now().Add(c.cfg.StandbyTimeout)
@@ -591,6 +597,7 @@ func (c *PostgresConnector) receiveLoop(
 				if saveErr := c.store.Save(ctx, c.cfg.SourceID, lsnStr); saveErr != nil {
 					return fmt.Errorf("postgres: save checkpoint: %w", saveErr)
 				}
+				lastSavedLSN = clientXLogPos
 				// CHK-01: checkpoint BEFORE advancing LSN to Postgres.
 				if sendErr := c.sendStandbyStatus(ctx, replConn, clientXLogPos); sendErr != nil {
 					return fmt.Errorf("postgres: send standby after commit: %w", sendErr)
@@ -599,6 +606,15 @@ func (c *PostgresConnector) receiveLoop(
 			}
 		}
 	}
+}
+
+// ackLSN returns the LSN safe to acknowledge to Postgres: the minimum of the
+// client's read position and the last durably checkpointed LSN (CHK-01).
+func ackLSN(clientPos, lastSaved pglogrepl.LSN) pglogrepl.LSN {
+	if clientPos > lastSaved {
+		return lastSaved
+	}
+	return clientPos
 }
 
 // sendStandbyStatus sends a StandbyStatusUpdate to the server.
