@@ -24,7 +24,8 @@ import (
 // called by runPipeline before this); it just trusts the pkCols map passed in.
 func TestBuildBackfillConfigs(t *testing.T) {
 	t.Run("nil tables returns empty slice without panic", func(t *testing.T) {
-		result := buildBackfillConfigs(nil, "default", nil)
+		result, err := buildBackfillConfigs(nil, "default", nil)
+		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.Empty(t, result)
 	})
@@ -34,7 +35,8 @@ func TestBuildBackfillConfigs(t *testing.T) {
 			"public.orders": {},
 		}
 		pkCols := map[string][]string{"public.orders": {"order_id"}}
-		result := buildBackfillConfigs(tables, "default", pkCols)
+		result, err := buildBackfillConfigs(tables, "default", pkCols)
+		require.NoError(t, err)
 		require.Len(t, result, 1)
 		cfg := result[0]
 		assert.Equal(t, "default", cfg.SourceID)
@@ -50,7 +52,8 @@ func TestBuildBackfillConfigs(t *testing.T) {
 			"public.order_items": {},
 		}
 		pkCols := map[string][]string{"public.order_items": {"order_id", "line_no"}}
-		result := buildBackfillConfigs(tables, "default", pkCols)
+		result, err := buildBackfillConfigs(tables, "default", pkCols)
+		require.NoError(t, err)
 		require.Len(t, result, 1)
 		assert.Equal(t, []string{"order_id", "line_no"}, result[0].PKCols)
 	})
@@ -60,7 +63,8 @@ func TestBuildBackfillConfigs(t *testing.T) {
 			"orders": {},
 		}
 		pkCols := map[string][]string{"orders": {"id"}}
-		result := buildBackfillConfigs(tables, "default", pkCols)
+		result, err := buildBackfillConfigs(tables, "default", pkCols)
+		require.NoError(t, err)
 		require.Len(t, result, 1)
 		cfg := result[0]
 		assert.Equal(t, "", cfg.Schema)
@@ -75,7 +79,8 @@ func TestBuildBackfillConfigs(t *testing.T) {
 		tables := map[string]config.TableConfig{
 			"public.orders": {},
 		}
-		result := buildBackfillConfigs(tables, "default", nil)
+		result, err := buildBackfillConfigs(tables, "default", nil)
+		require.NoError(t, err)
 		require.Len(t, result, 1)
 		assert.Nil(t, result[0].PKCols)
 	})
@@ -89,8 +94,35 @@ func TestBuildBackfillConfigs(t *testing.T) {
 			"public.orders": {"id"},
 			"public.users":  {"id"},
 		}
-		result := buildBackfillConfigs(tables, "default", pkCols)
+		result, err := buildBackfillConfigs(tables, "default", pkCols)
+		require.NoError(t, err)
 		assert.Len(t, result, 2)
+	})
+
+	t.Run("quoted mixed-case table strips quotes for raw catalog names", func(t *testing.T) {
+		// Issue #56: config keys like public."CamelCaseTable" must become
+		// Schema=public, Table=CamelCaseTable (no quote characters) so
+		// KeysetCursor.Sanitize produces "public"."CamelCaseTable".
+		tables := map[string]config.TableConfig{
+			`public."CamelCaseTable"`: {},
+		}
+		pkCols := map[string][]string{`public."CamelCaseTable"`: {"id"}}
+		result, err := buildBackfillConfigs(tables, "default", pkCols)
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "public", result[0].Schema)
+		assert.Equal(t, "CamelCaseTable", result[0].Table)
+		assert.NotContains(t, result[0].Table, `"`)
+		assert.Equal(t, []string{"id"}, result[0].PKCols)
+	})
+
+	t.Run("malformed quoted table returns error", func(t *testing.T) {
+		tables := map[string]config.TableConfig{
+			`public."unclosed`: {},
+		}
+		_, err := buildBackfillConfigs(tables, "default", nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unclosed quote")
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/pgident"
 )
 
 // checkReplicaIdentity queries pg_class to find the REPLICA IDENTITY setting
@@ -70,14 +71,17 @@ func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64, sour
 }
 
 // splitSchemaTable splits a "schema.table" string into its two parts.
-// If no dot is present, schema defaults to "public".
-func splitSchemaTable(schemaTable string) (schema, table string) {
-	for i := 0; i < len(schemaTable); i++ {
-		if schemaTable[i] == '.' {
-			return schemaTable[:i], schemaTable[i+1:]
-		}
+// Quoted identifiers (e.g. public."CamelCaseTable") are parsed into raw
+// catalog names. If no schema is present, schema defaults to "public".
+func splitSchemaTable(schemaTable string) (schema, table string, err error) {
+	schema, table, err = pgident.Parse(schemaTable)
+	if err != nil {
+		return "", "", err
 	}
-	return "public", schemaTable
+	if schema == "" {
+		schema = "public"
+	}
+	return schema, table, nil
 }
 
 // checkPrimary runs SELECT pg_is_in_recovery() and returns an error if the
