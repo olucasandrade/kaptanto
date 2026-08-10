@@ -64,7 +64,7 @@ func (s *PGVectorStore) ensureSchema(ctx context.Context) error {
 		// Concurrent CREATE EXTENSION IF NOT EXISTS can race on the unique
 		// index pg_extension_name_index; a duplicate-key error means another
 		// connection created the extension and we can proceed.
-		if !isPGUniqueViolation(err) {
+		if !isPGSchemaRace(err) {
 			return fmt.Errorf("vector: pgvector: CREATE EXTENSION: %w", err)
 		}
 	}
@@ -77,23 +77,22 @@ CREATE TABLE IF NOT EXISTS %s (
     metadata jsonb
 )`, ident, s.dimensions)
 	if _, err := s.conn.Exec(ctx, ddl); err != nil {
-		// Concurrent CREATE TABLE IF NOT EXISTS can race on the unique
-		// constraint pg_type_typname_nsp_index; a duplicate-key error means
-		// another connection created the table and we can proceed.
-		if !isPGUniqueViolation(err) {
+		// Concurrent CREATE TABLE IF NOT EXISTS can race: another connection may
+		// create the table first (42P07 duplicate_table) or hit a unique index on
+		// pg_type_typname_nsp_index (23505).
+		if !isPGSchemaRace(err) {
 			return fmt.Errorf("vector: pgvector: CREATE TABLE: %w", err)
 		}
 	}
 	return nil
 }
 
-// isPGUniqueViolation reports whether err is a Postgres unique-violation
-// (SQLSTATE 23505), which can arise from concurrent CREATE EXTENSION IF NOT
-// EXISTS races.
-func isPGUniqueViolation(err error) bool {
+// isPGSchemaRace reports Postgres errors that mean another concurrent caller
+// already created the extension or table we were about to create.
+func isPGSchemaRace(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
+		return pgErr.Code == "23505" || pgErr.Code == "42P07"
 	}
 	return false
 }

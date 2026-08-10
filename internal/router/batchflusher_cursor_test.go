@@ -158,21 +158,35 @@ waitForAttempt:
 		cancel()
 		<-done
 		t.Fatalf("cursor store must never contain a seq past an unacked record — "+
-			"expected no SaveCursor call while FlushBatch keeps failing (CHK-01 violation), got saved seq=%d", seq)
+			"expected no SaveCursor call while FlushBatch keeps failing, got saved seq=%d", seq)
 	}
 
-	// Recover the "broker" well before the NextDelay(0)==1s backoff elapses,
-	// so the next scheduled retry succeeds.
+	// Let in-flight backoff attempts finish while the broker is still down so
+	// recovery does not land mid-schedule with a multi-second NextDelay(1) wait.
+	stableFor := 300 * time.Millisecond
+	stableDeadline := time.Now().Add(stableFor)
+	prevAttempts := len(consumer.getFlushAttempts())
+	for time.Now().Before(stableDeadline) {
+		n := len(consumer.getFlushAttempts())
+		if n > prevAttempts {
+			prevAttempts = n
+			stableDeadline = time.Now().Add(stableFor)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Recover the broker; allow enough time for the next backoff-scheduled retry
+	// (NextDelay(1) is up to 5s with full jitter on a loaded CI runner).
 	consumer.failFlush.Store(false)
 
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(12 * time.Second)
 waitLoop:
 	for {
 		select {
 		case <-deadline:
 			cancel()
 			<-done
-			t.Fatal("flush never succeeded after broker recovery within 3s")
+			t.Fatal("flush never succeeded after broker recovery within 12s")
 		default:
 		}
 		if len(consumer.getFlushed()) >= 3 {
