@@ -19,7 +19,7 @@ func TestCompareRegression_SteadyThroughputDropFails(t *testing.T) {
 			},
 		},
 	}
-	failures := CompareRegression(current, baseline, RegressionTolerance)
+	failures := CompareRegression(current, baseline, 0.20)
 	if len(failures) != 1 {
 		t.Fatalf("expected 1 failure, got %d", len(failures))
 	}
@@ -45,10 +45,10 @@ func TestCompareRegression_BurstP50NotGated(t *testing.T) {
 			},
 		},
 	}
-	if failures := CompareRegression(current, baseline, RegressionTolerance); len(failures) != 0 {
+	if failures := CompareRegression(current, baseline, 0.20); len(failures) != 0 {
 		t.Fatalf("burst p50 must not gate CompareRegression, got %d failures", len(failures))
 	}
-	advisory := CompareBurstP50(current, baseline, RegressionTolerance)
+	advisory := CompareBurstP50(current, baseline, 0.20)
 	if len(advisory) != 1 || advisory[0].Metric != "p50_us" {
 		t.Fatalf("expected advisory p50_us breach, got %v", advisory)
 	}
