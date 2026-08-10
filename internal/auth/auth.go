@@ -5,7 +5,9 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"net/http"
 	"strings"
 
@@ -14,6 +16,16 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+// ConsumerScopeID derives a stable cursor namespace from a bearer token so
+// SSE/gRPC consumer IDs cannot cross isolated principals that share no secret.
+func ConsumerScopeID(token string) string {
+	if token == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(token))
+	return "auth:" + hex.EncodeToString(sum[:8])
+}
 
 // CheckBearer reports whether the provided token matches expected, using a
 // constant-time comparison to prevent timing-based token oracle attacks.
