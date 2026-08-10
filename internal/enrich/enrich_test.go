@@ -545,8 +545,9 @@ func TestWrap_AppendEnrichesBeforeDurableWrite(t *testing.T) {
 		ents, err := el.ReadPartition(context.Background(), p, 1, 10)
 		require.NoError(t, err)
 		for i := range ents {
-			if ents[i].Event.IdempotencyKey == ev.IdempotencyKey {
-				found = ents[i].Event
+			mat := materializeEntry(t, ents[i])
+			if mat.IdempotencyKey == ev.IdempotencyKey {
+				found = mat
 			}
 		}
 	}
@@ -815,9 +816,10 @@ func TestWrap_FailOpenStillAppends(t *testing.T) {
 		ents, err := el.ReadPartition(context.Background(), p, 1, 10)
 		require.NoError(t, err)
 		for _, ent := range ents {
-			if ent.Event.IdempotencyKey == ev.IdempotencyKey {
+			mat := materializeEntry(t, ent)
+			if mat.IdempotencyKey == ev.IdempotencyKey {
 				found = true
-				assert.Nil(t, ent.Event.AIContext)
+				assert.Nil(t, mat.AIContext)
 			}
 		}
 	}

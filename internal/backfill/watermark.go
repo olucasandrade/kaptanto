@@ -284,6 +284,9 @@ func (w *WatermarkChecker) mergeEntries(table string, ti *tableIndex, entries []
 		return
 	}
 	for _, entry := range entries {
+		if err := entry.MaterializeEvent(); err != nil {
+			continue
+		}
 		ev := entry.Event
 		if ev.Table != table {
 			continue
@@ -341,6 +344,9 @@ func (w *WatermarkChecker) shouldEmitScan(ctx context.Context, table string, pk 
 		}
 
 		for _, entry := range entries {
+			if err := entry.MaterializeEvent(); err != nil {
+				continue
+			}
 			ev := entry.Event
 			if ev.Table != table {
 				continue

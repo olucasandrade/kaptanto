@@ -90,6 +90,9 @@ func (s *StdoutWriter) Deliver(_ context.Context, entry eventlog.LogEntry) error
 		}
 	}
 	if s.m != nil {
+		if err := entry.MaterializeEvent(); err != nil {
+			return err
+		}
 		s.m.EventsDelivered.WithLabelValues(s.ID(), entry.Event.Table, string(entry.Event.Operation)).Inc()
 	}
 	return nil

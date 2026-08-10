@@ -100,6 +100,9 @@ func (c *SSEConsumer) Close() {
 // Any write error is returned directly; a broken pipe / closed connection
 // error is classified as permanent by the RetryScheduler (dead-letter path).
 func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("sse consumer: materialize event: %w", err)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

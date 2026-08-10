@@ -160,6 +160,9 @@ func (c *KafkaSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // On encoding error Deliver returns a non-nil error immediately; the
 // RetryScheduler will block the key (DLV-03).
 func (c *KafkaSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("kafka sink: materialize event: %w", err)
+	}
 	// 1. Derive topic from template.
 	var buf bytes.Buffer
 	if err := c.topicT.Execute(&buf, entry.Event); err != nil {
