@@ -33,6 +33,9 @@ import (
 // Compile-time assertion: NatsEventLog must implement EventLog.
 var _ EventLog = (*NatsEventLog)(nil)
 
+// Compile-time assertion: NatsEventLog implements PartitionNotifier.
+var _ PartitionNotifier = (*NatsEventLog)(nil)
+
 const (
 	// natsStreamName is the single JetStream stream that holds all 64 partition subjects.
 	// One stream per kaptanto instance — one Raft group, one SyncAlways applies.
@@ -74,6 +77,7 @@ type NatsEventLog struct {
 	js            jetstream.JetStream
 	stream        jetstream.Stream
 	numPartitions uint32
+	notifyChs     []chan struct{} // one depth-1 buffered channel per partition
 }
 
 // OpenNats opens a NatsEventLog, starting an embedded NATS server and creating
@@ -141,13 +145,31 @@ func OpenNats(cfg NatsEventLogConfig) (*NatsEventLog, error) {
 		numPartitions = 64
 	}
 
+	notifyChs := make([]chan struct{}, numPartitions)
+	for i := uint32(0); i < numPartitions; i++ {
+		notifyChs[i] = make(chan struct{}, 1)
+	}
+
 	return &NatsEventLog{
 		ns:            ns,
 		nc:            nc,
 		js:            js,
 		stream:        stream,
 		numPartitions: numPartitions,
+		notifyChs:     notifyChs,
 	}, nil
+}
+
+// NotifyCh returns the read-only notify channel for the given partition.
+func (n *NatsEventLog) NotifyCh(partition uint32) <-chan struct{} {
+	return n.notifyChs[partition]
+}
+
+func (n *NatsEventLog) notify(partition uint32) {
+	select {
+	case n.notifyChs[partition] <- struct{}{}:
+	default:
+	}
 }
 
 // Append durably writes ev to the JetStream stream (CHK-01).
@@ -190,25 +212,71 @@ func (n *NatsEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 		return 0, nil
 	}
 
+	n.notify(partition)
 	return ack.Sequence, nil
 }
 
-// AppendBatch durably writes all events in evs via sequential Append calls.
-//
-// NATS JetStream does not provide native multi-subject atomic batch transactions,
-// so AppendBatch is a sequential loop. CHK-01 safety holds because each Append
-// blocks until the server confirms durability before proceeding to the next event.
-//
-// The returned slice has the same length as evs. Duplicate events return seq=0
-// at their position (LOG-03 sentinel), matching Append's contract.
+// AppendBatch durably writes all events using pipelined PublishMsgAsync calls,
+// collecting PubAck futures before returning. CHK-01 holds because callers
+// must not advance the source checkpoint until AppendBatch returns without error.
 func (n *NatsEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
-	seqs := make([]uint64, len(evs))
+	if len(evs) == 0 {
+		return nil, nil
+	}
+
+	type prepared struct {
+		msg       *nats.Msg
+		partition uint32
+		idx       int
+	}
+	preparedMsgs := make([]prepared, 0, len(evs))
 	for i, ev := range evs {
-		seq, err := n.Append(ev)
+		partition := PartitionOf(ev.Key, n.numPartitions)
+		data, err := json.Marshal(ev)
 		if err != nil {
-			return nil, fmt.Errorf("nats eventlog: AppendBatch[%d]: %w", i, err)
+			return nil, fmt.Errorf("nats eventlog: marshal event[%d]: %w", i, err)
 		}
-		seqs[i] = seq // 0 for duplicates (LOG-03 sentinel)
+		msg := &nats.Msg{
+			Subject: natsSubject(partition),
+			Data:    data,
+			Header:  nats.Header{nats.MsgIdHdr: []string{ev.IdempotencyKey}},
+		}
+		preparedMsgs = append(preparedMsgs, prepared{msg: msg, partition: partition, idx: i})
+	}
+
+	seqs := make([]uint64, len(evs))
+	futures := make([]jetstream.PubAckFuture, 0, len(preparedMsgs))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for _, pm := range preparedMsgs {
+		fut, err := n.js.PublishMsgAsync(pm.msg)
+		if err != nil {
+			return nil, fmt.Errorf("nats eventlog: AppendBatch async publish[%d]: %w", pm.idx, err)
+		}
+		futures = append(futures, fut)
+	}
+
+	notifyPartitions := make(map[uint32]struct{})
+	for j, fut := range futures {
+		pm := preparedMsgs[j]
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case ack := <-fut.Ok():
+			if ack.Duplicate {
+				seqs[pm.idx] = 0
+			} else {
+				seqs[pm.idx] = ack.Sequence
+				notifyPartitions[pm.partition] = struct{}{}
+			}
+		case err := <-fut.Err():
+			return nil, fmt.Errorf("nats eventlog: AppendBatch pubAck[%d]: %w", pm.idx, err)
+		}
+	}
+
+	for partition := range notifyPartitions {
+		n.notify(partition)
 	}
 	return seqs, nil
 }
