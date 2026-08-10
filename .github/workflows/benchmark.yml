@@ -69,7 +69,16 @@ jobs:
           if [ -n "$SCENARIOS" ]; then
             ARGS="$ARGS --scenarios $SCENARIOS"
           fi
-          go run ./cmd/scenarios $ARGS
+          for attempt in 1 2 3; do
+            if go run ./cmd/scenarios $ARGS; then
+              exit 0
+            fi
+            echo "scenarios attempt $attempt failed; cleaning up and retrying..."
+            docker compose down -v --remove-orphans 2>/dev/null || true
+            sleep 30
+          done
+          echo "scenarios failed after 3 attempts" >&2
+          exit 1
 
       - name: Generate report
         working-directory: bench
