@@ -72,6 +72,7 @@ func runMongoPipeline(
 	if err != nil {
 		return fmt.Errorf("mongodb: create connector: %w", err)
 	}
+	connector.SetMetrics(metrics)
 
 	appendFn := func(ctx context.Context, ev *event.ChangeEvent) error {
 		return connector.AppendAndQueue(ctx, ev, nil)
@@ -115,6 +116,7 @@ func runMongoPipeline(
 	if err != nil {
 		return fmt.Errorf("mongodb: create connector after snapshot: %w", err)
 	}
+	connector2.SetMetrics(metrics)
 	g2, gctx2 := errgroup.WithContext(ctx)
 	g2.Go(func() error { cursorRun(gctx2); return nil })
 	g2.Go(func() error { return connector2.Run(gctx2) })

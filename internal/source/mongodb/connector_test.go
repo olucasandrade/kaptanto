@@ -10,9 +10,11 @@ import (
 
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/observability"
 	mongodb "github.com/olucasandrade/kaptanto/internal/source/mongodb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -578,6 +580,8 @@ func TestConsumeStream_DecodeFailureAdvancesCheckpoint(t *testing.T) {
 	cfg := mongodb.Config{Database: "db", Collections: []string{"c1"}, SourceID: "src"}
 	c, err := mongodb.NewWithWatchFn(cfg, store, idGen, el, watchFn)
 	require.NoError(t, err)
+	m := observability.NewKaptantoMetrics()
+	c.SetMetrics(m)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -594,6 +598,7 @@ func TestConsumeStream_DecodeFailureAdvancesCheckpoint(t *testing.T) {
 	ch := c.Events()
 	ev := readTestEvent(t, ch)
 	assert.Contains(t, string(ev.After), "good")
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.MongoSkippedDocsTotal.WithLabelValues("decode")))
 }
 
 func TestRun_PerCollectionCheckpointKeys(t *testing.T) {
