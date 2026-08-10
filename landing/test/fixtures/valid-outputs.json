@@ -1,0 +1,24 @@
+{
+  "outputs": [
+    "none",
+    "stdout",
+    "sse",
+    "grpc",
+    "nats",
+    "sqs",
+    "kafka",
+    "pubsub",
+    "rabbitmq",
+    "webhook",
+    "vector"
+  ],
+  "sinks": [
+    "kafka",
+    "nats",
+    "sqs",
+    "pubsub",
+    "rabbitmq",
+    "webhook",
+    "vector"
+  ]
+}
