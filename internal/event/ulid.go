@@ -11,10 +11,9 @@ import (
 // IDGenerator produces ULIDs. It is safe for concurrent use from multiple
 // goroutines.
 //
-// Monotonic ordering within a single source/worker is preserved by giving each
-// goroutine its own MonotonicEntropy source via sync.Pool. Global monotonic
-// ordering is not required because each event already carries a source-scoped
-// idempotency key for deduplication.
+// Monotonic ordering is preserved per sync.Pool entropy instance; ULIDs are
+// millisecond-ordered by timestamp and carry a per-source idempotency key for
+// deduplication when strict ID ordering matters.
 type IDGenerator struct {
 	pool sync.Pool
 }
