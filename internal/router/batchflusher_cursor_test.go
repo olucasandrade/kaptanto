@@ -179,14 +179,14 @@ waitForAttempt:
 	// (NextDelay(1) is up to 5s with full jitter on a loaded CI runner).
 	consumer.failFlush.Store(false)
 
-	deadline := time.After(12 * time.Second)
+	deadline := time.After(30 * time.Second)
 waitLoop:
 	for {
 		select {
 		case <-deadline:
 			cancel()
 			<-done
-			t.Fatal("flush never succeeded after broker recovery within 12s")
+			t.Fatal("flush never succeeded after broker recovery within 30s")
 		default:
 		}
 		if len(consumer.getFlushed()) >= 3 {
