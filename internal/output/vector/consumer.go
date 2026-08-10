@@ -49,6 +49,7 @@ type VectorSinkConsumer struct {
 
 	mu      sync.Mutex
 	pending map[uint32][]pendingVec
+	pendingIDs map[uint32]map[string]struct{}
 	m       *observability.KaptantoMetrics
 }
 
@@ -126,6 +127,7 @@ func NewVectorSinkConsumerWithDeps(
 		metadataCols: meta,
 		batchMax:     batchMax,
 		pending:      make(map[uint32][]pendingVec),
+		pendingIDs:   make(map[uint32]map[string]struct{}),
 	}
 }
 
@@ -194,6 +196,13 @@ func (c *VectorSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 
 	if ev.Operation == event.OpDelete {
 		c.mu.Lock()
+		if c.pendingIDs == nil {
+			c.pendingIDs = make(map[uint32]map[string]struct{})
+		}
+		if c.pendingIDs[entry.PartitionID] == nil {
+			c.pendingIDs[entry.PartitionID] = make(map[string]struct{})
+		}
+		c.pendingIDs[entry.PartitionID][id] = struct{}{}
 		c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingVec{
 			seq:    entry.Seq,
 			id:     id,
@@ -213,12 +222,23 @@ func (c *VectorSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 	}
 
 	hash := HashText(text)
-	if c.cache != nil && c.cache.Unchanged(id, hash) && !c.pendingHasID(entry.PartitionID, id) {
+	c.mu.Lock()
+	hasPending := false
+	if ids := c.pendingIDs[entry.PartitionID]; ids != nil {
+		_, hasPending = ids[id]
+	}
+	if c.cache != nil && c.cache.Unchanged(id, hash) && !hasPending {
+		c.mu.Unlock()
 		c.incSkipped(SkipReasonUnchanged)
 		return nil
 	}
-
-	c.mu.Lock()
+	if c.pendingIDs == nil {
+		c.pendingIDs = make(map[uint32]map[string]struct{})
+	}
+	if c.pendingIDs[entry.PartitionID] == nil {
+		c.pendingIDs[entry.PartitionID] = make(map[string]struct{})
+	}
+	c.pendingIDs[entry.PartitionID][id] = struct{}{}
 	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingVec{
 		seq:      entry.Seq,
 		id:       id,
@@ -242,10 +262,9 @@ func (c *VectorSinkConsumer) incSkipped(reason string) {
 func (c *VectorSinkConsumer) pendingHasID(partitionID uint32, id string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for _, p := range c.pending[partitionID] {
-		if p.id == id {
-			return true
-		}
+	if ids := c.pendingIDs[partitionID]; ids != nil {
+		_, ok := ids[id]
+		return ok
 	}
 	return false
 }
@@ -284,6 +303,7 @@ func (c *VectorSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32)
 	}
 	batch := c.pending[partitionID]
 	delete(c.pending, partitionID)
+	delete(c.pendingIDs, partitionID)
 	c.mu.Unlock()
 
 	start := time.Now()
