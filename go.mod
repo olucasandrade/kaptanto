@@ -27,7 +27,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.46.3
 	github.com/google/uuid v1.6.0
 	github.com/itchyny/gojq v0.12.19
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/rabbitmq/amqp091-go v1.13.0
 	github.com/spf13/pflag v1.0.10
 	github.com/twmb/franz-go v1.21.5
