@@ -28,7 +28,7 @@ export const DOCS_CONTENT: Record<string, DocItem> = {
 <li><strong>Consistent backfills</strong> — Watermark-coordinated snapshots that merge seamlessly with the live WAL stream. Crash-resumable keyset cursors.</li>
 <li><strong>Per-key ordering</strong> — Events for the same primary key always arrive in commit order, hashed across 64 partitions for parallel throughput.</li>
 <li><strong>Idempotency keys</strong> — Every event has a deterministic, stable key for exactly-once processing.</li>
-<li><strong>Poison pill isolation</strong> — Failed events block only their message group, not the pipeline. Exponential backoff (1s → 5s → 30s → 2min → 10min plateau); after 15 retries the event is logged at Error level and dropped — no persistent dead-letter store.</li>
+<li><strong>Poison pill isolation</strong> — Failed events block only their message group, not the pipeline. Exponential backoff (1s → 5s → 30s → 2min → 10min plateau); after 15 retries the event head is persisted to the SQLite dead-letter queue at <code>&lt;data-dir&gt;/dlq.db</code> (enabled by default; <code>--dlq-enabled=false</code> restores pre-DLQ log-and-drop).</li>
 <li><strong>High availability</strong> — Leader election via Postgres advisory locks. Automatic primary detection and failover.</li>
 <li><strong>Cluster mode</strong> — Active-active delivery across nodes with embedded NATS JetStream and shared partition ownership.</li>
 <li><strong>Queue sinks</strong> — Push CDC events to NATS JetStream, AWS SQS, Apache Kafka, Google Cloud Pub/Sub, or RabbitMQ with per-table routing and TLS/mTLS support.</li>
@@ -237,7 +237,7 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <p class="dp">Every event is durably written to the embedded Event Log (Badger) before the source checkpoint is advanced. If kaptanto crashes between receiving a WAL message and writing it, the source re-sends on reconnection. The Event Log deduplicates by the deterministic <code>idempotency_key</code>, so replayed messages collapse to a single event.</p>
 
 <h2 class="dh2">Poison pill handling</h2>
-<p class="dp">Failed events are retried with exponential backoff (1s → 5s → 30s → 2min → 10min plateau). After 15 failed attempts, the event is logged at Error level and dropped — there is no persistent dead-letter store to replay from, so alert on <code>kaptanto_errors_total</code> to catch this. A failed event blocks only its own message group, not other groups in the same partition.</p>`,
+<p class="dp">Failed events are retried with exponential backoff (1s → 5s → 30s → 2min → 10min plateau). After 15 failed attempts, the event head is persisted to the SQLite dead-letter queue at <code>&lt;data-dir&gt;/dlq.db</code> (default <code>--dlq-enabled=true</code>). Set <code>--dlq-enabled=false</code> to restore pre-DLQ log-and-drop behavior. Use <code>--dlq-retention</code> (e.g. <code>168h</code>) to expire old entries; <code>0</code> keeps them forever. A failed event blocks only its own message group, not other groups in the same partition. Alert on <code>kaptanto_errors_total</code> and inspect <code>dlq.db</code> when poison events appear.</p>`,
   },
 
   "docs-ordering": {
@@ -311,6 +311,46 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 <p class="dp">HTTP/2 backpressure is native. If the consumer stops reading, the gRPC server detects window exhaustion and applies per-consumer backpressure.</p>`,
   },
 
+  "docs-webhook": {
+    title: "Webhook Output",
+    sub: "HTTP POST/PUT/PATCH sink for plain webhook delivery and action transforms.",
+    body: `
+<p class="dp">Set <code>output: webhook</code> to push each CDC event (or batched JSON array) to an HTTP endpoint. The webhook sink is also the delivery path for <a onclick="go('docs-actions')">Actions</a> — action types compile into webhook consumer configs with transforms.</p>
+<div class="dcall"><p><strong>Auth required:</strong> webhook mode serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>, so kaptanto refuses to start without <code>--auth-token</code> unless <code>--insecure</code> is set — see <a onclick="go('docs-config')">Configuration</a>.</p></div>
+
+<h2 class="dh2">Basic config</h2>
+<div class="dcode">output: webhook
+port: 7654
+auth-token: \${KAPTANTO_AUTH_TOKEN}
+sinks:
+  webhook:
+    url: https://hooks.example.com/cdc
+    method: POST
+    timeout: 30s
+    batch:
+      max-events: 16</div>
+
+<h2 class="dh2">Auth and signing</h2>
+<table class="dtbl"><thead><tr><th>Field</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>auth.bearer-token</code></td><td>Bearer token header (<code>\${VAR}</code>)</td></tr>
+<tr><td><code>auth.basic</code></td><td>HTTP basic auth username/password</td></tr>
+<tr><td><code>auth.aws-sigv4</code></td><td>AWS SigV4 for Lambda/API Gateway (<code>region</code>, <code>service</code>)</td></tr>
+<tr><td><code>signing.secret</code></td><td>HMAC-SHA256 over <code>t + "." + body</code> in <code>X-Kaptanto-Signature</code> (<code>\${VAR}</code>)</td></tr>
+</tbody></table>
+<p class="dp">SigV4 and HMAC signing are mutually exclusive. Receivers verify HMAC by recomputing SHA-256 over the timestamp dot-concatenated with the raw request body bytes kaptanto sent.</p>
+
+<h2 class="dh2">Headers and transforms</h2>
+<p class="dp">Static <code>headers:</code> support <code>\${VAR}</code> expansion. Optional <code>url-template</code> overrides <code>url</code> per event. <code>transform</code> (jq or go-template) reshapes the payload; <code>payload-template</code> requires <code>batch.max-events: 1</code>.</p>
+<p class="dp">Every request includes <code>X-Kaptanto-Idempotency-Key</code> with the event's deterministic idempotency key for downstream dedup.</p>
+
+<h2 class="dh2">Delivery</h2>
+<ul class="dul">
+<li><strong>CHK-01</strong> — cursor advances only after <code>FlushBatch</code> succeeds</li>
+<li><strong>WHK-02</strong> — redirects disabled; only the configured URL is contacted</li>
+<li><strong>DLV-03</strong> — no internal retry; router backoff handles transient failures</li>
+</ul>`,
+  },
+
   "docs-config": {
     title: "Configuration",
     sub: "CLI flags and YAML configuration reference.",
@@ -323,7 +363,7 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 <tr><td><code>--port</code></td><td>7654</td><td>Port for SSE/gRPC server</td></tr>
 <tr><td><code>--cors-origin</code></td><td>-</td><td>SSE <code>Access-Control-Allow-Origin</code> value; empty (default) sends no CORS header, blocking cross-origin browser access</td></tr>
 <tr><td><code>--config</code></td><td>-</td><td>Path to YAML config file</td></tr>
-<tr><td><code>--data-dir</code></td><td>./data</td><td>Directory for Event Log and checkpoints</td></tr>
+<tr><td><code>--data-dir</code></td><td>./data</td><td>Directory for Event Log, checkpoints, backfill state, and DLQ (<code>events/</code>, <code>checkpoint.db</code>, <code>cursors.db</code>, <code>backfill.db</code>, <code>dlq.db</code>)</td></tr>
 <tr><td><code>--retention</code></td><td>1h</td><td>Event Log retention period</td></tr>
 <tr><td><code>--log-level</code></td><td>info</td><td>Log verbosity: debug, info, warn, error</td></tr>
 <tr><td><code>--ha</code></td><td>false</td><td>Enable Postgres advisory lock leader election</td></tr>
@@ -339,6 +379,9 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
 <tr><td><code>--tls-key</code></td><td>-</td><td>Path to TLS private key PEM for the SSE/gRPC server</td></tr>
 <tr><td><code>--tls-client-ca</code></td><td>-</td><td>Path to CA PEM for client certificate verification (mTLS); requires <code>--tls-cert</code> and <code>--tls-key</code></td></tr>
 <tr><td><code>--all-tables</code></td><td>false</td><td>Capture all tables in the database — explicit opt-in required when <code>--tables</code> is omitted</td></tr>
+<tr><td><code>--dlq-enabled</code></td><td>true</td><td>Persist poison events to SQLite DLQ after retry exhaustion; <code>false</code> restores log-and-drop</td></tr>
+<tr><td><code>--dlq-path</code></td><td>&lt;data-dir&gt;/dlq.db</td><td>Path to the DLQ SQLite store</td></tr>
+<tr><td><code>--dlq-retention</code></td><td>0</td><td>DLQ entry retention (e.g. <code>168h</code>); <code>0</code> keeps entries forever</td></tr>
 </tbody></table>
 <div class="dcall"><p><strong>Startup auth policy:</strong> every network output — <code>sse</code>, <code>grpc</code>, <code>webhook</code>, <code>vector</code>, and all queue sinks — refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) because each one serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>. <code>output: none</code> with actions or MCP enabled follows the same rule. <code>sse</code> and <code>grpc</code> additionally require <code>--tls-cert</code>/<code>--tls-key</code>. Pass <code>--insecure</code> to bypass both checks for local development only.</p></div>
 
@@ -366,7 +409,12 @@ sinks:
     sasl-username: kaptanto
     sasl-password: secret
     tls:
-      ca-file: /etc/ssl/kafka-ca.pem</div>
+      ca-file: /etc/ssl/kafka-ca.pem
+
+dlq:
+  enabled: true
+  path: /var/lib/kaptanto/dlq.db
+  retention: 168h</div>
 
 <h2 class="dh2">AI-native knobs</h2>
 <p class="dp">Group 3 features share the same YAML file but have dedicated reference pages:</p>
@@ -461,6 +509,9 @@ sinks:
 <tr><td><code>sse</code></td><td><code>--port</code> (shared with <code>/events</code>)</td></tr>
 <tr><td><code>nats</code>, <code>sqs</code>, <code>kafka</code>, <code>pubsub</code>, <code>rabbitmq</code></td><td><code>--port</code></td></tr>
 <tr><td><code>grpc</code></td><td><code>--port</code> + 1 (gRPC owns <code>--port</code>)</td></tr>
+<tr><td><code>webhook</code></td><td><code>--port</code></td></tr>
+<tr><td><code>vector</code></td><td><code>--port</code></td></tr>
+<tr><td><code>none</code> (actions / MCP)</td><td><code>--port</code></td></tr>
 <tr><td><code>stdout</code></td><td>not served</td></tr>
 </tbody></table>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sse --port 7654 --insecure
@@ -687,7 +738,7 @@ node-id: node-1</div>
 <div class="dcall"><p><strong>Scenario:</strong> An order management API (Node.js / Python / any language) running on ECS Fargate, backed by RDS Postgres. Every row written via the API must be streamed to downstream consumers in real time.</p></div>
 <h2 class="dh2">Best use cases for kaptanto</h2>
 <ul class="dul">
-<li><strong>Notification pipelines</strong> — new order row → push notification fan-out in &lt;2s</li>
+<li><strong>Notification pipelines</strong> — new order row → push notification fan-out in seconds (burst p50 ~3.5 s in the published shared-CPU benchmark; ~2.3 s with the Rust FFI build)</li>
 <li><strong>Live search sync</strong> — product catalog changes → Elasticsearch/Typesense index update</li>
 <li><strong>Cache invalidation</strong> — row update → Redis key eviction before the next read</li>
 <li><strong>Audit trail</strong> — every write captured and appended to an append-only audit log</li>
@@ -1659,6 +1710,7 @@ export const SIDEBAR: Array<{ label: string; items: [string, string][] }> = [
       ["docs-sse", "Server-Sent Events"],
       ["docs-grpc", "gRPC"],
       ["docs-queue-sinks", "Queue Sinks"],
+      ["docs-webhook", "Webhook"],
       ["docs-vector", "Vector / RAG"],
     ],
   },
@@ -1730,6 +1782,7 @@ export const DOC_FLOW = [
   "docs-sse",
   "docs-grpc",
   "docs-queue-sinks",
+  "docs-webhook",
   "docs-vector",
   "docs-actions",
   "docs-serverless",

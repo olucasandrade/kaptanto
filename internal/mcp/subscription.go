@@ -182,6 +182,9 @@ func (sub *subscription) ID() string { return sub.id }
 // Deliver matches, ring-appends (evicting oldest when full), and schedules a
 // debounced resources/updated nudge. Never blocks; always returns nil (MCP-04).
 func (sub *subscription) Deliver(_ context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return nil
+	}
 	if entry.Event == nil {
 		return nil
 	}

@@ -38,6 +38,7 @@ type KaptantoMetrics struct {
 	VectorDeletesTotal      prometheus.Counter       // vector_deletes_total
 	VectorSkippedTotal      *prometheus.CounterVec   // vector_skipped_total{reason}
 	VectorEmbedLatency      prometheus.Histogram     // vector_embed_latency_seconds
+	MongoSkippedDocsTotal   *prometheus.CounterVec   // mongodb_skipped_docs_total{reason}
 }
 
 // NewKaptantoMetrics creates a KaptantoMetrics with a fresh custom Prometheus
@@ -150,6 +151,10 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 			Help:    "Latency of vector sink Embed calls in seconds.",
 			Buckets: prometheus.DefBuckets,
 		}),
+		MongoSkippedDocsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "mongodb_skipped_docs_total",
+			Help: "Total MongoDB change stream documents skipped after decode/normalize failure, labeled by reason.",
+		}, []string{"reason"}),
 	}
 	reg.MustRegister(
 		m.EventsDelivered,
@@ -177,6 +182,7 @@ func NewKaptantoMetrics() *KaptantoMetrics {
 		m.VectorDeletesTotal,
 		m.VectorSkippedTotal,
 		m.VectorEmbedLatency,
+		m.MongoSkippedDocsTotal,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)

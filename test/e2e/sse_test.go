@@ -123,8 +123,7 @@ func TestE2E_Postgres_SSEOutput(t *testing.T) {
 	require.NoError(t, err)
 
 	// There is nothing to wait "until quiescent" for here — we expect zero
-	// events. Give the pipeline a generous fixed window to prove the
-	// negative, then assert nothing arrived.
-	time.Sleep(3 * time.Second)
+	// events. Poll the collector to prove the negative instead of a fixed sleep.
+	waitNoEvents(t, fc, 3*time.Second)
 	require.Empty(t, fc.snapshot(), "tables= filter must exclude events for a non-matching table")
 }

@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - main
+    paths:
+      - "landing/**"
+      - ".github/workflows/landing.yml"
   pull_request:
     branches: ["**"]
     paths:

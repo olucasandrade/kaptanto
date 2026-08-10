@@ -18,6 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func materializeEntry(t *testing.T, e eventlog.LogEntry) *event.ChangeEvent {
+	require.NoError(t, e.MaterializeEvent())
+	return e.Event
+}
+
 func makeEvent(idempotencyKey string, keyJSON string) *event.ChangeEvent {
 	return &event.ChangeEvent{
 		ID:             ulid.Make(),
@@ -53,7 +58,8 @@ func TestBadgerEventLog_AppendAndRead(t *testing.T) {
 		entries, err := el.ReadPartition(ctx, p, 0, 100)
 		require.NoError(t, err)
 		for _, e := range entries {
-			if e.Event.IdempotencyKey == ev.IdempotencyKey {
+			ent := materializeEntry(t, e)
+			if ent.IdempotencyKey == ev.IdempotencyKey {
 				found = true
 				assert.Equal(t, seq, e.Seq, "returned Seq should match Append seq")
 			}
@@ -125,7 +131,8 @@ func TestBadgerEventLog_Dedup(t *testing.T) {
 		entries, err := el.ReadPartition(ctx, p, 0, 100)
 		require.NoError(t, err)
 		for _, e := range entries {
-			if e.Event.IdempotencyKey == ev.IdempotencyKey {
+			ent := materializeEntry(t, e)
+			if ent.IdempotencyKey == ev.IdempotencyKey {
 				totalEntries++
 			}
 		}
@@ -157,7 +164,8 @@ func TestBadgerEventLog_Partitioning(t *testing.T) {
 			entries, err := el.ReadPartition(ctx, p, 0, 100)
 			require.NoError(t, err)
 			for _, e := range entries {
-				if e.Event.IdempotencyKey == idempotencyKey {
+				ent := materializeEntry(t, e)
+				if ent.IdempotencyKey == idempotencyKey {
 					return int(p)
 				}
 			}
@@ -308,8 +316,9 @@ func TestBadgerEventLog_ReopenPreservesDedupAndEntries(t *testing.T) {
 		entries, err := el2.ReadPartition(ctx, p, 0, 100)
 		require.NoError(t, err)
 		for _, e := range entries {
-			found[e.Event.IdempotencyKey] = true
-			foundSeqs[e.Event.IdempotencyKey] = e.Seq
+			ent := materializeEntry(t, e)
+			found[ent.IdempotencyKey] = true
+			foundSeqs[ent.IdempotencyKey] = e.Seq
 		}
 	}
 	for i, ev := range evs {
@@ -341,7 +350,8 @@ func TestBadgerEventLog_ReopenPreservesDedupAndEntries(t *testing.T) {
 		entries, err := el2.ReadPartition(ctx, p, 0, 100)
 		require.NoError(t, err)
 		for _, e := range entries {
-			if e.Event.IdempotencyKey == newEv.IdempotencyKey {
+			ent := materializeEntry(t, e)
+			if ent.IdempotencyKey == newEv.IdempotencyKey {
 				newFound = true
 				assert.Equal(t, newSeq, e.Seq)
 			}
@@ -372,7 +382,8 @@ func TestReadPartition_RawPopulated(t *testing.T) {
 		entries, err := el.ReadPartition(ctx, p, 0, 100)
 		require.NoError(t, err)
 		for i := range entries {
-			if entries[i].Event.IdempotencyKey == ev.IdempotencyKey {
+			ent := materializeEntry(t, entries[i])
+			if ent.IdempotencyKey == ev.IdempotencyKey {
 				e := entries[i]
 				found = &e
 				break

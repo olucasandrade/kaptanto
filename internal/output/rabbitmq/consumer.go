@@ -48,6 +48,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/redact"
 	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
@@ -236,6 +237,9 @@ func (c *RabbitMQSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // On any publish error Deliver returns immediately — retry is the
 // RetryScheduler's responsibility (DLV-03).
 func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("rabbitmq sink: materialize event: %w", err)
+	}
 	// 1. Select channel for this partition (read lock — channels may be swapped
 	//    by reconnectLoop under write lock).
 	c.mu.RLock()
@@ -465,7 +469,7 @@ func dialAndOpenChannels(url string, tlsCfg *tls.Config) (*amqp.Connection, [64]
 		conn, err = amqp.Dial(url)
 	}
 	if err != nil {
-		return nil, [64]AMQPChannelAPI{}, fmt.Errorf("rabbitmq sink: dial %q: %w", url, err)
+		return nil, [64]AMQPChannelAPI{}, fmt.Errorf("rabbitmq sink: dial %q: %w", redact.URL(url), err)
 	}
 
 	var channels [64]AMQPChannelAPI
@@ -491,7 +495,7 @@ func dialAndOpenChannels(url string, tlsCfg *tls.Config) (*amqp.Connection, [64]
 // If CAFile is set, loads the CA certificate pool.
 // If CertFile and KeyFile are both set, loads the client key pair for mTLS.
 func buildTLSConfig(tlsCfg config.TLSConfig) (*tls.Config, error) {
-	cfg := &tls.Config{}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 
 	if tlsCfg.CAFile != "" {
 		pem, err := os.ReadFile(tlsCfg.CAFile)

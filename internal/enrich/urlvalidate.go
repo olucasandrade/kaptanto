@@ -18,6 +18,7 @@ var blockedMetadataHosts = map[string]struct{}{
 type urlPolicy struct {
 	allowHosts           map[string]struct{}
 	insecureAllowPrivate bool
+	lookupIP             func(context.Context, string) ([]net.IPAddr, error)
 }
 
 func newURLPolicy(allowHosts []string, insecureAllowPrivate bool) *urlPolicy {
@@ -97,28 +98,40 @@ func (p *urlPolicy) isBlockedIP(ip net.IP) bool {
 }
 
 func (p *urlPolicy) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, _, err := net.SplitHostPort(addr)
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
 	host = strings.Trim(host, "[]")
 
+	dialAddr := addr
 	if ip := net.ParseIP(host); ip != nil {
 		if p.isBlockedIP(ip) {
 			return nil, fmt.Errorf("enrichment: blocked destination %s", host)
 		}
 	} else if !p.isAllowlisted(host) {
-		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		lookup := p.lookupIP
+		if lookup == nil {
+			lookup = net.DefaultResolver.LookupIPAddr
+		}
+		ips, err := lookup(ctx, host)
 		if err != nil {
 			return nil, err
 		}
+		var allowed net.IP
 		for _, ia := range ips {
 			if p.isBlockedIP(ia.IP) {
 				return nil, fmt.Errorf("enrichment: blocked destination %s (%s)", host, ia.IP)
 			}
+			if allowed == nil {
+				allowed = ia.IP
+			}
+		}
+		if allowed != nil {
+			dialAddr = net.JoinHostPort(allowed.String(), port)
 		}
 	}
 
 	d := &net.Dialer{}
-	return d.DialContext(ctx, network, addr)
+	return d.DialContext(ctx, network, dialAddr)
 }

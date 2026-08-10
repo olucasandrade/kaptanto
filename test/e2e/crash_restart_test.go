@@ -65,7 +65,7 @@ func TestE2E_Postgres_CrashRestartDurability(t *testing.T) {
 
 	// Let the replication slot get created and streaming start before writing,
 	// matching the existing CRUD test's proven startup timing.
-	time.Sleep(3 * time.Second)
+	waitForReplicationSlot(t, fx.Conn, fx.SourceID, 30*time.Second)
 
 	for i := 1; i <= preCrashRows; i++ {
 		_, err = fx.Conn.Exec(ctx, fmt.Sprintf(

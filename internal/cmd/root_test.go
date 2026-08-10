@@ -373,6 +373,7 @@ func TestOutputMode_Nats_MissingConfig(t *testing.T) {
 	// before failing. The nil sinks.nats guard fires before any DB connection.
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "nats",
 		"--all-tables",
 		"--insecure",
@@ -388,6 +389,7 @@ func TestOutputMode_Nats_InvalidMode(t *testing.T) {
 	var buf bytes.Buffer
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "invalid-queue",
 		"--all-tables",
 	}, &buf)
@@ -405,6 +407,7 @@ func TestOutputMode_SQS_MissingConfig(t *testing.T) {
 	// before failing. The nil sinks.sqs guard fires before any DB connection.
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "sqs",
 		"--all-tables",
 		"--insecure",
@@ -420,6 +423,7 @@ func TestOutputMode_SQS_InvalidMode(t *testing.T) {
 	var buf bytes.Buffer
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "invalid-queue-mode",
 		"--all-tables",
 	}, &buf)
@@ -435,6 +439,7 @@ func TestOutputMode_Kafka_MissingConfig(t *testing.T) {
 	var buf bytes.Buffer
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "kafka",
 		"--all-tables",
 		"--insecure",
@@ -450,6 +455,7 @@ func TestOutputMode_Kafka_InvalidMode(t *testing.T) {
 	var buf bytes.Buffer
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "invalid-kafka-mode",
 		"--all-tables",
 	}, &buf)
@@ -467,6 +473,7 @@ func TestOutputMode_PubSub_MissingConfig(t *testing.T) {
 	// before failing. The nil sinks.pubsub guard fires before any DB connection.
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "pubsub",
 		"--all-tables",
 		"--insecure",
@@ -482,6 +489,7 @@ func TestOutputMode_PubSub_InvalidMode(t *testing.T) {
 	var buf bytes.Buffer
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "invalid-pubsub-mode",
 		"--all-tables",
 	}, &buf)
@@ -499,6 +507,7 @@ func TestOutputMode_RabbitMQ_MissingConfig(t *testing.T) {
 	// before failing. The nil sinks.rabbitmq guard fires before any DB connection.
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "rabbitmq",
 		"--all-tables",
 		"--insecure",
@@ -514,6 +523,7 @@ func TestOutputMode_RabbitMQ_InvalidMode(t *testing.T) {
 	var buf bytes.Buffer
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "invalid-rabbitmq-mode",
 		"--all-tables",
 	}, &buf)
@@ -528,6 +538,7 @@ func TestOutputMode_Vector_MissingConfig(t *testing.T) {
 	var buf bytes.Buffer
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "vector",
 		"--all-tables",
 		"--insecure",
@@ -543,6 +554,7 @@ func TestOutputMode_Vector_InvalidMode(t *testing.T) {
 	var buf bytes.Buffer
 	err := cmd.ExecuteWithArgs([]string{
 		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--data-dir", t.TempDir(),
 		"--output", "invalid-vector-mode",
 		"--all-tables",
 	}, &buf)

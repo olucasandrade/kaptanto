@@ -146,13 +146,13 @@ mutation:
 	gremlins unleash --threshold-efficacy 75 ./internal/backfill; \
 	echo "=== gremlins ./internal/pk (efficacy >= 40) ==="; \
 	gremlins unleash --threshold-efficacy 40 ./internal/pk; \
-	echo "=== gremlins ./internal/enrich (report-only — ratchet after baseline) ==="; \
-	gremlins unleash --threshold-efficacy 0 ./internal/enrich; \
-	echo "=== gremlins ./internal/output/vector (report-only — ratchet after baseline) ==="; \
-	gremlins unleash --threshold-efficacy 0 ./internal/output/vector; \
-	echo "=== gremlins ./internal/action (report-only — ratchet after baseline) ==="; \
-	gremlins unleash --threshold-efficacy 0 ./internal/action; \
-	echo "=== gremlins ./internal/mcp (report-only — ratchet after baseline) ==="; \
-	gremlins unleash --threshold-efficacy 0 ./internal/mcp; \
+	echo "=== gremlins ./internal/enrich (efficacy >= 70) ==="; \
+	gremlins unleash --threshold-efficacy 70 ./internal/enrich; \
+	echo "=== gremlins ./internal/output/vector (efficacy >= 55) ==="; \
+	gremlins unleash --threshold-efficacy 55 ./internal/output/vector; \
+	echo "=== gremlins ./internal/action (efficacy >= 55) ==="; \
+	gremlins unleash --threshold-efficacy 55 ./internal/action; \
+	echo "=== gremlins ./internal/mcp (efficacy >= 50) ==="; \
+	gremlins unleash --threshold-efficacy 50 ./internal/mcp; \
 	echo "=== gremlins ./internal/parser/pgoutput (report-only) ==="; \
 	gremlins unleash --threshold-efficacy 0 --threshold-mcover 0 ./internal/parser/pgoutput

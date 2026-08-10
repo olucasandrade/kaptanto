@@ -54,9 +54,10 @@ export const Hero = component$<HeroProps>(({ currentDoc }) => {
         </h1>
         <p class="hs sr">
           kaptanto captures every insert, update, and delete from Postgres and
-          MongoDB the moment it happens — and delivers it via stdout, SSE, gRPC,
-          or directly into NATS, SQS, Kafka, Pub/Sub, and RabbitMQ. One static
-          binary. Self-contained. Deploys anywhere.
+          MongoDB the moment it happens — stdout, SSE, gRPC, webhook, vector, or
+          broker sinks (NATS, SQS, Kafka, Pub/Sub, RabbitMQ). Optional MCP
+          server, HTTP enrichment, and YAML actions for AI-native pipelines. One
+          static binary. Deploys anywhere.
         </p>
         <div class="hact sr">
           <a href="#install" class="bg">
