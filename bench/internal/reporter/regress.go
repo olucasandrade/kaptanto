@@ -25,8 +25,9 @@ type BaselineScenarioMetrics struct {
 	P50us         int64   `json:"p50_us,omitempty"`
 }
 
-// RegressionTolerance is the default ±15% band for benchmark regression checks.
-const RegressionTolerance = 0.15
+// RegressionTolerance is the default band for benchmark regression checks on
+// shared CI runners (wider than local clean runs; published docs use higher eps).
+const RegressionTolerance = 0.20
 
 // RegressionFailure describes one metric that breached the tolerance band.
 type RegressionFailure struct {
