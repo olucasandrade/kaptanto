@@ -107,8 +107,9 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">notify</div>
             <h3>Notification pipelines</h3>
             <p>
-              Order inserted → push notification fan-out in under 2 seconds. No
-              polling, no webhook delay.
+              Order inserted → push notification fan-out in seconds (burst p50
+              ~3.5 s in the published shared-CPU benchmark; ~2.3 s with the Rust
+              FFI build). No polling, no webhook delay.
             </p>
           </div>
           <div class="fc">
