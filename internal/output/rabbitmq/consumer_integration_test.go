@@ -32,6 +32,13 @@ func rabbitMQTestURL(t *testing.T) string {
 	return url
 }
 
+func TestRabbitMQPreflight_Dial(t *testing.T) {
+	url := rabbitMQTestURL(t)
+	conn, err := amqp.Dial(url)
+	require.NoError(t, err, "RabbitMQ broker must accept amqp.Dial before integration suite runs")
+	require.NoError(t, conn.Close())
+}
+
 // TestIntegrationCanary_RABBITMQ_TEST_URL fails the build when running under
 // GitHub Actions and RABBITMQ_TEST_URL is unset. A green integration job
 // does not, by itself, prove that TestRabbitMQIntegration_RoundTrip actually
