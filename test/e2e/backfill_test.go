@@ -76,6 +76,10 @@ func TestE2E_Postgres_BackfillDuringStream(t *testing.T) {
 		event.OpUpdate: true,
 	})
 
+	// Wait until the replication slot exists so WAL updates from the racer are
+	// retained — an update predating the slot never streams (see comment below).
+	waitForReplicationSlot(t, fx.Conn, fx.SourceID, 30*time.Second)
+
 	// Race a batch of concurrent updates against the snapshot: backfill's
 	// SnapshotLSN is pg_current_wal_flush_lsn() at process start (see
 	// BackfillEngineImpl.Run), so every update issued from here on has a
@@ -94,7 +98,6 @@ func TestE2E_Postgres_BackfillDuringStream(t *testing.T) {
 	// read, which the watermark check is allowed to discard), so this
 	// isn't optional.
 	go func() {
-		time.Sleep(3 * time.Second)
 		for id := totalRows; id > totalRows-racedRows; id-- {
 			_, _ = racerConn.Exec(context.Background(), fmt.Sprintf(
 				"UPDATE public.%s SET status='updated-during-snapshot' WHERE id=$1", fx.Table), id)
