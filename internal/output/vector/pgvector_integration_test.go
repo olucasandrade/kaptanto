@@ -3,7 +3,9 @@ package vector_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -26,7 +28,7 @@ func TestPGVector_Integration(t *testing.T) {
 		t.Skip("set POSTGRES_TEST_DSN to run Postgres integration tests")
 	}
 	ctx := context.Background()
-	table := "kaptanto_vectors_test_g312"
+	table := fmt.Sprintf("kaptanto_vectors_%s", strings.ReplaceAll(strings.ToLower(t.Name()), "/", "_"))
 
 	// Clean slate.
 	conn, err := pgx.Connect(ctx, dsn)

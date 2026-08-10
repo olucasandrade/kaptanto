@@ -114,9 +114,12 @@ func TestPGVectorStore_ErrorPaths(t *testing.T) {
 	sConcurrent := &PGVectorStore{conn: &fakePGX{failExecOn: 1, execErrNth: &pgconn.PgError{Code: "23505"}}, table: "t", dimensions: 2}
 	require.NoError(t, sConcurrent.ensureSchema(context.Background()))
 
-	// Concurrent CREATE TABLE IF NOT EXISTS can also raise 23505; treat as success.
+	// Concurrent CREATE TABLE IF NOT EXISTS can also raise 23505 or 42P07; treat as success.
 	sConcurrentTable := &PGVectorStore{conn: &fakePGX{failExecOn: 2, execErrNth: &pgconn.PgError{Code: "23505"}}, table: "t", dimensions: 2}
 	require.NoError(t, sConcurrentTable.ensureSchema(context.Background()))
+
+	sDupTable := &PGVectorStore{conn: &fakePGX{failExecOn: 2, execErrNth: &pgconn.PgError{Code: "42P07"}}, table: "t", dimensions: 2}
+	require.NoError(t, sDupTable.ensureSchema(context.Background()))
 
 	s2 := &PGVectorStore{conn: &fakePGX{failExecOn: 2, execErrNth: errors.New("table fail")}, table: "t", dimensions: 2}
 	err = s2.ensureSchema(context.Background())
