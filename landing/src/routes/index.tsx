@@ -149,7 +149,7 @@ export const head: DocumentHead = {
     {
       name: "twitter:description",
       content:
-        "Open-source CDC with 8 output modes: stdout, SSE, gRPC, NATS, SQS, Kafka, Pub/Sub, and RabbitMQ.",
+        "Open-source CDC with ten outputs (stdout, SSE, gRPC, webhook, vector, NATS, SQS, Kafka, Pub/Sub, RabbitMQ) plus optional MCP and actions.",
     },
     { name: "twitter:image", content: "https://kaptan.to/logo.png" },
   ],
