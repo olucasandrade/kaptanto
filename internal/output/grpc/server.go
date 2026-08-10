@@ -27,6 +27,7 @@ type GRPCServer struct {
 	metrics     *observability.KaptantoMetrics
 	rowFilters  map[string]*output.RowFilter // CFG-06: per-table row filter; nil = pass-through for all tables
 	colFilters  map[string][]string          // CFG-05: per-table column allow-list; nil = pass-through for all tables
+	consumerScope string                       // auth-derived cursor namespace when bearer token is enforced
 }
 
 // NewGRPCServer constructs a GRPCServer.
@@ -38,8 +39,9 @@ func NewGRPCServer(
 	m *observability.KaptantoMetrics,
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
+	consumerScope string,
 ) *GRPCServer {
-	return &GRPCServer{router: r, cursorStore: cs, metrics: m, rowFilters: rowFilters, colFilters: colFilters}
+	return &GRPCServer{router: r, cursorStore: cs, metrics: m, rowFilters: rowFilters, colFilters: colFilters, consumerScope: consumerScope}
 }
 
 // NewGRPCNetServer creates and configures the grpc.Server with no authentication.
@@ -89,8 +91,12 @@ func NewGRPCNetServerWithAuth(svc *GRPCServer, token string, tlsCfg *tls.Config)
 // gRPC stream. stream.Send() is called here, OUTSIDE the Router lock, so
 // HTTP/2 backpressure cannot deadlock the dispatch loop (OUT-08).
 func (s *GRPCServer) Subscribe(req *proto.SubscribeRequest, stream proto.CdcStream_SubscribeServer) error {
+	consumerID, err := bindGRPCConsumerID(s.consumerScope, req.ConsumerId)
+	if err != nil {
+		return err
+	}
 	filter := output.NewEventFilter(req.Tables, req.Operations)
-	consumer := NewGRPCConsumer(req.ConsumerId, 64, filter, s.cursorStore, s.metrics, s.rowFilters, s.colFilters)
+	consumer := NewGRPCConsumer(consumerID, 64, filter, s.cursorStore, s.metrics, s.rowFilters, s.colFilters)
 	defer consumer.Close() // signals Deliver that handler exited
 
 	s.router.Register(consumer)
@@ -116,9 +122,26 @@ func (s *GRPCServer) Subscribe(req *proto.SubscribeRequest, stream proto.CdcStre
 // Acknowledge is the unary RPC that advances the consumer's durable cursor.
 // Clients call this after successfully processing an event.
 func (s *GRPCServer) Acknowledge(ctx context.Context, req *proto.AcknowledgeRequest) (*proto.AcknowledgeResponse, error) {
-	consumerID := "grpc:" + req.ConsumerId
+	consumerID, err := bindGRPCConsumerID(s.consumerScope, req.ConsumerId)
+	if err != nil {
+		return nil, err
+	}
+	consumerID = "grpc:" + consumerID
 	if err := s.cursorStore.SaveCursor(ctx, consumerID, req.PartitionId, req.Seq); err != nil {
 		return nil, status.Errorf(codes.Internal, "save cursor: %v", err)
 	}
 	return &proto.AcknowledgeResponse{Ok: true}, nil
+}
+
+func bindGRPCConsumerID(scope, requested string) (string, error) {
+	if scope == "" {
+		return requested, nil
+	}
+	if requested == "" {
+		return scope, nil
+	}
+	if requested != scope {
+		return "", status.Error(codes.PermissionDenied, "consumer ID does not match authenticated principal")
+	}
+	return requested, nil
 }

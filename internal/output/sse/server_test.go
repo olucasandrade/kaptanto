@@ -379,7 +379,7 @@ func realServerCORS(t *testing.T, corsOrigin string) string {
 	// A short ping interval makes the handler emit a keepalive comment, which
 	// flushes the response headers so the client's Do() returns (no events are
 	// delivered here because Router.Run is never started).
-	srv := httptest.NewServer(NewSSEServer(rtr, nil, corsOrigin, 20*time.Millisecond, nil, nil))
+	srv := httptest.NewServer(NewSSEServer(rtr, nil, corsOrigin, 20*time.Millisecond, nil, nil, ""))
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

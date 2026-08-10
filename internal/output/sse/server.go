@@ -22,6 +22,7 @@ type SSEServer struct {
 	pingInterval time.Duration                // keepalive comment period; default 15s
 	rowFilters   map[string]*output.RowFilter // CFG-06: per-table row filter; nil = pass-through for all tables
 	colFilters   map[string][]string          // CFG-05: per-table column allow-list; nil = pass-through for all tables
+	consumerScope string                       // when set, consumer query param must match this auth-derived ID
 }
 
 // NewSSEServer constructs an SSEServer.
@@ -38,6 +39,7 @@ func NewSSEServer(
 	pingInterval time.Duration,
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
+	consumerScope string,
 ) *SSEServer {
 	if pingInterval == 0 {
 		pingInterval = 15 * time.Second
@@ -49,6 +51,7 @@ func NewSSEServer(
 		pingInterval: pingInterval,
 		rowFilters:   rowFilters,
 		colFilters:   colFilters,
+		consumerScope: consumerScope,
 	}
 }
 
@@ -76,7 +79,14 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	consumerID := r.URL.Query().Get("consumer")
-	if consumerID == "" {
+	if s.consumerScope != "" {
+		if consumerID == "" {
+			consumerID = s.consumerScope
+		} else if consumerID != s.consumerScope {
+			http.Error(w, "consumer ID does not match authenticated principal", http.StatusForbidden)
+			return
+		}
+	} else if consumerID == "" {
 		consumerID = r.RemoteAddr
 	}
 
