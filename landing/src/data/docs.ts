@@ -76,6 +76,12 @@ export const SEO_DOCS: SeoDoc[] = [
       "Push CDC events to NATS, SQS, Kafka, Pub/Sub, or RabbitMQ with at-least-once delivery and per-key ordering.",
   },
   {
+    slug: "docs-webhook",
+    title: "Webhook Output",
+    description:
+      "HTTP POST sink with bearer/basic/AWS SigV4 auth, HMAC signing, batching, and transforms.",
+  },
+  {
     slug: "docs-vector",
     title: "Vector Streaming & RAG",
     description:
