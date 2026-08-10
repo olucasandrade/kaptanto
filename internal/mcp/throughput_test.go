@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -179,6 +180,9 @@ func medianThroughputTrial(
 func TestMCP04_ThroughputGate(t *testing.T) {
 	if raceDetectorEnabled {
 		t.Skip("MCP-04 throughput gate is timing-sensitive under -race; covered by make test + go test -bench")
+	}
+	if os.Getenv("GITHUB_JOB") == "integration" {
+		t.Skip("MCP-04 throughput gate is wall-clock sensitive on the integration job's shared runner + live DB load; use go test -bench BenchmarkMCP04_*")
 	}
 	const n = 5000
 	const trials = 9
