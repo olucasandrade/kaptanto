@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -33,6 +34,7 @@ WHERE last_seen < NOW() - ($1 * INTERVAL '1 second');`
 // Postgres table. It upserts on start and on every interval tick. On graceful
 // shutdown (context cancellation) it deletes its own row to signal departure.
 type NodeHeartbeater struct {
+	mu       sync.Mutex // guards conn — pgx.Conn is not safe for concurrent use
 	conn     *pgx.Conn
 	nodeID   string
 	address  string
@@ -88,6 +90,9 @@ func (h *NodeHeartbeater) Run(ctx context.Context) {
 // than thresholdSeconds ago. It always returns a non-nil slice (empty when
 // no stale nodes exist).
 func (h *NodeHeartbeater) StaleNodes(ctx context.Context, thresholdSeconds int) ([]string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	rows, err := h.conn.Query(ctx, staleNodesSQL, thresholdSeconds)
 	if err != nil {
 		return nil, fmt.Errorf("cluster: stale nodes query: %w", err)
@@ -116,6 +121,9 @@ func (h *NodeHeartbeater) NodeID() string {
 
 // Close releases the pgx connection. Must be called on graceful shutdown.
 func (h *NodeHeartbeater) Close(ctx context.Context) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if err := h.conn.Close(ctx); err != nil {
 		return fmt.Errorf("cluster: close heartbeater: %w", err)
 	}
@@ -124,6 +132,9 @@ func (h *NodeHeartbeater) Close(ctx context.Context) error {
 
 // upsert writes (or refreshes) the node record in kaptanto_nodes.
 func (h *NodeHeartbeater) upsert(ctx context.Context) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if _, err := h.conn.Exec(ctx, upsertNodeSQL, h.nodeID, h.address); err != nil {
 		return fmt.Errorf("cluster: upsert node %q: %w", h.nodeID, err)
 	}
@@ -134,6 +145,9 @@ func (h *NodeHeartbeater) upsert(ctx context.Context) error {
 // shutdown to other cluster members. It intentionally accepts context.Background()
 // so the DELETE executes even after the main context is cancelled.
 func (h *NodeHeartbeater) markOffline(ctx context.Context) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if _, err := h.conn.Exec(ctx, deleteNodeSQL, h.nodeID); err != nil {
 		return fmt.Errorf("cluster: mark offline %q: %w", h.nodeID, err)
 	}
