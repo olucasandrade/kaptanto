@@ -3,6 +3,7 @@ package router_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -295,5 +296,50 @@ func TestBatchFlusherBackoffAvoidsHotLoop(t *testing.T) {
 	// Sleep guarantees *at least* the requested duration; allow scheduler overhead.
 	if gap > base+50*time.Millisecond {
 		t.Errorf("gap between first and second FlushBatch attempt = %v, want <= NextDelay(0)+50ms=%v (full jitter upper bound)", gap, base+50*time.Millisecond)
+	}
+}
+
+// keyFailingCursorConsumer fails Deliver for entries whose CDC key JSON contains failKey.
+type keyFailingCursorConsumer struct {
+	fakeCursorConsumer
+	failKey string
+}
+
+func (k *keyFailingCursorConsumer) Deliver(_ context.Context, entry eventlog.LogEntry) error {
+	if strings.Contains(string(entry.Event.Key), k.failKey) {
+		return errors.New("deliver blocked for test")
+	}
+	return k.fakeCursorConsumer.Deliver(context.Background(), entry)
+}
+
+// TestBatchFlusherCursorCappedAtBlockedFloor verifies promoteProvisional caps
+// persisted cursor at the RetryScheduler floor when a blocked key's follow-ons
+// were flushed for other keys on the same partition (RTR-06 + BatchFlusher).
+func TestBatchFlusherCursorCappedAtBlockedFloor(t *testing.T) {
+	entries := []eventlog.LogEntry{
+		makeEntry(1, `"K1"`),
+		makeEntry(2, `"K2"`),
+		makeEntry(3, `"K2"`),
+		makeEntry(4, `"K1"`),
+	}
+	el := newFakeEventLog(map[uint32][]eventlog.LogEntry{0: entries})
+
+	consumer := &keyFailingCursorConsumer{
+		fakeCursorConsumer: fakeCursorConsumer{id: "kafka-floor"},
+		failKey:            "K1",
+	}
+
+	cs := newRecordingCursorStore()
+	r := router.NewRouter(el, 1, cs)
+	r.Register(consumer)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	go r.Run(ctx) //nolint:errcheck
+
+	time.Sleep(250 * time.Millisecond)
+
+	if max := cs.maxSeq("kafka-floor", 0); max != 1 {
+		t.Errorf("BatchFlusher persisted cursor must not exceed blocked floor (1); max SaveCursor seq = %d", max)
 	}
 }

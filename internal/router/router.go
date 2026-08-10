@@ -807,10 +807,15 @@ func (r *Router) promoteProvisional(ctx context.Context, idx int, partitionID ui
 			delete(cs.skippedSeqs, partitionID)
 		}
 	}
-	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, newCursor); err != nil {
+	persistSeq := newCursor
+	if floor, ok := r.rs.Floor(cs.consumer.ID(), partitionID); ok && floor < persistSeq {
+		persistSeq = floor
+	}
+	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, persistSeq); err != nil {
 		slog.Warn("router: failed to save cursor after batch flush",
 			"consumer", cs.consumer.ID(),
 			"partition", partitionID,
+			"seq", persistSeq,
 			"err", err,
 		)
 	}
