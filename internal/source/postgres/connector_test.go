@@ -452,12 +452,12 @@ func TestSetBackfillEngine_NoNilPanic(t *testing.T) {
 
 // --- SRC-06 re-snapshot dispatch tests ---
 
-// TestSRC06_SingleRunGoroutineWhenBothConditionsTrue verifies that the merged
+// TestReSnapshot_SingleRunGoroutineWhenBothConditionsTrue verifies that the merged
 // goroutine launch condition (HasPendingBackfills() || needsSnapshot) evaluates
 // to true exactly once, preventing two concurrent bkEng.Run goroutines (SRC-06).
 // The structural fix (single if block) guarantees at most one goroutine; this
 // test confirms the boolean expression covers both the 12a and 12b cases.
-func TestSRC06_SingleRunGoroutineWhenBothConditionsTrue(t *testing.T) {
+func TestReSnapshot_SingleRunGoroutineWhenBothConditionsTrue(t *testing.T) {
 	// Both conditions true: HasPendingBackfills=true AND needsSnapshot=true.
 	// The merged condition (HasPendingBackfills() || needsSnapshot) must be true.
 	hasPending := true
@@ -510,7 +510,7 @@ func TestSRC06_SingleRunGoroutineWhenBothConditionsTrue(t *testing.T) {
 	}
 }
 
-// TestSRC06ReSnapshotDispatch verifies that EvalSlotCheck(false, true) returns
+// TestReSnapshotDispatch verifies that EvalSlotCheck(false, true) returns
 // true (needsSnapshot), confirming the SRC-06 logic is correct. The goroutine
 // dispatch itself (connectAndStream 12b block) requires a live DB connection
 // and is exercised in Plan 02's integration test.
@@ -518,7 +518,7 @@ func TestSRC06_SingleRunGoroutineWhenBothConditionsTrue(t *testing.T) {
 // NOTE: The dispatch block in connectAndStream is placed AFTER StartReplication
 // (line 308) so the slot and publication are confirmed present before snapshot
 // queries begin. This ordering is verified by code position, not runtime behavior.
-func TestSRC06ReSnapshotDispatch(t *testing.T) {
+func TestReSnapshotDispatch(t *testing.T) {
 	// slotPresent=false, wasEverConnected=true → needsSnapshot=true (SRC-06).
 	needsSnapshot := postgres.EvalSlotCheck(false, true)
 	if !needsSnapshot {
@@ -632,9 +632,9 @@ func TestSetEpochGetter_NilPanic(t *testing.T) {
 	c.SetEpochGetter(nil) // clears the getter — must not panic
 }
 
-// TestSRC06_NilBackfillEngineNoPanic verifies that a connector with nil backfillEng
+// TestReSnapshot_NilBackfillEngineNoPanic verifies that a connector with nil backfillEng
 // does not panic when SetBackfillEngine is called with a nil interface value.
-func TestSRC06_NilBackfillEngineNoPanic(t *testing.T) {
+func TestReSnapshot_NilBackfillEngineNoPanic(t *testing.T) {
 	cfg := postgres.Config{DSN: "postgres://localhost/testdb", SourceID: "pg1"}
 	store := &mockCheckpointStore{}
 	idGen := event.NewIDGenerator()

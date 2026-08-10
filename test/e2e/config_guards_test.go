@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestE2E_Group3_VectorConfigRejected verifies the binary rejects --output vector
+// TestE2E_VectorConfigRejected verifies the binary rejects --output vector
 // without a sinks.vector block before attempting to connect to Postgres.
-func TestE2E_Group3_VectorConfigRejected(t *testing.T) {
+func TestE2E_VectorConfigRejected(t *testing.T) {
 	bin := buildBinary(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -39,9 +39,9 @@ func TestE2E_Group3_VectorConfigRejected(t *testing.T) {
 	assert.Contains(t, combined, "sinks.vector")
 }
 
-// TestE2E_Group3_MCPDisabledNoListen verifies MCP-04 zero-cost: when MCP is
+// TestE2E_MCPDisabledNoListen verifies MCP zero-cost when disabled: when MCP is
 // explicitly disabled, the configured MCP port does not accept connections.
-func TestE2E_Group3_MCPDisabledNoListen(t *testing.T) {
+func TestE2E_MCPDisabledNoListen(t *testing.T) {
 	dsn := os.Getenv("POSTGRES_TEST_DSN")
 	if dsn == "" {
 		t.Skip("set POSTGRES_TEST_DSN (logical-replication Postgres) to run e2e tests")
@@ -90,9 +90,9 @@ mcp:
 	}
 }
 
-// TestE2E_Group3_MCPEnabledMissingKeyRejected verifies enabled MCP without
+// TestE2E_MCPEnabledMissingKeyRejected verifies enabled MCP without
 // resolvable api-keys fails during config validation.
-func TestE2E_Group3_MCPEnabledMissingKeyRejected(t *testing.T) {
+func TestE2E_MCPEnabledMissingKeyRejected(t *testing.T) {
 	bin := buildBinary(t)
 	cfgPath := filepath.Join(t.TempDir(), "kaptanto.yaml")
 	cfg := []byte(`source: postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test

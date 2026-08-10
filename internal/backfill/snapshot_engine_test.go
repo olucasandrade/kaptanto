@@ -178,12 +178,12 @@ func TestSnapshotTable_MultiPage_PaginatesAndPersistsCursor(t *testing.T) {
 		"persisted cursor must land on the PK of the very last row across both pages")
 }
 
-// TestSnapshotTable_WatermarkDropsSupersededRow_BKF02 verifies the engine
+// TestSnapshotTable_WatermarkDropsSupersededRow verifies the engine
 // loop actually consults the WatermarkChecker per row (not just that
 // WatermarkChecker.ShouldEmit works in isolation): a row whose PK has a
 // superseding WAL event in the EventLog must be silently skipped while its
 // page-mates are still emitted.
-func TestSnapshotTable_WatermarkDropsSupersededRow_BKF02(t *testing.T) {
+func TestSnapshotTable_WatermarkDropsSupersededRow(t *testing.T) {
 	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
