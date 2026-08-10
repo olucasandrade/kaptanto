@@ -556,6 +556,9 @@ func (c *WebhookSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // RetryScheduler will block the key (DLV-03). A transform drop returns nil
 // without buffering (TRF-02).
 func (c *WebhookSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("webhook sink: materialize event: %w", err)
+	}
 	_ = ctx
 
 	urlStr, err := c.resolveURL(entry.Event)

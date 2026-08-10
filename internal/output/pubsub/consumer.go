@@ -213,6 +213,9 @@ func (c *PubSubSinkConsumer) getOrCreatePublisher(topicID string) *pubsub.Publis
 // On encoding error Deliver returns a non-nil error immediately; the
 // RetryScheduler will block the key (DLV-03).
 func (c *PubSubSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("pubsub sink: materialize event: %w", err)
+	}
 	// 1. Resolve ordering key: string(entry.Event.Key).
 	orderingKey := string(entry.Event.Key)
 

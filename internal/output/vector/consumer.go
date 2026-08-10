@@ -180,6 +180,9 @@ func (c *VectorSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) { c.m 
 // Deliver buffers entry for FlushBatch. No embedder/store I/O happens here.
 func (c *VectorSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
 	_ = ctx
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("vector sink: materialize event: %w", err)
+	}
 	if entry.Event == nil {
 		return fmt.Errorf("vector sink: nil event")
 	}

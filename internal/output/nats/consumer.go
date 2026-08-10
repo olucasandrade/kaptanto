@@ -172,6 +172,9 @@ func (c *NATSSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // On encoding error Deliver returns a non-nil error immediately; the
 // RetryScheduler will block the key (DLV-03).
 func (c *NATSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("nats sink: materialize event: %w", err)
+	}
 	// 1. Derive subject from template.
 	var buf bytes.Buffer
 	if err := c.subjectT.Execute(&buf, entry.Event); err != nil {

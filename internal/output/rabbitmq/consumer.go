@@ -237,6 +237,9 @@ func (c *RabbitMQSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // On any publish error Deliver returns immediately — retry is the
 // RetryScheduler's responsibility (DLV-03).
 func (c *RabbitMQSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("rabbitmq sink: materialize event: %w", err)
+	}
 	// 1. Select channel for this partition (read lock — channels may be swapped
 	//    by reconnectLoop under write lock).
 	c.mu.RLock()

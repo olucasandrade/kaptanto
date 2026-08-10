@@ -293,6 +293,9 @@ func (c *SQSSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // On encoding error Deliver returns a non-nil error immediately; the
 // RetryScheduler will block the key (DLV-03).
 func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("sqs sink: materialize event: %w", err)
+	}
 	// 0. Resolve target queue URL (template path or default).
 	targetURL, err := c.resolveQueueURL(entry)
 	if err != nil {
