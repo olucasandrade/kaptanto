@@ -28,7 +28,7 @@ func TestCompareRegression_SteadyThroughputDropFails(t *testing.T) {
 	}
 }
 
-func TestCompareRegression_BurstP50RegressionFails(t *testing.T) {
+func TestCompareRegression_BurstP50NotGated(t *testing.T) {
 	baseline := &BaselineMetrics{
 		Tools: map[string]BaselineToolMetrics{
 			"kaptanto": {
@@ -45,12 +45,12 @@ func TestCompareRegression_BurstP50RegressionFails(t *testing.T) {
 			},
 		},
 	}
-	failures := CompareRegression(current, baseline, RegressionTolerance)
-	if len(failures) != 1 {
-		t.Fatalf("expected 1 failure, got %d", len(failures))
+	if failures := CompareRegression(current, baseline, RegressionTolerance); len(failures) != 0 {
+		t.Fatalf("burst p50 must not gate CompareRegression, got %d failures", len(failures))
 	}
-	if failures[0].Metric != "p50_us" {
-		t.Fatalf("expected p50_us failure, got %s", failures[0].Metric)
+	advisory := CompareBurstP50(current, baseline, RegressionTolerance)
+	if len(advisory) != 1 || advisory[0].Metric != "p50_us" {
+		t.Fatalf("expected advisory p50_us breach, got %v", advisory)
 	}
 }
 

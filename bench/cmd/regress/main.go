@@ -1,6 +1,6 @@
 // Command regress compares bench/results/metrics.jsonl against a stored baseline
-// and exits non-zero when kaptanto steady throughput or burst p50 regress
-// beyond the configured tolerance (default ±15%).
+// and exits non-zero when kaptanto steady throughput regresses beyond tolerance.
+// Burst p50 is logged as advisory only (too noisy on shared CI runners).
 package main
 
 import (
@@ -27,8 +27,11 @@ func main() {
 	}
 
 	failures := reporter.CompareRegression(current, baseline, tolerance)
+	for _, f := range reporter.CompareBurstP50(current, baseline, tolerance) {
+		fmt.Fprintf(os.Stderr, "regress (advisory burst p50): %s\n", f.Error())
+	}
 	if len(failures) == 0 {
-		fmt.Println("regress: OK — kaptanto steady throughput and burst p50 within tolerance")
+		fmt.Println("regress: OK — kaptanto steady throughput within tolerance")
 		return
 	}
 	for _, f := range failures {

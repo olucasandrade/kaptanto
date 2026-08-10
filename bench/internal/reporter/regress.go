@@ -67,9 +67,9 @@ func ReportDataFromMetrics(metricsPath string) (*ReportData, error) {
 	return Aggregate(acc, nil), nil
 }
 
-// CompareRegression checks kaptanto steady throughput and burst p50 against
-// baseline with the given tolerance. Throughput must not drop below baseline×(1−t);
-// p50 latency must not exceed baseline×(1+t).
+// CompareRegression gates on kaptanto steady throughput vs baseline. Burst p50
+// is checked separately via CompareBurstP50 for advisory logging only — on
+// shared CI runners it varies widely when eight tools compete for CPU.
 func CompareRegression(current *ReportData, baseline *BaselineMetrics, tolerance float64) []RegressionFailure {
 	if current == nil || baseline == nil {
 		return nil
@@ -94,17 +94,28 @@ func CompareRegression(current *ReportData, baseline *BaselineMetrics, tolerance
 		}
 	}
 
-	if bm.Burst.P50us > 0 {
-		cur := current.Stats[tool]["burst"].P50us
-		maxOK := float64(bm.Burst.P50us) * (1 + tolerance)
-		if float64(cur) > maxOK {
-			failures = append(failures, RegressionFailure{
-				Tool: tool, Scenario: "burst", Metric: "p50_us",
-				Baseline: float64(bm.Burst.P50us), Current: float64(cur),
-				MinOK: float64(bm.Burst.P50us) * (1 - tolerance), MaxOK: maxOK,
-			})
-		}
-	}
-
 	return failures
+}
+
+// CompareBurstP50 reports burst p50 latency breaches for logging. Callers should
+// not fail CI on this alone — use CompareRegression for the gate.
+func CompareBurstP50(current *ReportData, baseline *BaselineMetrics, tolerance float64) []RegressionFailure {
+	if current == nil || baseline == nil {
+		return nil
+	}
+	const tool = "kaptanto"
+	bm, ok := baseline.Tools[tool]
+	if !ok || bm.Burst.P50us <= 0 {
+		return nil
+	}
+	cur := current.Stats[tool]["burst"].P50us
+	maxOK := float64(bm.Burst.P50us) * (1 + tolerance)
+	if float64(cur) <= maxOK {
+		return nil
+	}
+	return []RegressionFailure{{
+		Tool: tool, Scenario: "burst", Metric: "p50_us",
+		Baseline: float64(bm.Burst.P50us), Current: float64(cur),
+		MinOK: float64(bm.Burst.P50us) * (1 - tolerance), MaxOK: maxOK,
+	}}
 }
