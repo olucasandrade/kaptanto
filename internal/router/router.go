@@ -93,6 +93,13 @@ type BatchFlusher interface {
 	FlushBatch(ctx context.Context, partitionID uint32) error
 }
 
+// cursorSave is a deferred SaveCursor call issued after releasing Router.mu.
+type cursorSave struct {
+	consumerID string
+	partition  uint32
+	seq        uint64
+}
+
 // ConsumerCursorStore persists per-consumer, per-partition delivery cursors so
 // consumers resume from the correct position after a restart.
 type ConsumerCursorStore interface {
@@ -891,7 +898,12 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 	var groupKey string
 	hasBlocked := r.rs.HasBlocked()
 	if hasBlocked {
-		groupKey = string(entry.Event.Key)
+		gk, gkErr := entry.GroupingKey()
+		if gkErr != nil {
+			slog.Warn("router: dispatch grouping key", "partition", partitionID, "seq", entry.Seq, "err", gkErr)
+			return
+		}
+		groupKey = gk
 	}
 
 	snaps := r.snapshotConsumers(partitionID, entry.Seq, groupKey, hasBlocked, snapsPtr)
@@ -939,7 +951,12 @@ func (r *Router) dispatch(ctx context.Context, partitionID uint32, entry eventlo
 	if !hasBlocked {
 		for _, err := range errs {
 			if err != nil {
-				groupKey = string(entry.Event.Key)
+				gk, gkErr := entry.GroupingKey()
+				if gkErr != nil {
+					slog.Warn("router: dispatch grouping key", "partition", partitionID, "seq", entry.Seq, "err", gkErr)
+					return
+				}
+				groupKey = gk
 				break
 			}
 		}
@@ -984,11 +1001,11 @@ func (r *Router) snapshotConsumers(partitionID uint32, seq uint64, groupKey stri
 	return snaps
 }
 
-// applyDispatchCursors is Phase 3 of dispatch: persist cursors under write lock.
+// applyDispatchCursors is Phase 3 of dispatch: update in-memory cursors under
+// write lock, then persist capped cursors after releasing the lock.
 func (r *Router) applyDispatchCursors(ctx context.Context, partitionID uint32, entry eventlog.LogEntry, groupKey string, snaps []consumerSnap, errs []error) {
+	var saves []cursorSave
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	for i, snap := range snaps {
 		if snap.consumer == nil {
 			continue
@@ -1001,20 +1018,24 @@ func (r *Router) applyDispatchCursors(ctx context.Context, partitionID uint32, e
 			continue
 		}
 		if snap.skipped {
-			r.advanceCursorLocked(ctx, cs, partitionID, entry.Seq+1)
+			r.advanceCursorLocked(cs, partitionID, entry.Seq+1, &saves)
 			continue
 		}
-		r.dispatchUpdateCursor(ctx, cs, snap, entry, partitionID, groupKey, errs, i)
+		r.dispatchUpdateCursor(ctx, cs, snap, entry, partitionID, groupKey, errs, i, &saves)
+	}
+	r.mu.Unlock()
+	for _, save := range saves {
+		r.saveCursor(ctx, save.consumerID, save.partition, save.seq)
 	}
 }
 
-// advanceCursorLocked advances cs's in-memory and persisted cursor to at least
-// seq, capping at the RetryScheduler floor. Must be called under r.mu write lock.
-func (r *Router) advanceCursorLocked(ctx context.Context, cs *consumerState, partitionID uint32, seq uint64) {
+// advanceCursorLocked advances cs's in-memory cursor to at least seq and queues
+// a capped SaveCursor after Router.mu is released. Must be called under r.mu.
+func (r *Router) advanceCursorLocked(cs *consumerState, partitionID uint32, seq uint64, saves *[]cursorSave) {
 	if seq > cs.cursorByPartition[partitionID] {
 		cs.cursorByPartition[partitionID] = seq
 	}
-	r.persistCursor(ctx, cs, partitionID, cs.cursorByPartition[partitionID])
+	r.queuePersistCursor(cs, partitionID, cs.cursorByPartition[partitionID], saves)
 }
 
 // dispatchUpdateCursor handles Phase 3 per-consumer cursor logic.
@@ -1028,6 +1049,7 @@ func (r *Router) dispatchUpdateCursor(
 	groupKey string,
 	errs []error,
 	i int,
+	saves *[]cursorSave,
 ) {
 	// Normalize entry.PartitionID to the authoritative partitionID this
 	// dispatch call was invoked with. RetryScheduler's RTR-06 floor tracking
@@ -1065,7 +1087,7 @@ func (r *Router) dispatchUpdateCursor(
 		if nextForFollowOn > cs.cursorByPartition[partitionID] {
 			cs.cursorByPartition[partitionID] = nextForFollowOn
 		}
-		r.persistCursor(ctx, cs, partitionID, nextForFollowOn)
+		r.queuePersistCursor(cs, partitionID, nextForFollowOn, saves)
 		return
 	}
 
@@ -1077,10 +1099,16 @@ func (r *Router) dispatchUpdateCursor(
 		// Identify the event by ULID + partition/seq — never the raw PK
 		// (groupKey) or the idempotency key, which embeds the PK. Natural-key
 		// PKs must not leak into log pipelines.
+		eventID := ""
+		table := ""
+		if matErr := entry.MaterializeEvent(); matErr == nil && entry.Event != nil {
+			eventID = entry.Event.ID.String()
+			table = entry.Event.Table
+		}
 		slog.Warn("router: delivery failed, blocking message group",
 			"consumer", cs.consumer.ID(),
-			"event_id", entry.Event.ID.String(),
-			"table", entry.Event.Table,
+			"event_id", eventID,
+			"table", table,
 			"partition", partitionID,
 			"seq", entry.Seq,
 			"err", err,
@@ -1124,41 +1152,33 @@ func (r *Router) dispatchUpdateCursor(
 	if nextForPartition > cs.cursorByPartition[partitionID] {
 		cs.cursorByPartition[partitionID] = nextForPartition
 	}
-	r.persistCursor(ctx, cs, partitionID, nextForPartition)
+	r.queuePersistCursor(cs, partitionID, nextForPartition, saves)
 	if r.metrics != nil {
 		r.metrics.ConsumerLag.WithLabelValues(cs.consumer.ID()).Set(0)
 	}
 }
 
-// persistCursor saves seq for (cs.consumer.ID(), partitionID), capped at the
-// RetryScheduler's RTR-06 floor for that consumer+partition when one is set.
-// The floor is the lowest seq of any record still queued (undelivered) in a
-// blocked message group; persisting past it would let a crash lose those
-// queued follow-ons forever, since RetryScheduler's queue does not survive a
-// restart.
-//
-// Residual behavior on restart: LoadCursor returns the floor (not the
-// consumer's true in-memory progress), so ReadPartition re-reads from there —
-// including entries for OTHER, non-blocked keys on the same partition that
-// this consumer had already delivered. Those re-deliveries are duplicates,
-// which is acceptable under at-least-once delivery and bounded by EventLog
-// retention, exactly like the existing dead-letter-after-15-retries policy.
-//
-// Must be called under r.mu write lock (same as dispatchUpdateCursor). Calls
-// r.rs.Floor, which acquires RetryScheduler's own mutex — this follows the
-// same Router.mu-then-RetryScheduler.mu order already used by AddBlocked and
-// IsBlocked elsewhere in this file; RetryScheduler never calls back into
-// Router while holding its own mutex, so no lock-order inversion is possible.
-func (r *Router) persistCursor(ctx context.Context, cs *consumerState, partitionID uint32, seq uint64) {
+// queuePersistCursor records a capped SaveCursor to run after Router.mu unlock.
+// Must be called under r.mu write lock.
+func (r *Router) queuePersistCursor(cs *consumerState, partitionID uint32, seq uint64, saves *[]cursorSave) {
 	persistSeq := seq
 	if floor, ok := r.rs.Floor(cs.consumer.ID(), partitionID); ok && floor < persistSeq {
 		persistSeq = floor
 	}
-	if err := r.cursorStore.SaveCursor(ctx, cs.consumer.ID(), partitionID, persistSeq); err != nil {
+	*saves = append(*saves, cursorSave{
+		consumerID: cs.consumer.ID(),
+		partition:  partitionID,
+		seq:        persistSeq,
+	})
+}
+
+// saveCursor persists seq for (consumerID, partitionID). Called outside Router.mu.
+func (r *Router) saveCursor(ctx context.Context, consumerID string, partitionID uint32, seq uint64) {
+	if err := r.cursorStore.SaveCursor(ctx, consumerID, partitionID, seq); err != nil {
 		slog.Warn("router: failed to save cursor",
-			"consumer", cs.consumer.ID(),
+			"consumer", consumerID,
 			"partition", partitionID,
-			"seq", persistSeq,
+			"seq", seq,
 			"err", err,
 		)
 	}
