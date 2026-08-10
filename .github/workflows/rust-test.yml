@@ -35,7 +35,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (2026-06-30)
+      # Pin to a commit on dtolnay/rust-toolchain's master history (not a
+      # floating "toolchain: stable" tip). Those tip SHAs diverge from master
+      # and trip zizmor's impostor-commit audit even though they live in-repo.
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (2026-08-05)
         with:
           toolchain: stable
 
@@ -69,7 +72,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (2026-06-30)
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (2026-08-05)
         with:
           toolchain: stable
 
