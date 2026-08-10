@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS kaptanto_backfill_states (
     total_rows      BIGINT      DEFAULT 0,
     processed_rows  BIGINT      DEFAULT 0,
     snapshot_lsn    BIGINT      DEFAULT 0,
+    snapshot_id     TEXT        NOT NULL DEFAULT '',
     started_at      TIMESTAMPTZ,
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (source_id, table_name)
@@ -30,8 +31,8 @@ CREATE TABLE IF NOT EXISTS kaptanto_backfill_states (
 const upsertPostgresBackfillStateSQL = `
 INSERT INTO kaptanto_backfill_states
     (source_id, table_name, status, strategy, cursor_key,
-     total_rows, processed_rows, snapshot_lsn, started_at, updated_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+     total_rows, processed_rows, snapshot_lsn, snapshot_id, started_at, updated_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
 ON CONFLICT (source_id, table_name) DO UPDATE SET
     status         = EXCLUDED.status,
     strategy       = EXCLUDED.strategy,
@@ -39,12 +40,13 @@ ON CONFLICT (source_id, table_name) DO UPDATE SET
     total_rows     = EXCLUDED.total_rows,
     processed_rows = EXCLUDED.processed_rows,
     snapshot_lsn   = EXCLUDED.snapshot_lsn,
+    snapshot_id    = EXCLUDED.snapshot_id,
     started_at     = EXCLUDED.started_at,
     updated_at     = NOW();`
 
 const selectPostgresBackfillStateSQL = `
 SELECT source_id, table_name, status, strategy, cursor_key,
-       total_rows, processed_rows, snapshot_lsn, started_at, updated_at
+       total_rows, processed_rows, snapshot_lsn, snapshot_id, started_at, updated_at
 FROM kaptanto_backfill_states
 WHERE source_id = $1 AND table_name = $2;`
 
@@ -68,6 +70,10 @@ func OpenPostgresBackfillStore(ctx context.Context, dsn string) (*PostgresBackfi
 		_ = conn.Close(ctx)
 		return nil, fmt.Errorf("backfill: create schema: %w", err)
 	}
+	if _, err := conn.Exec(ctx, `ALTER TABLE kaptanto_backfill_states ADD COLUMN IF NOT EXISTS snapshot_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		_ = conn.Close(ctx)
+		return nil, fmt.Errorf("backfill: migrate snapshot_id column: %w", err)
+	}
 
 	return &PostgresBackfillStore{conn: conn}, nil
 }
@@ -89,6 +95,7 @@ func (s *PostgresBackfillStore) SaveState(ctx context.Context, state *BackfillSt
 		state.TotalRows,
 		state.ProcessedRows,
 		int64(state.SnapshotLSN),
+		state.SnapshotID,
 		startedAt,
 	)
 	if err != nil {
@@ -113,6 +120,7 @@ func (s *PostgresBackfillStore) LoadState(ctx context.Context, sourceID, table s
 		&state.TotalRows,
 		&state.ProcessedRows,
 		&snapshotLSN,
+		&state.SnapshotID,
 		&startedAt,
 		&updatedAt,
 	)
