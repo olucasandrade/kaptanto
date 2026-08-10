@@ -207,7 +207,7 @@ func TestGRPCServer_Bufconn_SubscribeStreamsEventsInSeqOrder(t *testing.T) {
 	cs := router.NewNoopCursorStore()
 	r := router.NewRouter(el, 1, cs)
 
-	gs := NewGRPCServer(r, cs, nil, nil, nil)
+	gs := NewGRPCServer(r, cs, nil, nil, nil, "")
 	grpcSrv := NewGRPCNetServer(gs, nil)
 	dialer := startBufconnServer(t, grpcSrv)
 
@@ -252,7 +252,7 @@ func TestGRPCServer_Bufconn_AcknowledgeAdvancesSharedCursorStore(t *testing.T) {
 	cs := router.NewNoopCursorStore()
 	r := router.NewRouter(el, 1, cs)
 
-	gs := NewGRPCServer(r, cs, nil, nil, nil)
+	gs := NewGRPCServer(r, cs, nil, nil, nil, "")
 	grpcSrv := NewGRPCNetServer(gs, nil)
 	dialer := startBufconnServer(t, grpcSrv)
 
@@ -283,7 +283,7 @@ func TestGRPCServer_Bufconn_AuthRejectsMissingToken(t *testing.T) {
 	cs := router.NewNoopCursorStore()
 	r := router.NewRouter(el, 1, cs)
 
-	gs := NewGRPCServer(r, cs, nil, nil, nil)
+	gs := NewGRPCServer(r, cs, nil, nil, nil, "")
 	grpcSrv := NewGRPCNetServerWithAuth(gs, "s3cr3t-token", nil)
 	dialer := startBufconnServer(t, grpcSrv)
 
@@ -313,7 +313,7 @@ func TestGRPCServer_Bufconn_AuthAcceptsValidToken(t *testing.T) {
 	cs := router.NewNoopCursorStore()
 	r := router.NewRouter(el, 1, cs)
 
-	gs := NewGRPCServer(r, cs, nil, nil, nil)
+	gs := NewGRPCServer(r, cs, nil, nil, nil, "")
 	grpcSrv := NewGRPCNetServerWithAuth(gs, "s3cr3t-token", nil)
 	dialer := startBufconnServer(t, grpcSrv)
 
@@ -339,7 +339,7 @@ func TestGRPCServer_Bufconn_ClientCancelUnblocksSubscribeCleanly(t *testing.T) {
 	cs := router.NewNoopCursorStore()
 	r := router.NewRouter(el, 1, cs)
 
-	gs := NewGRPCServer(r, cs, nil, nil, nil)
+	gs := NewGRPCServer(r, cs, nil, nil, nil, "")
 	grpcSrv := NewGRPCNetServer(gs, nil)
 	dialer := startBufconnServer(t, grpcSrv)
 

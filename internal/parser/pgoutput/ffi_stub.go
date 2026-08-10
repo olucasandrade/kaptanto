@@ -8,15 +8,18 @@ import (
 	"github.com/jackc/pglogrepl"
 )
 
-// decodeAndSerializeRow decodes the column tuple and serializes the row to JSON.
-// Pure-Go path: uses decodeColumns + encoding/json.
-func decodeAndSerializeRow(
+// decodeSerializeAndRow decodes a tuple to a row map and JSON bytes in one pass.
+func decodeSerializeAndRow(
 	rel *pglogrepl.RelationMessageV2,
 	cols []*pglogrepl.TupleDataColumn,
 	prevRow map[string]any,
-) ([]byte, error) {
+) (map[string]any, []byte, error) {
 	row := decodeColumns(rel, cols, prevRow)
-	return json.Marshal(row)
+	afterJSON, err := json.Marshal(row)
+	if err != nil {
+		return nil, nil, err
+	}
+	return row, afterJSON, nil
 }
 
 // toastHandle is the pure-Go TOAST cache reference (the *TOASTCache itself).

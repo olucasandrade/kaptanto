@@ -55,12 +55,13 @@ func TestEnrich_Integration_WrapSuccessDurable(t *testing.T) {
 		ents, err := el.ReadPartition(context.Background(), p, 1, 10)
 		require.NoError(t, err)
 		for _, ent := range ents {
-			if ent.Event.IdempotencyKey != ev.IdempotencyKey {
+			mat := materializeEntry(t, ent)
+			if mat.IdempotencyKey != ev.IdempotencyKey {
 				continue
 			}
 			found = true
-			require.NotNil(t, ent.Event.AIContext)
-			assert.JSONEq(t, wantAI, string(ent.Event.AIContext))
+			require.NotNil(t, mat.AIContext)
+			assert.JSONEq(t, wantAI, string(mat.AIContext))
 		}
 	}
 	assert.True(t, found, "enriched event must be durable in Badger")
@@ -98,8 +99,9 @@ func TestEnrich_Integration_FailOpenStillCheckpoints(t *testing.T) {
 		ents, err := el.ReadPartition(context.Background(), p, 1, 10)
 		require.NoError(t, err)
 		for _, ent := range ents {
-			if ent.Event.IdempotencyKey == ev.IdempotencyKey {
-				raw = ent.Event.AIContext
+			mat := materializeEntry(t, ent)
+			if mat.IdempotencyKey == ev.IdempotencyKey {
+				raw = mat.AIContext
 				break
 			}
 		}

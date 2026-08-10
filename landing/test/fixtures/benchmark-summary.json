@@ -1,0 +1,14 @@
+{
+  "kaptanto": {
+    "steady_eps": 2645,
+    "peak_eps": 3256,
+    "burst_p50_s": 3.5,
+    "recovery_s": 4.5
+  },
+  "kaptanto-rust": {
+    "steady_eps": 1993,
+    "peak_eps": 3522,
+    "burst_p50_s": 2.3,
+    "recovery_s": 3.5
+  }
+}

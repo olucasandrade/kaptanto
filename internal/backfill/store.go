@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -22,6 +23,7 @@ type BackfillState struct {
 	TotalRows     int64
 	ProcessedRows int64
 	SnapshotLSN   uint64
+	SnapshotID    string // stable per snapshot run; persisted for crash-resume dedup
 	StartedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -44,14 +46,15 @@ CREATE TABLE IF NOT EXISTS backfill_states (
     total_rows      INTEGER DEFAULT 0,
     processed_rows  INTEGER DEFAULT 0,
     snapshot_lsn    INTEGER DEFAULT 0,
+    snapshot_id     TEXT NOT NULL DEFAULT '',
     started_at      DATETIME,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (source_id, table_name)
 );`
 
 const upsertBackfillStateSQL = `
-INSERT INTO backfill_states (source_id, table_name, status, strategy, cursor_key, total_rows, processed_rows, snapshot_lsn, started_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+INSERT INTO backfill_states (source_id, table_name, status, strategy, cursor_key, total_rows, processed_rows, snapshot_lsn, snapshot_id, started_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT(source_id, table_name) DO UPDATE SET
     status         = excluded.status,
     strategy       = excluded.strategy,
@@ -59,11 +62,12 @@ ON CONFLICT(source_id, table_name) DO UPDATE SET
     total_rows     = excluded.total_rows,
     processed_rows = excluded.processed_rows,
     snapshot_lsn   = excluded.snapshot_lsn,
+    snapshot_id    = excluded.snapshot_id,
     started_at     = excluded.started_at,
     updated_at     = CURRENT_TIMESTAMP;`
 
 const selectBackfillStateSQL = `
-SELECT source_id, table_name, status, strategy, cursor_key, total_rows, processed_rows, snapshot_lsn, started_at, updated_at
+SELECT source_id, table_name, status, strategy, cursor_key, total_rows, processed_rows, snapshot_lsn, snapshot_id, started_at, updated_at
 FROM backfill_states
 WHERE source_id = ? AND table_name = ?;`
 
@@ -97,6 +101,13 @@ func OpenSQLiteBackfillStore(path string) (*SQLiteBackfillStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("backfill: create schema: %w", err)
 	}
+	// Migrate existing databases created before snapshot_id was added.
+	if _, err := db.Exec(`ALTER TABLE backfill_states ADD COLUMN snapshot_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			_ = db.Close()
+			return nil, fmt.Errorf("backfill: migrate snapshot_id column: %w", err)
+		}
+	}
 
 	return &SQLiteBackfillStore{db: db}, nil
 }
@@ -117,6 +128,7 @@ func (s *SQLiteBackfillStore) SaveState(ctx context.Context, state *BackfillStat
 		state.TotalRows,
 		state.ProcessedRows,
 		int64(state.SnapshotLSN),
+		state.SnapshotID,
 		startedAt,
 	)
 	if err != nil {
@@ -142,6 +154,7 @@ func (s *SQLiteBackfillStore) LoadState(ctx context.Context, sourceID, table str
 		&state.TotalRows,
 		&state.ProcessedRows,
 		&snapshotLSN,
+		&state.SnapshotID,
 		&startedAt,
 		&updatedAt,
 	)

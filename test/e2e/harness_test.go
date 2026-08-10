@@ -308,6 +308,40 @@ func decodeKey(t *testing.T, ev event.ChangeEvent) int {
 	return id
 }
 
+// waitForReplicationSlot polls until kaptanto's logical replication slot
+// (kaptanto_<sourceID>) exists, indicating the connector has started streaming.
+func waitForReplicationSlot(t *testing.T, conn *pgx.Conn, sourceID string, timeout time.Duration) {
+	t.Helper()
+	ctx := context.Background()
+	slotName := fmt.Sprintf("kaptanto_%s", sourceID)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var exists bool
+		err := conn.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_replication_slots WHERE slot_name = $1
+			)`, slotName).Scan(&exists)
+		if err == nil && exists {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("replication slot %q not ready within %s", slotName, timeout)
+}
+
+// waitNoEvents asserts the collector stays empty for duration — used for
+// negative SSE/filter tests instead of a fixed sleep.
+func waitNoEvents(t *testing.T, c *eventCollector, duration time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
+		if c.count() > 0 {
+			t.Fatalf("expected no events, got %d", c.count())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // ─── HTTP helpers (SSE test) ─────────────────────────────────────────────────
 
 // freePort asks the OS for an unused TCP port so parallel/repeat test runs

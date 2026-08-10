@@ -45,6 +45,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
 	"github.com/olucasandrade/kaptanto/internal/observability"
+	"github.com/olucasandrade/kaptanto/internal/redact"
 	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
@@ -115,7 +116,7 @@ func NewNATSSinkConsumer(id string, cfg config.NATSSinkConfig) (*NATSSinkConsume
 	// 3. Connect to the user-configured external NATS server.
 	nc, err := natsgo.Connect(cfg.URL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("nats sink: connect to %q: %w", cfg.URL, err)
+		return nil, fmt.Errorf("nats sink: connect to %q: %w", redact.URL(cfg.URL), err)
 	}
 
 	// 4. Create JetStream context.
@@ -171,6 +172,9 @@ func (c *NATSSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // On encoding error Deliver returns a non-nil error immediately; the
 // RetryScheduler will block the key (DLV-03).
 func (c *NATSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("nats sink: materialize event: %w", err)
+	}
 	// 1. Derive subject from template.
 	var buf bytes.Buffer
 	if err := c.subjectT.Execute(&buf, entry.Event); err != nil {

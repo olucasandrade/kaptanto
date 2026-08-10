@@ -26,7 +26,8 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <h3>Low-latency streaming</h3>
             <p>
               Events flow from the WAL as each transaction commits. Burst p50
-              latency: 2.3s at ~2.1k eps. No polling interval.
+              latency: ~3.5s at ~2.3k eps for the default Go build (2.3s with
+              the optional Rust FFI build). No polling interval.
             </p>
           </div>
           <div class="fc">
@@ -71,10 +72,20 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
           </div>
           <div class="fc">
             <div class="fc-i">sinks</div>
-            <h3>5 queue sinks</h3>
+            <h3>Ten output modes</h3>
             <p>
-              Push CDC events directly to NATS, SQS, Kafka, Pub/Sub, or
-              RabbitMQ. At-least-once delivery with per-key ordering end-to-end.
+              stdout, SSE, gRPC, webhook, vector, and five broker sinks — NATS,
+              SQS, Kafka, Pub/Sub, and RabbitMQ. At-least-once delivery with
+              per-key ordering end-to-end.
+            </p>
+          </div>
+          <div class="fc">
+            <div class="fc-i">ai</div>
+            <h3>Actions &amp; AI-native</h3>
+            <p>
+              Route CDC to webhook actions, optional MCP subscriptions with ACL,
+              and fail-open HTTP enrichment that attaches opaque{" "}
+              <code>ai_context</code> before durable append.
             </p>
           </div>
           <div class="fc">
@@ -107,8 +118,9 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">notify</div>
             <h3>Notification pipelines</h3>
             <p>
-              Order inserted → push notification fan-out in under 2 seconds. No
-              polling, no webhook delay.
+              Order inserted → push notification fan-out in seconds (burst p50
+              ~3.5 s in the published shared-CPU benchmark; ~2.3 s with the Rust
+              FFI build). No polling, no webhook delay.
             </p>
           </div>
           <div class="fc">

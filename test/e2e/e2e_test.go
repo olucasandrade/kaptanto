@@ -140,7 +140,7 @@ func TestE2E_Postgres_CRUDStream(t *testing.T) {
 	}()
 
 	// Let the replication slot get created and streaming start before writing.
-	time.Sleep(3 * time.Second)
+	waitForReplicationSlot(t, conn, sourceID, 30*time.Second)
 	_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO public.%s (id, status) VALUES (1, 'new')", table))
 	require.NoError(t, err)
 	_, err = conn.Exec(ctx, fmt.Sprintf("UPDATE public.%s SET status='done' WHERE id=1", table))

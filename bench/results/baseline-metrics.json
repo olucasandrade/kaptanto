@@ -1,0 +1,8 @@
+{
+  "tools": {
+    "kaptanto": {
+      "steady": { "throughput_eps": 2000 },
+      "burst": { "p50_us": 5000000 }
+    }
+  }
+}

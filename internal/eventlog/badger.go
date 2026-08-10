@@ -352,16 +352,11 @@ func (b *BadgerEventLog) ReadPartition(ctx context.Context, partition uint32, fr
 				return fmt.Errorf("eventlog: read value at partition %d: %w", partition, err)
 			}
 
-			var ev event.ChangeEvent
-			if err := json.Unmarshal(val, &ev); err != nil {
-				return fmt.Errorf("eventlog: unmarshal event at partition %d: %w", partition, err)
-			}
-
 			_, seq := decodePartKey(item.KeyCopy(nil))
-			// Raw preserves the stored bytes so pass-through consumers can write
-			// them directly to the wire without re-marshalling (avoids 1 unmarshal
-			// + N re-marshals on the fan-out path — see fix-plan raw-bytes-passthrough).
-			entries = append(entries, LogEntry{Seq: seq, PartitionID: partition, Event: &ev, Raw: val})
+			// Raw preserves stored bytes for pass-through consumers; Event is lazy-
+			// decoded via LogEntry.MaterializeEvent when a consumer needs fields
+			// beyond the grouping key (fix-plan: badger-readpartition-eager-unmarshal).
+			entries = append(entries, LogEntry{Seq: seq, PartitionID: partition, Raw: val})
 		}
 		return nil
 	})

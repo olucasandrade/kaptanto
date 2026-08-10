@@ -547,6 +547,30 @@ func TestSnapshotLSN_NotOverwrittenOnResume(t *testing.T) {
 		"crash-resume: SnapshotLSN must not be overwritten on resume")
 }
 
+// TestSnapshotID_PersistedOnResume verifies snapshot idempotency keys stay stable
+// across crash-resume by persisting SnapshotID in BackfillState.
+func TestSnapshotID_PersistedOnResume(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	const existingID = "pg1_orders_stable_snap"
+
+	initial := &backfill.BackfillState{
+		SourceID:   "pg1",
+		Table:      "orders",
+		Status:     "running",
+		Strategy:   "snapshot_and_stream",
+		SnapshotID: existingID,
+	}
+	require.NoError(t, store.SaveState(context.Background(), initial))
+
+	loaded, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	assert.Equal(t, existingID, loaded.SnapshotID)
+}
+
 // TestOpenSQLiteBackfillStore_WALModeApplied verifies that OpenSQLiteBackfillStore
 // applies WAL journal mode via db.Exec pragmas (BKF-03 fix).
 func TestOpenSQLiteBackfillStore_WALModeApplied(t *testing.T) {

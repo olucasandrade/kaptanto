@@ -279,7 +279,11 @@ func buildSSEServer(
 	if err := requireServerTLS("sse", tlsCfg, cfg.Insecure); err != nil {
 		return nil, err
 	}
-	sseServer := sse.NewSSEServer(rtr, metrics, cfg.CORSOrigin, 15*time.Second, rowFilters, colFilters)
+	var consumerScope string
+	if cfg.AuthToken != "" && !cfg.Insecure {
+		consumerScope = auth.ConsumerScopeID(cfg.AuthToken)
+	}
+	sseServer := sse.NewSSEServer(rtr, metrics, cfg.CORSOrigin, 15*time.Second, rowFilters, colFilters, consumerScope)
 	mux := http.NewServeMux()
 	if cfg.AuthToken != "" {
 		mux.Handle("/events", auth.Middleware(cfg.AuthToken, sseServer))
@@ -334,7 +338,11 @@ func buildGRPCServer(
 	if err := requireServerTLS("grpc", tlsCfg, cfg.Insecure); err != nil {
 		return nil, err
 	}
-	grpcSvc := grpcoutput.NewGRPCServer(rtr, cursorStore, metrics, rowFilters, colFilters)
+	var consumerScope string
+	if cfg.AuthToken != "" && !cfg.Insecure {
+		consumerScope = auth.ConsumerScopeID(cfg.AuthToken)
+	}
+	grpcSvc := grpcoutput.NewGRPCServer(rtr, cursorStore, metrics, rowFilters, colFilters, consumerScope)
 	var grpcSrv interface {
 		Serve(net.Listener) error
 		GracefulStop()

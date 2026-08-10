@@ -15,6 +15,7 @@ import (
 
 const (
 	defaultCircuitThreshold = 5
+	defaultCircuitCooldown  = 5 * time.Second
 	defaultMaxIdleConns     = 10
 	defaultMaxIdlePerHost   = 2
 	defaultIdleConnTimeout  = 90 * time.Second
@@ -29,7 +30,9 @@ type httpEnrichClient struct {
 
 	circuitMu            sync.Mutex
 	consecutiveTimeouts  int
+	circuitOpenedAt      time.Time
 	circuitThreshold     int
+	circuitCooldown      time.Duration
 }
 
 func newHTTPEnrichClient(rawURL string, timeout time.Duration, authToken string, policy *urlPolicy) (*httpEnrichClient, error) {
@@ -51,6 +54,7 @@ func newHTTPEnrichClient(rawURL string, timeout time.Duration, authToken string,
 		token:            authToken,
 		timeout:          timeout,
 		circuitThreshold: defaultCircuitThreshold,
+		circuitCooldown:  defaultCircuitCooldown,
 		client: &http.Client{
 			Transport: transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -94,6 +98,9 @@ func (c *httpEnrichClient) post(ctx context.Context, ev *event.ChangeEvent) (jso
 
 	resp, err := c.client.Do(req)
 	if err != nil {
+		if ctx.Err() == context.Canceled {
+			return nil, ReasonError, err
+		}
 		if ctx.Err() != nil || isTimeout(err) {
 			c.recordTimeout()
 			return nil, ReasonTimeout, err
@@ -124,21 +131,32 @@ func (c *httpEnrichClient) post(ctx context.Context, ev *event.ChangeEvent) (jso
 func (c *httpEnrichClient) checkCircuit() (string, error) {
 	c.circuitMu.Lock()
 	defer c.circuitMu.Unlock()
-	if c.consecutiveTimeouts >= c.circuitThreshold {
+	if c.consecutiveTimeouts < c.circuitThreshold {
+		return "", nil
+	}
+	if c.circuitOpenedAt.IsZero() {
+		c.circuitOpenedAt = time.Now()
+	}
+	if time.Since(c.circuitOpenedAt) < c.circuitCooldown {
 		return ReasonCircuitOpen, fmt.Errorf("enrichment circuit open after %d consecutive timeouts", c.consecutiveTimeouts)
 	}
+	// Half-open: allow one probe after the cool-down.
 	return "", nil
 }
 
 func (c *httpEnrichClient) recordTimeout() {
 	c.circuitMu.Lock()
 	c.consecutiveTimeouts++
+	if c.consecutiveTimeouts >= c.circuitThreshold {
+		c.circuitOpenedAt = time.Now()
+	}
 	c.circuitMu.Unlock()
 }
 
 func (c *httpEnrichClient) recordSuccess() {
 	c.circuitMu.Lock()
 	c.consecutiveTimeouts = 0
+	c.circuitOpenedAt = time.Time{}
 	c.circuitMu.Unlock()
 }
 

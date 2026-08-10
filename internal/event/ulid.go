@@ -8,17 +8,18 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-// IDGenerator produces monotonically increasing ULIDs.
-// It is safe for concurrent use from multiple goroutines.
+// IDGenerator produces ULIDs. It is safe for concurrent use from multiple
+// goroutines.
 //
-// A single shared MonotonicEntropy source ensures that two IDs generated
-// within the same millisecond are still ordered (pitfall 2 from research).
+// Monotonic ordering is preserved on a single entropy source guarded by a mutex;
+// ULIDs are millisecond-ordered by timestamp and carry a per-source idempotency
+// key for deduplication when strict ID ordering matters.
 type IDGenerator struct {
 	mu      sync.Mutex
 	entropy *ulid.MonotonicEntropy
 }
 
-// NewIDGenerator creates a new IDGenerator backed by a monotonic entropy source.
+// NewIDGenerator creates a new IDGenerator backed by monotonic entropy.
 func NewIDGenerator() *IDGenerator {
 	return &IDGenerator{
 		entropy: ulid.Monotonic(rand.Reader, 0),

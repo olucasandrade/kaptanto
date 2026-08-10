@@ -30,10 +30,11 @@ const (
 	// maxAIContextBytes is the AIC-02 bound on ai_context response bodies.
 	maxAIContextBytes = 16 * 1024
 
-	defaultTimeout     = 150 * time.Millisecond
-	defaultWarnEvery   = time.Second
-	defaultOperations0 = "insert"
-	defaultOperations1 = "update"
+	defaultTimeout            = 150 * time.Millisecond
+	defaultWarnEvery          = time.Second
+	defaultOperations0        = "insert"
+	defaultOperations1        = "update"
+	enrichBatchConcurrency    = 8
 )
 
 // Failure reason labels for enrichment_failures_total{reason}.
@@ -233,9 +234,24 @@ func (w *enrichingLog) Append(ev *event.ChangeEvent) (uint64, error) {
 }
 
 func (w *enrichingLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
-	for _, ev := range evs {
-		w.enricher.Enrich(w.ctx, ev)
+	if len(evs) == 0 {
+		return w.inner.AppendBatch(evs)
 	}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, enrichBatchConcurrency)
+	for _, ev := range evs {
+		if ev == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(ev *event.ChangeEvent) {
+			defer wg.Done()
+			sem <- struct{}{}
+			w.enricher.Enrich(w.ctx, ev)
+			<-sem
+		}(ev)
+	}
+	wg.Wait()
 	return w.inner.AppendBatch(evs)
 }
 
@@ -291,4 +307,12 @@ func SetCircuitThresholdForTest(e *Enricher, n int) {
 		return
 	}
 	e.client.circuitThreshold = n
+}
+
+// SetCircuitCooldownForTest shortens the open-circuit cool-down (tests only).
+func SetCircuitCooldownForTest(e *Enricher, d time.Duration) {
+	if e == nil || e.client == nil || d <= 0 {
+		return
+	}
+	e.client.circuitCooldown = d
 }

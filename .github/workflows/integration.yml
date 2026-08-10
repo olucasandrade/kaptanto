@@ -137,7 +137,7 @@ jobs:
       # Scoped (not ./...) to the packages actually gated by those env vars,
       # to keep the added wall time bounded.
       - name: Run integration tests with -race
-        run: CGO_ENABLED=1 go test ./internal/cmd/... ./internal/checkpoint/... ./internal/ha/... ./internal/source/mongodb/... ./internal/output/vector/... -race -count=1 -timeout 300s
+        run: CGO_ENABLED=1 go test ./internal/cmd/... ./internal/checkpoint/... ./internal/ha/... ./internal/source/mongodb/... ./internal/source/postgres/... ./internal/cluster/... ./internal/output/vector/... -race -count=1 -timeout 300s
 
       - name: Container logs on failure
         if: failure()

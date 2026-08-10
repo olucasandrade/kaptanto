@@ -160,6 +160,9 @@ func (c *KafkaSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) {
 // On encoding error Deliver returns a non-nil error immediately; the
 // RetryScheduler will block the key (DLV-03).
 func (c *KafkaSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("kafka sink: materialize event: %w", err)
+	}
 	// 1. Derive topic from template.
 	var buf bytes.Buffer
 	if err := c.topicT.Execute(&buf, entry.Event); err != nil {
@@ -322,7 +325,7 @@ func buildSASLMechanism(cfg config.KafkaSinkConfig) (sasl.Mechanism, error) {
 //   - If CAFile is set, loads the CA certificate pool from the file.
 //   - If CertFile and KeyFile are both set, loads the client key pair for mTLS.
 func buildTLSConfig(tlsCfg config.TLSConfig) (*tls.Config, error) {
-	cfg := &tls.Config{}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 
 	if tlsCfg.CAFile != "" {
 		pem, err := os.ReadFile(tlsCfg.CAFile)

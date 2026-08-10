@@ -306,7 +306,10 @@ func (b *BackfillEngineImpl) runOne(ctx context.Context, cfg BackfillConfig) err
 			return err
 		}
 		// Emit snapshot_complete control event.
-		snapshotID := fmt.Sprintf("%s_%s_%d", cfg.SourceID, cfg.Table, time.Now().UnixNano())
+		snapshotID := state.SnapshotID
+		if snapshotID == "" {
+			snapshotID = fmt.Sprintf("%s_%s_%d", cfg.SourceID, cfg.Table, time.Now().UnixNano())
+		}
 		controlEv := MakeControlEvent(b.idGen, cfg.SourceID, cfg.Table, "snapshot_complete", snapshotID, state)
 		if err := b.appendFn(ctx, controlEv); err != nil {
 			return fmt.Errorf("emit snapshot_complete control event: %w", err)
@@ -359,8 +362,12 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 
 	optimizer := NewBatchOptimizer()
 
-	// Generate a stable snapshotID for all rows in this run.
-	snapshotID := fmt.Sprintf("%s_%s_%d", cfg.SourceID, cfg.Table, time.Now().UnixNano())
+	// Stable snapshotID for all rows in this run; persisted for crash-resume dedup.
+	snapshotID := state.SnapshotID
+	if snapshotID == "" {
+		snapshotID = fmt.Sprintf("%s_%s_%d", cfg.SourceID, cfg.Table, time.Now().UnixNano())
+		state.SnapshotID = snapshotID
+	}
 
 	state.Status = "running"
 	if err := b.store.SaveState(ctx, state); err != nil {

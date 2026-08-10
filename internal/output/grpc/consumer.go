@@ -78,6 +78,9 @@ func (c *GRPCConsumer) ID() string { return c.id }
 // stream.Send() is called by the Subscribe goroutine OUTSIDE any lock,
 // so HTTP/2 backpressure cannot deadlock the Router dispatch loop (OUT-08).
 func (c *GRPCConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
+	if err := entry.MaterializeEvent(); err != nil {
+		return fmt.Errorf("grpc consumer: materialize event: %w", err)
+	}
 	if !c.filter.Allow(entry.Event) {
 		return nil // filtered: cursor advances via Router
 	}
