@@ -71,10 +71,18 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
           </div>
           <div class="fc">
             <div class="fc-i">sinks</div>
-            <h3>5 queue sinks</h3>
+            <h3>Ten output modes</h3>
             <p>
-              Push CDC events directly to NATS, SQS, Kafka, Pub/Sub, or
-              RabbitMQ. At-least-once delivery with per-key ordering end-to-end.
+              stdout, SSE, gRPC, webhook, vector, and five broker sinks — NATS, SQS, Kafka,
+              Pub/Sub, and RabbitMQ. At-least-once delivery with per-key ordering end-to-end.
+            </p>
+          </div>
+          <div class="fc">
+            <div class="fc-i">ai</div>
+            <h3>Actions &amp; AI-native</h3>
+            <p>
+              Route CDC to webhook actions, optional MCP subscriptions with ACL, and fail-open
+              HTTP enrichment that attaches opaque <code>ai_context</code> before durable append.
             </p>
           </div>
           <div class="fc">
