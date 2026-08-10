@@ -82,7 +82,7 @@ mcp:
 	collector := newEventCollector()
 	tailNDJSON(stdout, collector, fx.Table, dmlOps)
 
-	time.Sleep(3 * time.Second)
+	waitForReplicationSlot(t, fx.Conn, fx.SourceID, 30*time.Second)
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", mcpPort), 500*time.Millisecond)
 	if err == nil {
 		_ = conn.Close()
