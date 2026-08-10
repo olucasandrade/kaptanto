@@ -11,6 +11,12 @@ updates:
     # versions and cuts churn from rapid point releases.
     cooldown:
       default-days: 7
+    # v1.7.0 rewrites the MCP wire protocol (2026-07-28) and removes
+    # resources/subscribe; internal/mcp still targets the 2025-11-25 revision.
+    # Revisit when adapting the server (see PR #57).
+    ignore:
+      - dependency-name: github.com/modelcontextprotocol/go-sdk
+        versions: [">=1.7.0"]
     groups:
       go-dependencies:
         patterns:
