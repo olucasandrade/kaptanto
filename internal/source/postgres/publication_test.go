@@ -86,7 +86,7 @@ func TestEnsurePublication_EmptyTablesAllowAllTablesFalse(t *testing.T) {
 
 // TestEnsurePublication_WithTables_CreatesForTable verifies that a non-empty
 // tables slice produces "CREATE PUBLICATION ... FOR TABLE t1, t2" with the
-// publication name sanitized as a quoted identifier.
+// publication name and table identifiers sanitized as quoted identifiers.
 func TestEnsurePublication_WithTables_CreatesForTable(t *testing.T) {
 	conn := &fakePubConn{existCount: 0}
 
@@ -95,8 +95,22 @@ func TestEnsurePublication_WithTables_CreatesForTable(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, conn.execCalled, "Exec must be called to create the publication")
 	assert.Contains(t, conn.execSQL, `CREATE PUBLICATION "kaptanto_pub" FOR TABLE`)
-	assert.Contains(t, conn.execSQL, "public.orders")
-	assert.Contains(t, conn.execSQL, "public.users")
+	assert.Contains(t, conn.execSQL, `"public"."orders"`)
+	assert.Contains(t, conn.execSQL, `"public"."users"`)
+}
+
+// TestEnsurePublication_QuotedMixedCaseTable verifies that a quoted config key
+// like public."CamelCaseTable" must produce a single-quoted identifier pair,
+// never the triple-quoted "public"."""CamelCaseTable""".
+func TestEnsurePublication_QuotedMixedCaseTable(t *testing.T) {
+	conn := &fakePubConn{existCount: 0}
+
+	err := ensurePublication(context.Background(), conn, "kaptanto_pub", []string{`public."CamelCaseTable"`}, false)
+
+	require.NoError(t, err)
+	require.True(t, conn.execCalled)
+	assert.Contains(t, conn.execSQL, `"public"."CamelCaseTable"`)
+	assert.NotContains(t, conn.execSQL, `"""`)
 }
 
 // TestEnsurePublication_AllowAllTablesTrue_CreatesForAllTables verifies the

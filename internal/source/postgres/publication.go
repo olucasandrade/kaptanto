@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/olucasandrade/kaptanto/internal/pgident"
 )
 
 // pubQuerier is the minimal surface ensurePublication needs from a Postgres
@@ -56,9 +57,20 @@ func ensurePublication(ctx context.Context, conn pubQuerier, pubName string, tab
 		}
 		createSQL = fmt.Sprintf("CREATE PUBLICATION %s FOR ALL TABLES", pgx.Identifier{pubName}.Sanitize())
 	} else {
+		qualified := make([]string, 0, len(tables))
+		for _, t := range tables {
+			schema, table, parseErr := pgident.Parse(t)
+			if parseErr != nil {
+				return fmt.Errorf("postgres: invalid table %q for publication: %w", t, parseErr)
+			}
+			if schema == "" {
+				schema = "public"
+			}
+			qualified = append(qualified, pgident.Qualify(schema, table))
+		}
 		createSQL = fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s",
 			pgx.Identifier{pubName}.Sanitize(),
-			strings.Join(tables, ", "),
+			strings.Join(qualified, ", "),
 		)
 	}
 

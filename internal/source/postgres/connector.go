@@ -352,7 +352,10 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 
 	// 4. Check REPLICA IDENTITY for each configured table (SRC-08).
 	for _, t := range c.cfg.Tables {
-		schema, table := splitSchemaTable(t)
+		schema, table, splitErr := splitSchemaTable(t)
+		if splitErr != nil {
+			return fmt.Errorf("postgres: invalid table %q: %w", t, splitErr)
+		}
 		if err := checkReplicaIdentity(ctx, queryConn, schema, table); err != nil {
 			return err
 		}

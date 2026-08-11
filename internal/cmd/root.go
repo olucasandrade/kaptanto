@@ -542,7 +542,10 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
-	bkConfigs := buildBackfillConfigs(cfg.Tables, connCfg.SourceID, bkPKCols)
+	bkConfigs, err := buildBackfillConfigs(cfg.Tables, connCfg.SourceID, bkPKCols)
+	if err != nil {
+		return fmt.Errorf("backfill: %w", err)
+	}
 	openConnFn := func(ctx context.Context) (backfill.SnapshotConn, error) {
 		return pgx.Connect(ctx, cfg.Source)
 	}
