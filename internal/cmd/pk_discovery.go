@@ -75,15 +75,23 @@ func discoverPrimaryKey(ctx context.Context, q pkQuerier, tableIdentity string) 
 //
 // Every key is validated with pgident.Parse before any catalog query runs, so
 // a malformed reference surfaces the identifier error here instead of an
-// opaque ::regclass failure inside Postgres. The query itself still binds the
-// raw key as $1::regclass, preserving schema qualification and search_path
-// resolution for both quoted and unqualified names.
+// opaque ::regclass failure inside Postgres. Validation is done in a first
+// pass so no query is issued while any configured key is malformed. The
+// discovery query itself still binds the raw key as $1::regclass, preserving
+// schema qualification and search_path resolution for both quoted and
+// unqualified names.
 func discoverPrimaryKeys(ctx context.Context, q pkQuerier, tables map[string]config.TableConfig) (map[string][]string, error) {
-	result := make(map[string][]string, len(tables))
+	// First pass: validate every configured identifier. Map iteration order is
+	// random; this guarantees we never run a catalog query before we know all
+	// keys are well-formed.
 	for tableKey := range tables {
 		if _, _, err := pgident.Parse(tableKey); err != nil {
 			return nil, fmt.Errorf("table %q: %w", tableKey, err)
 		}
+	}
+
+	result := make(map[string][]string, len(tables))
+	for tableKey := range tables {
 		cols, err := discoverPrimaryKey(ctx, q, tableKey)
 		if err != nil {
 			return nil, fmt.Errorf("discover primary key for table %q: %w", tableKey, err)
