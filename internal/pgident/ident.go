@@ -31,6 +31,9 @@ func Parse(ref string) (schema, table string, err error) {
 	}
 	switch len(parts) {
 	case 1:
+		if parts[0] == "" {
+			return "", "", fmt.Errorf("pgident: empty identifier in %q", ref)
+		}
 		return "", parts[0], nil
 	case 2:
 		if parts[0] == "" || parts[1] == "" {

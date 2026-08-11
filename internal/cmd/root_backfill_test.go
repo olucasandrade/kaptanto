@@ -100,7 +100,7 @@ func TestBuildBackfillConfigs(t *testing.T) {
 	})
 
 	t.Run("quoted mixed-case table strips quotes for raw catalog names", func(t *testing.T) {
-		// Issue #56: config keys like public."CamelCaseTable" must become
+		// Quoted config keys like public."CamelCaseTable" must become
 		// Schema=public, Table=CamelCaseTable (no quote characters) so
 		// KeysetCursor.Sanitize produces "public"."CamelCaseTable".
 		tables := map[string]config.TableConfig{

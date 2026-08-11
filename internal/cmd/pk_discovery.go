@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/pgident"
 )
 
 // pkDiscoveryQuery returns the ordered primary-key column names for a table.
@@ -71,9 +72,18 @@ func discoverPrimaryKey(ctx context.Context, q pkQuerier, tableIdentity string) 
 // WAL-derived key without one, so a table silently falling back to a guessed
 // key would double-deliver or drop rows without any visible symptom. A
 // clear startup error is safer than that.
+//
+// Every key is validated with pgident.Parse before any catalog query runs, so
+// a malformed reference surfaces the identifier error here instead of an
+// opaque ::regclass failure inside Postgres. The query itself still binds the
+// raw key as $1::regclass, preserving schema qualification and search_path
+// resolution for both quoted and unqualified names.
 func discoverPrimaryKeys(ctx context.Context, q pkQuerier, tables map[string]config.TableConfig) (map[string][]string, error) {
 	result := make(map[string][]string, len(tables))
 	for tableKey := range tables {
+		if _, _, err := pgident.Parse(tableKey); err != nil {
+			return nil, fmt.Errorf("table %q: %w", tableKey, err)
+		}
 		cols, err := discoverPrimaryKey(ctx, q, tableKey)
 		if err != nil {
 			return nil, fmt.Errorf("discover primary key for table %q: %w", tableKey, err)

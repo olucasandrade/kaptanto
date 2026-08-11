@@ -99,7 +99,7 @@ func TestEnsurePublication_WithTables_CreatesForTable(t *testing.T) {
 	assert.Contains(t, conn.execSQL, `"public"."users"`)
 }
 
-// TestEnsurePublication_QuotedMixedCaseTable verifies issue #56: a config key
+// TestEnsurePublication_QuotedMixedCaseTable verifies that a quoted config key
 // like public."CamelCaseTable" must produce a single-quoted identifier pair,
 // never the triple-quoted "public"."""CamelCaseTable""".
 func TestEnsurePublication_QuotedMixedCaseTable(t *testing.T) {

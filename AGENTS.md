@@ -76,6 +76,7 @@ The repository is a monorepo that also contains:
 │   ├── parser/
 │   │   ├── mongodb/       # MongoDB change stream normalizer
 │   │   └── pgoutput/      # Postgres pgoutput parser (+ optional Rust FFI)
+│   ├── pgident/           # Postgres schema/table identifier parsing + safe quoting (leaf)
 │   ├── pk/                # Primary-key extraction utilities
 │   ├── redact/            # Secret redaction helpers
 │   ├── router/            # Fan-out, per-key ordering, retries, cursor advance
@@ -240,10 +241,10 @@ The codebase uses three-letter invariant codes (`CHK-01`, `RTR-04`, `BKF-02`, et
 ### Dependency layers (enforced by `depguard` in `.golangci.yml`)
 
 ```
-event  <  eventlog / parser  <  backfill / checkpoint  <  source / output / router  <  cmd
+event / pgident  <  eventlog / parser  <  backfill / checkpoint  <  source / output / router  <  cmd
 ```
 
-Lower layers must never import upper layers. `internal/event` is a pure domain leaf and must not import any other `internal/` package.
+Lower layers must never import upper layers. `internal/event` is a pure domain leaf and must not import any other `internal/` package. `internal/pgident` is also a leaf (Postgres identifier parsing/quoting) and likewise must not import any other `internal/` package.
 
 ### Complexity
 

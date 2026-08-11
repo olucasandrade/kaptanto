@@ -69,6 +69,21 @@ func TestParse(t *testing.T) {
 			wantErr: "empty table reference",
 		},
 		{
+			name:    "empty quoted identifier",
+			ref:     `""`,
+			wantErr: "empty identifier",
+		},
+		{
+			name:    "empty quoted schema component",
+			ref:     `"".orders`,
+			wantErr: "empty identifier",
+		},
+		{
+			name:    "empty quoted table component",
+			ref:     `public.""`,
+			wantErr: "empty identifier",
+		},
+		{
 			name:    "unclosed quote",
 			ref:     `public."CamelCase`,
 			wantErr: "unclosed quote",
