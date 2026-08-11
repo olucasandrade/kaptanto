@@ -181,4 +181,15 @@ func TestDiscoverPrimaryKeys(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "public.ghost")
 	})
+
+	t.Run("malformed identifier errors before any catalog query", func(t *testing.T) {
+		q := &fakeQuerier{}
+		tables := map[string]config.TableConfig{
+			`public."unclosed`: {},
+		}
+		_, err := discoverPrimaryKeys(context.Background(), q, tables)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unclosed quote")
+		assert.Empty(t, q.calls, "no ::regclass query must run for a malformed key")
+	})
 }

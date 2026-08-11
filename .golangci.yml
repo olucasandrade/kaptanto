@@ -29,28 +29,17 @@ linters:
       # by the offending upper-layer package prefixes (prefix match covers
       # sub-packages, e.g. internal/source also matches internal/source/postgres).
       rules:
-        # internal/event is a pure domain leaf: it must not import any other
-        # internal package.
-        event-leaf:
+        # internal/event and internal/pgident are pure domain leaves: they must
+        # not import any other internal package (including each other). A single
+        # deny on the module-internal prefix keeps both lists synchronized and
+        # covers future internal packages.
+        leaf-packages:
           files:
             - "**/internal/event/**"
+            - "**/internal/pgident/**"
           deny:
-            - pkg: github.com/olucasandrade/kaptanto/internal/eventlog
-              desc: "internal/event is a leaf; it must not depend on other internal packages"
-            - pkg: github.com/olucasandrade/kaptanto/internal/parser
-              desc: "internal/event is a leaf; it must not depend on other internal packages"
-            - pkg: github.com/olucasandrade/kaptanto/internal/backfill
-              desc: "internal/event is a leaf; it must not depend on other internal packages"
-            - pkg: github.com/olucasandrade/kaptanto/internal/checkpoint
-              desc: "internal/event is a leaf; it must not depend on other internal packages"
-            - pkg: github.com/olucasandrade/kaptanto/internal/source
-              desc: "internal/event is a leaf; it must not depend on other internal packages"
-            - pkg: github.com/olucasandrade/kaptanto/internal/output
-              desc: "internal/event is a leaf; it must not depend on other internal packages"
-            - pkg: github.com/olucasandrade/kaptanto/internal/router
-              desc: "internal/event is a leaf; it must not depend on other internal packages"
-            - pkg: github.com/olucasandrade/kaptanto/internal/cmd
-              desc: "internal/event is a leaf; it must not depend on other internal packages"
+            - pkg: github.com/olucasandrade/kaptanto/internal
+              desc: "leaf packages must not import any other internal package"
 
         # eventlog and parser sit just above event: they may use event (and
         # observability) but must not reach into higher layers.

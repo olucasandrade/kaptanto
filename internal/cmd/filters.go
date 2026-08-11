@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/olucasandrade/kaptanto/internal/backfill"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/output"
+	"github.com/olucasandrade/kaptanto/internal/pgident"
 )
 
 func buildTableFilters(tables map[string]config.TableConfig) (
@@ -37,16 +37,20 @@ func buildTableFilters(tables map[string]config.TableConfig) (
 // (see discoverPrimaryKeys) — this function does no discovery itself and
 // trusts the caller; production wiring in runPipeline fails fast before
 // calling this if discovery found a table with no primary key.
+//
+// Table keys are parsed with pgident so quoted mixed-case names
+// (e.g. public."CamelCaseTable") become raw catalog components before
+// KeysetCursor re-quotes them for SQL.
 func buildBackfillConfigs(
 	tables map[string]config.TableConfig,
 	sourceID string,
 	pkCols map[string][]string,
-) []backfill.BackfillConfig {
+) ([]backfill.BackfillConfig, error) {
 	configs := make([]backfill.BackfillConfig, 0, len(tables))
 	for tableKey := range tables {
-		schema, table := "", tableKey
-		if parts := strings.SplitN(tableKey, ".", 2); len(parts) == 2 {
-			schema, table = parts[0], parts[1]
+		schema, table, err := pgident.Parse(tableKey)
+		if err != nil {
+			return nil, fmt.Errorf("table %q: %w", tableKey, err)
 		}
 		configs = append(configs, backfill.BackfillConfig{
 			SourceID:      sourceID,
@@ -57,5 +61,5 @@ func buildBackfillConfigs(
 			NumPartitions: numEventLogPartitions,
 		})
 	}
-	return configs
+	return configs, nil
 }
