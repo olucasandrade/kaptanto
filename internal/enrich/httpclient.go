@@ -177,14 +177,13 @@ func readAIContext(r io.Reader) (json.RawMessage, string, error) {
 	}
 	// Must be a JSON object (not array/string/number/null).
 	trim := bytes.TrimSpace(data)
-	if len(trim) == 0 || trim[0] != '{' {
+	if trim[0] != '{' {
 		return nil, ReasonNonObject, fmt.Errorf("ai_context must be a JSON object")
 	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return nil, ReasonNonObject, fmt.Errorf("ai_context must be a JSON object: %w", err)
 	}
-	// Re-marshal compact form for stable storage; preserve as RawMessage.
 	out := make(json.RawMessage, len(data))
 	copy(out, data)
 	return out, "", nil

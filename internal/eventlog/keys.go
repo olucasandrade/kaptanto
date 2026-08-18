@@ -2,7 +2,6 @@ package eventlog
 
 import (
 	"encoding/binary"
-	"math"
 )
 
 // Key format constants.
@@ -51,9 +50,6 @@ func encodePartPrefix(partition uint32) []byte {
 // encodeDedupKey encodes the dedup index key for an event.
 // Layout: [0x44][idempotencyKey bytes]
 func encodeDedupKey(idempotencyKey string) []byte {
-	if len(idempotencyKey) > math.MaxInt-1 {
-		panic("eventlog: idempotency key too large")
-	}
 	b := make([]byte, 1+len(idempotencyKey))
 	b[0] = prefixDedup
 	copy(b[1:], idempotencyKey)

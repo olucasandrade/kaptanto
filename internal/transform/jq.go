@@ -22,7 +22,7 @@ import (
 const defaultJQRuntimeTimeout = 5 * time.Second
 
 // jqRuntimeTimeoutNs is the mutable runtime bound so tests can exercise
-// cancellation without waiting 30s. Stored as an atomic int64 of nanoseconds
+// cancellation without waiting 5s. Stored as an atomic int64 of nanoseconds
 // so parallel tests can read it without racing the test-only writer.
 var jqRuntimeTimeoutNs = atomic.Int64{}
 
@@ -66,7 +66,7 @@ func (e *jqEngine) Language() string {
 //   - gojq runtime error → *RuntimeError
 //
 // Iteration stops after the second output so expressions like repeat(1)
-// cannot hang. ev is unused (go-template path).
+// cannot hang.
 func (e *jqEngine) Apply(raw []byte, _ *event.ChangeEvent) ([]byte, bool, error) {
 	var input any
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -83,9 +83,8 @@ func (e *jqEngine) Apply(raw []byte, _ *event.ChangeEvent) ([]byte, bool, error)
 
 	iter := e.code.RunWithContext(ctx, input)
 	var (
-		first     any
-		haveFirst bool
-		count     int
+		first any
+		count int
 	)
 	for {
 		v, ok := iter.Next()
@@ -98,7 +97,6 @@ func (e *jqEngine) Apply(raw []byte, _ *event.ChangeEvent) ([]byte, bool, error)
 		count++
 		if count == 1 {
 			first = v
-			haveFirst = true
 			continue
 		}
 		// Iteration guard: stop after the 2nd output (repeat(1) safety).
@@ -111,7 +109,7 @@ func (e *jqEngine) Apply(raw []byte, _ *event.ChangeEvent) ([]byte, bool, error)
 	if count == 0 {
 		return nil, true, nil
 	}
-	if !haveFirst || first == nil {
+	if first == nil {
 		return nil, true, nil
 	}
 

@@ -227,8 +227,7 @@ func (c *KafkaSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) 
 	start := time.Now()
 
 	for _, rec := range batch {
-		r := rec // capture loop variable
-		c.client.Produce(ctx, r, func(rec *kgo.Record, err error) {
+		c.client.Produce(ctx, rec, func(rec *kgo.Record, err error) {
 			errCh <- err
 		})
 	}
