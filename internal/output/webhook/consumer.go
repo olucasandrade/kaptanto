@@ -279,7 +279,7 @@ func expandWebhookConfig(cfg config.WebhookSinkConfig) (config.WebhookSinkConfig
 	return cfg, nil
 }
 
-// validateWebhookConfig enforces startup rules 1–13 and returns normalized fields.
+// validateWebhookConfig enforces the startup rules and returns normalized fields.
 func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 	var zero webhookNorm
 
@@ -333,8 +333,8 @@ func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 	}, nil
 }
 
-// validateURLAndMethod enforces rules 1, 2 and 2a: a URL or URL template is
-// required, the method is allow-listed, and literal scheme prefixes are http(s).
+// validateURLAndMethod checks that a URL or URL template is required, the
+// method is allow-listed, and literal scheme prefixes are http(s).
 func validateURLAndMethod(cfg config.WebhookSinkConfig) (string, error) {
 	if cfg.URL == "" && cfg.URLTemplate == "" {
 		return "", fmt.Errorf("webhook sink: url or url-template is required")
@@ -368,8 +368,8 @@ func validateURLAndMethod(cfg config.WebhookSinkConfig) (string, error) {
 	return method, nil
 }
 
-// validateAuth enforces rules 3 and 5: bearer/basic/SigV4 are mutually exclusive,
-// SigV4 cannot stack with HMAC signing, and auth must not conflict with an
+// validateAuth checks that bearer/basic/SigV4 are mutually exclusive, SigV4
+// cannot stack with HMAC signing, and auth must not conflict with an
 // Authorization header.
 func validateAuth(cfg config.WebhookSinkConfig) (bool, bool, error) {
 	hasBearer := cfg.Auth.BearerToken != ""
@@ -434,8 +434,8 @@ func resolveWebhookSigV4(cfg *config.WebhookSigV4) (*webhookSigV4, error) {
 	}, nil
 }
 
-// validateBatchAndPayload enforces rules 4 and 8: batch.max-events is non-negative
-// and payload-template requires single-event mode.
+// validateBatchAndPayload checks that batch.max-events is non-negative and
+// payload-template requires single-event mode.
 func validateBatchAndPayload(cfg config.WebhookSinkConfig) error {
 	if cfg.Batch.MaxEvents < 0 {
 		return fmt.Errorf("webhook sink: batch.max-events must be >= 0")
@@ -446,7 +446,7 @@ func validateBatchAndPayload(cfg config.WebhookSinkConfig) error {
 	return nil
 }
 
-// parseTimeout enforces rule 6: empty → 30s; unparsable or ≤0 → error.
+// parseTimeout checks that timeout is empty → 30s, otherwise parsable and > 0.
 func parseTimeout(cfg config.WebhookSinkConfig) (time.Duration, error) {
 	timeout := 30 * time.Second
 	if cfg.Timeout == "" {
@@ -462,7 +462,7 @@ func parseTimeout(cfg config.WebhookSinkConfig) (time.Duration, error) {
 	return d, nil
 }
 
-// parseURLTemplate enforces rule 7 by parsing url-template at construction.
+// parseURLTemplate parses url-template at construction.
 func parseURLTemplate(cfg config.WebhookSinkConfig) (*template.Template, error) {
 	if cfg.URLTemplate == "" {
 		return nil, nil
@@ -488,36 +488,32 @@ func buildAuthHeader(cfg config.WebhookSinkConfig, hasBearer, hasBasic bool) str
 	return ""
 }
 
-// compileWebhookEngine enforces validations 9–13 and compiles the transform
-// engine (payload-template sugar or transform.*). Returns nil engine when unset.
+// compileWebhookEngine compiles the transform engine (payload-template sugar or
+// transform.*). Returns nil engine when unset.
 func compileWebhookEngine(cfg config.WebhookSinkConfig) (transform.Engine, error) {
 	lang := cfg.Transform.Language
 	expr := cfg.Transform.Expression
 	hasPayload := cfg.PayloadTemplate != ""
 	hasTransformField := lang != "" || expr != ""
 
-	// 9. payload-template AND transform.* both set → error.
 	if hasPayload && hasTransformField {
 		return nil, fmt.Errorf("webhook sink: payload-template is shorthand for transform; set only one")
 	}
 
-	// 11. language allowlist (empty is OK when both language and expression empty).
 	if lang != "" && lang != transform.LangJQ && lang != transform.LangGoTemplate {
 		return nil, fmt.Errorf("webhook sink: transform.language %q not allowed — must be one of %q, %q",
 			lang, transform.LangJQ, transform.LangGoTemplate)
 	}
 
-	// 12. empty language xor expression → error.
 	if (lang == "") != (expr == "") {
 		return nil, fmt.Errorf("webhook sink: transform.language and transform.expression must both be set or both be empty")
 	}
 
-	// 10. go-template language + batch.max-events > 1 → error (jq exempt).
 	if lang == transform.LangGoTemplate && cfg.Batch.MaxEvents > 1 {
 		return nil, fmt.Errorf("webhook sink: transform language %q requires batch.max-events=1", transform.LangGoTemplate)
 	}
 
-	// 13. Compile transform / payload-template (TRF-01).
+	// Compile transform / payload-template (TRF-01).
 	switch {
 	case hasPayload:
 		eng, err := transform.Compile(transform.LangGoTemplate, cfg.PayloadTemplate)
@@ -559,7 +555,6 @@ func (c *WebhookSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEnt
 	if err := entry.MaterializeEvent(); err != nil {
 		return fmt.Errorf("webhook sink: materialize event: %w", err)
 	}
-	_ = ctx
 
 	urlStr, err := c.resolveURL(entry.Event)
 	if err != nil {

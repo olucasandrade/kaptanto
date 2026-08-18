@@ -18,7 +18,6 @@ import "encoding/json"
 // paths that filter many events against a fixed allow-list should precompute the
 // set once (see BuildAllowSet) and call ApplyColumnFilterSet directly.
 func ApplyColumnFilter(raw json.RawMessage, allowed []string) (json.RawMessage, error) {
-	// No allow-list = pass-through; avoid building an empty set.
 	if len(allowed) == 0 {
 		return raw, nil
 	}
@@ -43,30 +42,25 @@ func BuildAllowSet(allowed []string) map[string]struct{} {
 // ApplyColumnFilterSet is ApplyColumnFilter against a precomputed allow-set.
 // A nil/empty allowSet is a pass-through. The input slice is never mutated.
 func ApplyColumnFilterSet(raw json.RawMessage, allowSet map[string]struct{}) (json.RawMessage, error) {
-	// Nil raw = JSON null; pass through unchanged.
 	if raw == nil {
 		return nil, nil
 	}
 
-	// No allow-list = pass-through.
 	if len(allowSet) == 0 {
 		return raw, nil
 	}
 
-	// Unmarshal into a generic value first to detect non-object types.
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		// If the JSON is malformed, pass through and let the caller handle it.
+		// Malformed JSON: pass through and let the caller handle it.
 		return raw, nil
 	}
 
 	obj, ok := v.(map[string]any)
 	if !ok {
-		// Non-object (array, number, string, bool, null) — pass through unchanged.
 		return raw, nil
 	}
 
-	// Retain only allowed keys.
 	filtered := make(map[string]any, len(allowSet))
 	for k, val := range obj {
 		if _, keep := allowSet[k]; keep {
@@ -74,7 +68,6 @@ func ApplyColumnFilterSet(raw json.RawMessage, allowSet map[string]struct{}) (js
 		}
 	}
 
-	// Re-marshal into a fresh []byte — never aliases the input.
 	out, err := json.Marshal(filtered)
 	if err != nil {
 		return nil, err

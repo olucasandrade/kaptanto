@@ -1,4 +1,3 @@
-// Package cluster provides cluster membership management for kaptanto HA mode.
 package cluster
 
 import (

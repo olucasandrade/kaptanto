@@ -22,15 +22,12 @@ func NewBatchOptimizer() *BatchOptimizer {
 // Adjust updates and returns the new batch size based on the observed query duration.
 //
 //   - d < 1s:  grow by 25% (capped at 50000)
-//   - d > 5s:  shrink by 50% (floored at 100)
 //   - d > 3s:  shrink by 50% (floored at 100)
 //   - 1s–3s:   no change
 func (o *BatchOptimizer) Adjust(d time.Duration) int {
 	switch {
 	case d < time.Second:
 		o.current = min(int(float64(o.current)*1.25), maxBatch)
-	case d > 5*time.Second:
-		o.current = max(o.current/2, minBatch)
 	case d > 3*time.Second:
 		o.current = max(o.current/2, minBatch)
 	}

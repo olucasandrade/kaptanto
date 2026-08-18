@@ -206,14 +206,10 @@ func (p *Parser) handleDelete(m *pglogrepl.DeleteMessageV2) (*event.ChangeEvent,
 		return nil, fmt.Errorf("pgoutput: marshal key: %w", err)
 	}
 
-	var beforeJSON json.RawMessage
-	if m.OldTuple != nil {
-		oldRow := decodeColumns(rel, m.OldTuple.Columns, nil)
-		var merr error
-		beforeJSON, merr = json.Marshal(oldRow)
-		if merr != nil {
-			return nil, fmt.Errorf("pgoutput: marshal before-row (delete): %w", merr)
-		}
+	oldRow := decodeColumns(rel, m.OldTuple.Columns, nil)
+	beforeJSON, merr := json.Marshal(oldRow)
+	if merr != nil {
+		return nil, fmt.Errorf("pgoutput: marshal before-row (delete): %w", merr)
 	}
 	ev := p.newEvent(rel, event.OpDelete, pkStr, keyJSON, beforeJSON, nil)
 	return ev, nil

@@ -47,10 +47,10 @@ type VectorSinkConsumer struct {
 	metadataCols []string
 	batchMax     int
 
-	mu      sync.Mutex
-	pending map[uint32][]pendingVec
+	mu         sync.Mutex
+	pending    map[uint32][]pendingVec
 	pendingIDs map[uint32]map[string]struct{}
-	m       *observability.KaptantoMetrics
+	m          *observability.KaptantoMetrics
 }
 
 // pendingVec is one buffered event ready for FlushBatch.
@@ -179,12 +179,8 @@ func (c *VectorSinkConsumer) SetMetrics(m *observability.KaptantoMetrics) { c.m 
 
 // Deliver buffers entry for FlushBatch. No embedder/store I/O happens here.
 func (c *VectorSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) error {
-	_ = ctx
 	if err := entry.MaterializeEvent(); err != nil {
 		return fmt.Errorf("vector sink: materialize event: %w", err)
-	}
-	if entry.Event == nil {
-		return fmt.Errorf("vector sink: nil event")
 	}
 	ev := entry.Event
 
@@ -199,9 +195,6 @@ func (c *VectorSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 
 	if ev.Operation == event.OpDelete {
 		c.mu.Lock()
-		if c.pendingIDs == nil {
-			c.pendingIDs = make(map[uint32]map[string]struct{})
-		}
 		if c.pendingIDs[entry.PartitionID] == nil {
 			c.pendingIDs[entry.PartitionID] = make(map[string]struct{})
 		}
@@ -234,9 +227,6 @@ func (c *VectorSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntr
 		c.mu.Unlock()
 		c.incSkipped(SkipReasonUnchanged)
 		return nil
-	}
-	if c.pendingIDs == nil {
-		c.pendingIDs = make(map[uint32]map[string]struct{})
 	}
 	if c.pendingIDs[entry.PartitionID] == nil {
 		c.pendingIDs[entry.PartitionID] = make(map[string]struct{})

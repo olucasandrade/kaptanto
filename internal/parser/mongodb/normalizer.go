@@ -41,7 +41,6 @@ func NormalizeChangeEvent(raw bson.Raw, sourceID string, idGen *event.IDGenerato
 		return nil, fmt.Errorf("mongodb: failed to decode change stream event: %w", err)
 	}
 
-	// Map operationType to event.Operation.
 	var op event.Operation
 	switch cs.OperationType {
 	case "insert":
@@ -54,18 +53,15 @@ func NormalizeChangeEvent(raw bson.Raw, sourceID string, idGen *event.IDGenerato
 		return nil, fmt.Errorf("mongodb: unsupported operationType %q", cs.OperationType)
 	}
 
-	// Validate: insert must have a fullDocument.
 	if op == event.OpInsert && len(cs.FullDocument) == 0 {
 		return nil, fmt.Errorf("mongodb: insert event missing fullDocument")
 	}
 
-	// Serialize documentKey to extended JSON.
 	keyJSON, err := marshalExtJSON(cs.DocumentKey)
 	if err != nil {
 		return nil, fmt.Errorf("mongodb: failed to serialize documentKey: %w", err)
 	}
 
-	// Serialize fullDocument → After.
 	var afterJSON json.RawMessage
 	if len(cs.FullDocument) > 0 {
 		b, err := marshalExtJSON(cs.FullDocument)
@@ -75,7 +71,6 @@ func NormalizeChangeEvent(raw bson.Raw, sourceID string, idGen *event.IDGenerato
 		afterJSON = b
 	}
 
-	// Serialize fullDocumentBeforeChange → Before.
 	var beforeJSON json.RawMessage
 	if len(cs.FullDocumentBeforeChange) > 0 {
 		b, err := marshalExtJSON(cs.FullDocumentBeforeChange)
@@ -85,10 +80,8 @@ func NormalizeChangeEvent(raw bson.Raw, sourceID string, idGen *event.IDGenerato
 		beforeJSON = b
 	}
 
-	// Timestamp from clusterTime (BSON Timestamp: T = seconds since Unix epoch).
 	ts := time.Unix(int64(cs.ClusterTime.T), 0).UTC()
 
-	// Resume token: serialize the _id field as a string.
 	resumeToken := cs.ResumeToken.String()
 
 	// IdempotencyKey: "<sourceID>:<db>.<coll>:<documentKey_canonical_json>:<operation>:<clusterTime_hex>"

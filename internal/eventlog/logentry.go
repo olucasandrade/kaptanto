@@ -10,9 +10,6 @@ import (
 // MaterializeEvent unmarshals Event from Raw when Event is nil. No-op when Event
 // is already set or Raw is empty. Safe to call multiple times.
 func (e *LogEntry) MaterializeEvent() error {
-	if e == nil {
-		return fmt.Errorf("eventlog: nil LogEntry")
-	}
 	if e.Event != nil {
 		return nil
 	}
@@ -30,9 +27,6 @@ func (e *LogEntry) MaterializeEvent() error {
 // GroupingKey returns the CDC primary-key bytes used for per-key ordering (RTR-04).
 // Uses a partial JSON decode when Event is nil to avoid a full ChangeEvent unmarshal.
 func (e *LogEntry) GroupingKey() (string, error) {
-	if e == nil {
-		return "", fmt.Errorf("eventlog: nil LogEntry")
-	}
 	if e.Event != nil {
 		return string(e.Event.Key), nil
 	}
