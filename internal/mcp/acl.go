@@ -108,9 +108,7 @@ func (a *ACL) Apply(ev *event.ChangeEvent) (*event.ChangeEvent, bool) {
 	}
 	out.Before = maskColumns(out.Before, cols)
 	out.After = maskColumns(out.After, cols)
-	if len(cols) > 0 {
-		out.AIContext = nil
-	}
+	out.AIContext = nil
 	return &out, true
 }
 

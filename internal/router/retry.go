@@ -73,9 +73,6 @@ func NextDelay(attempt int) time.Duration {
 // effective floor. Uses math/rand/v2 (no seeding needed).
 func JitteredDelay(attempt int) time.Duration {
 	base := NextDelay(attempt)
-	if base <= 0 {
-		return 1
-	}
 	return time.Duration(rand.Int64N(int64(base))) + 1
 }
 

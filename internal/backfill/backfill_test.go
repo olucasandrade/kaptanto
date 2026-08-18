@@ -353,68 +353,6 @@ func TestBatchOptimizer_MaxCap(t *testing.T) {
 	assert.Equal(t, 50000, o.Current(), "batch size should not exceed 50000")
 }
 
-// --- BKF-05: Strategy handling ---
-
-func TestBackfillEngine_StreamOnly_NoPending(t *testing.T) {
-	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
-	require.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	cfg := backfill.BackfillConfig{
-		SourceID:      "pg1",
-		Schema:        "public",
-		Table:         "orders",
-		Strategy:      "stream_only",
-		PKCols:        []string{"id"},
-		NumPartitions: 64,
-	}
-
-	engine := backfill.NewEngine([]backfill.BackfillConfig{cfg}, store, nil)
-	assert.False(t, engine.HasPendingBackfills(), "stream_only should have no pending backfills")
-}
-
-func TestBackfillEngine_SnapshotDeferred_SavesDeferred(t *testing.T) {
-	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
-	require.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	cfg := backfill.BackfillConfig{
-		SourceID:      "pg1",
-		Schema:        "public",
-		Table:         "orders",
-		Strategy:      "snapshot_deferred",
-		PKCols:        []string{"id"},
-		NumPartitions: 64,
-	}
-
-	engine := backfill.NewEngine([]backfill.BackfillConfig{cfg}, store, nil)
-	err = engine.Run(context.Background())
-	require.NoError(t, err, "snapshot_deferred Run() should return immediately without error")
-
-	state, err := store.LoadState(context.Background(), "pg1", "orders")
-	require.NoError(t, err)
-	require.NotNil(t, state)
-	assert.Equal(t, "deferred", state.Status)
-}
-
-func TestBackfillEngine_SnapshotAndStream_HasPending(t *testing.T) {
-	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
-	require.NoError(t, err)
-	defer func() { _ = store.Close() }()
-
-	cfg := backfill.BackfillConfig{
-		SourceID:      "pg1",
-		Schema:        "public",
-		Table:         "orders",
-		Strategy:      "snapshot_and_stream",
-		PKCols:        []string{"id"},
-		NumPartitions: 64,
-	}
-
-	engine := backfill.NewEngine([]backfill.BackfillConfig{cfg}, store, nil)
-	assert.True(t, engine.HasPendingBackfills(), "snapshot_and_stream should report pending backfills")
-}
-
 // --- BackfillEngineImpl: AppendFn + OpenConnFn integration ---
 
 func TestBackfillEngineImpl_StreamOnly_HasNoPending(t *testing.T) {

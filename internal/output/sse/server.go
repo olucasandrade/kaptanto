@@ -16,12 +16,12 @@ import (
 // Headers are set before router.Register is called to ensure the first Deliver
 // call does not trigger a wrong Content-Type header flush (SSE pitfall #1).
 type SSEServer struct {
-	router       *router.Router
-	metrics      *observability.KaptantoMetrics
-	corsOrigin   string                       // allowed CORS origin; empty = no CORS header (no cross-origin access)
-	pingInterval time.Duration                // keepalive comment period; default 15s
-	rowFilters   map[string]*output.RowFilter // CFG-06: per-table row filter; nil = pass-through for all tables
-	colFilters   map[string][]string          // CFG-05: per-table column allow-list; nil = pass-through for all tables
+	router        *router.Router
+	metrics       *observability.KaptantoMetrics
+	corsOrigin    string                       // allowed CORS origin; empty = no CORS header (no cross-origin access)
+	pingInterval  time.Duration                // keepalive comment period; default 15s
+	rowFilters    map[string]*output.RowFilter // CFG-06: per-table row filter; nil = pass-through for all tables
+	colFilters    map[string][]string          // CFG-05: per-table column allow-list; nil = pass-through for all tables
 	consumerScope string                       // when set, consumer query param must match this auth-derived ID
 }
 
@@ -45,12 +45,12 @@ func NewSSEServer(
 		pingInterval = 15 * time.Second
 	}
 	return &SSEServer{
-		router:       r,
-		metrics:      m,
-		corsOrigin:   corsOrigin,
-		pingInterval: pingInterval,
-		rowFilters:   rowFilters,
-		colFilters:   colFilters,
+		router:        r,
+		metrics:       m,
+		corsOrigin:    corsOrigin,
+		pingInterval:  pingInterval,
+		rowFilters:    rowFilters,
+		colFilters:    colFilters,
 		consumerScope: consumerScope,
 	}
 }
@@ -101,8 +101,6 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// persisted (partitionID, seq) from the prior connection's SaveCursor calls.
 	// The Router's runPartition loop calls cursorStore.LoadCursor(consumer.ID())
 	// when Register is invoked — no direct action needed here.
-	lastEventID := r.Header.Get("Last-Event-ID")
-	_ = lastEventID // cursor loaded by Router via consumer.ID()
 
 	s.router.Register(consumer)
 	// Close must be called before ServeHTTP returns. This blocks until any

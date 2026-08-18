@@ -185,9 +185,6 @@ func (sub *subscription) Deliver(_ context.Context, entry eventlog.LogEntry) err
 	if err := entry.MaterializeEvent(); err != nil {
 		return nil
 	}
-	if entry.Event == nil {
-		return nil
-	}
 	ok, err := sub.matcher.Match(entry.Event)
 	if err != nil || !ok {
 		return nil

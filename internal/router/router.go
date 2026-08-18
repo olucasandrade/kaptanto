@@ -608,10 +608,6 @@ func (r *Router) flushBatchConsumers(ctx context.Context, partitionID uint32, ba
 // the skip-set; then discard provisional. Never extend backoff after a
 // successful poison skip.
 func (r *Router) handlePoisonFlush(ctx context.Context, idx int, partitionID uint32, pfe *PermanentFlushError, backoffState map[int]*flusherBackoff) bool {
-	if pfe == nil {
-		return false
-	}
-
 	r.mu.Lock()
 	if idx >= len(r.consumers) {
 		r.mu.Unlock()

@@ -12,10 +12,6 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/observability"
 )
 
-// Compile-time assertion: PostgresCursorStore must satisfy ConsumerCursorStore.
-// (ConsumerCursorStore is defined in internal/router/router.go; we verify via
-// method-set compatibility by casting to the interface during OpenPostgresCursorStore.)
-
 const createCursorTablePostgresSQL = `
 CREATE TABLE IF NOT EXISTS kaptanto_cursors (
     consumer_id  TEXT    NOT NULL,

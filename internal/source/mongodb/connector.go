@@ -95,7 +95,6 @@ func (c *Config) ApplyDefaults() {
 	}
 }
 
-// validate checks that required fields are set.
 func (c *Config) validate() error {
 	if c.Database == "" {
 		return errors.New("mongodb: database is required")
@@ -650,8 +649,8 @@ func isInvalidResumeToken(err error) bool {
 	return strings.Contains(err.Error(), "InvalidResumeToken")
 }
 
-// tokenToString encodes a bson.Raw resume token as a hex string for storage
-// in the checkpoint store.
+// tokenToString converts a bson.Raw resume token to a string for storage in
+// the checkpoint store. bson.Raw.String() returns the extended JSON form.
 func tokenToString(token bson.Raw) string {
 	if len(token) == 0 {
 		return ""
@@ -668,7 +667,6 @@ func tokenFromString(s string) (bson.Raw, error) {
 	// bson.Raw.String() returns extended JSON; parse it back via bson.UnmarshalExtJSON
 	var raw bson.Raw
 	if err := bson.UnmarshalExtJSON([]byte(s), false, &raw); err != nil {
-		// Fallback: try treating as raw BSON hex
 		return nil, fmt.Errorf("parse resume token %q: %w", s, err)
 	}
 	return raw, nil

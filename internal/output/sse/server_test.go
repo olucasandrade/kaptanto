@@ -124,9 +124,6 @@ func (s *testSSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	consumer := NewSSEConsumer(consumerID, w, filter, nil, nil, nil)
 
-	lastEventID := r.Header.Get("Last-Event-ID")
-	_ = lastEventID
-
 	s.r.Register(consumer)
 
 	pingTicker := time.NewTicker(s.pingInterval)

@@ -445,7 +445,7 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		}
 	}()
 
-	// 12. ReceiveMessage loop (SRC-03).
+	// 14. ReceiveMessage loop (SRC-03).
 	var lastSavedLSN pglogrepl.LSN
 	if startLSN > 0 {
 		lastSavedLSN = startLSN - 1

@@ -42,7 +42,6 @@ CREATE TABLE IF NOT EXISTS backfill_states (
     status          TEXT NOT NULL DEFAULT 'pending',
     strategy        TEXT NOT NULL,
     cursor_key      BLOB,
-    cursor_sort     TEXT,
     total_rows      INTEGER DEFAULT 0,
     processed_rows  INTEGER DEFAULT 0,
     snapshot_lsn    INTEGER DEFAULT 0,
