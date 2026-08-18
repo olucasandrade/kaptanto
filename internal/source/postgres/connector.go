@@ -319,7 +319,7 @@ func (c *PostgresConnector) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 		if backoff < c.cfg.MaxBackoff {
-			backoff = backoff * 2
+			backoff *= 2
 			if backoff > c.cfg.MaxBackoff {
 				backoff = c.cfg.MaxBackoff
 			}
@@ -356,9 +356,7 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		if splitErr != nil {
 			return fmt.Errorf("postgres: invalid table %q: %w", t, splitErr)
 		}
-		if err := checkReplicaIdentity(ctx, queryConn, schema, table); err != nil {
-			return err
-		}
+		checkReplicaIdentity(ctx, queryConn, schema, table)
 	}
 
 	// 5. Ensure publication exists (SRC-02).
@@ -440,7 +438,7 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 			case <-lagCtx.Done():
 				return
 			case <-ticker.C:
-				_ = checkWALLag(lagCtx, queryConn, c.cfg.WALLagThreshold, c.cfg.SourceID, c.metrics)
+				checkWALLag(lagCtx, queryConn, c.cfg.WALLagThreshold, c.cfg.SourceID, c.metrics)
 			}
 		}
 	}()

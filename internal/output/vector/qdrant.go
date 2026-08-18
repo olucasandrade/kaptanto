@@ -70,7 +70,7 @@ func (s *QdrantStore) ensureCollection(ctx context.Context) error {
 		return nil
 	}
 	if status != http.StatusNotFound {
-		return fmt.Errorf("vector: qdrant: get collection: status %d: %s", status, truncate(string(body), 512))
+		return fmt.Errorf("vector: qdrant: get collection: status %d: %s", status, truncate(string(body)))
 	}
 	create := map[string]any{
 		"vectors": map[string]any{
@@ -90,7 +90,7 @@ func (s *QdrantStore) ensureCollection(ctx context.Context) error {
 	if status == http.StatusBadRequest && strings.Contains(strings.ToLower(string(body)), "already") {
 		return nil
 	}
-	return fmt.Errorf("vector: qdrant: create collection: status %d: %s", status, truncate(string(body), 512))
+	return fmt.Errorf("vector: qdrant: create collection: status %d: %s", status, truncate(string(body)))
 }
 
 type qdrantPoint struct {
@@ -153,7 +153,7 @@ func (s *QdrantStore) Ping(ctx context.Context) error {
 		return fmt.Errorf("vector: qdrant: ping: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return &StatusError{Status: status, Msg: "qdrant: ping: " + truncate(string(body), 512)}
+		return &StatusError{Status: status, Msg: "qdrant: ping: " + truncate(string(body))}
 	}
 	return nil
 }
@@ -174,7 +174,7 @@ func (s *QdrantStore) doJSON(ctx context.Context, method, rawURL string, payload
 	if status < 200 || status >= 300 {
 		return &StatusError{
 			Status: status,
-			Msg:    fmt.Sprintf("qdrant: %s %s: %s", method, rawURL, truncate(string(body), 512)),
+			Msg:    fmt.Sprintf("qdrant: %s %s: %s", method, rawURL, truncate(string(body))),
 		}
 	}
 	return nil

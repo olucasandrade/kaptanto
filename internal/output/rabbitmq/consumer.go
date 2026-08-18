@@ -323,17 +323,18 @@ func (c *RabbitMQSinkConsumer) FlushBatch(ctx context.Context, partitionID uint3
 
 	for _, pm := range batch {
 		acked, waitErr := pm.dc.WaitContext(ctx)
-		if waitErr != nil {
+		switch {
+		case waitErr != nil:
 			if firstErr == nil {
 				firstErr = fmt.Errorf("rabbitmq sink: wait confirm for exchange %q routing-key %q: %w",
 					pm.exchange, pm.routingKey, waitErr)
 			}
-		} else if !acked {
+		case !acked:
 			if firstErr == nil {
 				firstErr = fmt.Errorf("rabbitmq sink: broker nacked message on exchange %q routing-key %q",
 					pm.exchange, pm.routingKey)
 			}
-		} else {
+		default:
 			successCount++
 		}
 	}

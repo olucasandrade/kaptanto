@@ -173,7 +173,7 @@ func buildOutputServer(
 
 	switch cfg.Output {
 	case "none":
-		return buildObservabilityServer(cfg, metrics, healthHandler, healthProbes, oaHandler)
+		return buildObservabilityServer(cfg, metrics, healthProbes, oaHandler)
 	case "sse":
 		return buildSSEServer(cfg, rtr, metrics, healthHandler, oaHandler, rowFilters, colFilters)
 	case "grpc":
@@ -410,7 +410,6 @@ func buildGRPCServer(
 func buildObservabilityServer(
 	cfg *config.Config,
 	metrics *observability.KaptantoMetrics,
-	healthHandler http.Handler,
 	healthProbes []observability.HealthProbe,
 	oaHandler http.Handler,
 ) (func(context.Context) error, error) {
@@ -483,7 +482,8 @@ func buildSinkServer(
 
 	sink.SetMetrics(metrics)
 	rtr.Register(sink)
-	probes := append(healthProbes, observability.HealthProbe{Name: name, Check: sink.Ping})
+	probes := append([]observability.HealthProbe(nil), healthProbes...)
+	probes = append(probes, observability.HealthProbe{Name: name, Check: sink.Ping})
 	mux := http.NewServeMux()
 	var metricsH, healthH, oaH http.Handler
 	metricsH = metrics.Handler()

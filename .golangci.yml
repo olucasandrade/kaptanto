@@ -2,7 +2,10 @@
 #
 # This umbrella owns the deeper CI gates:
 #   - Standard suite (errcheck, govet, ineffassign, staticcheck, unused)
-#   - Cyclomatic complexity (#6)         -> gocyclo
+#   - Dead-code / redundant-guard cleanup  -> govet(nilness,unreachable),
+#                                             wastedassign, unparam, gocritic
+#   - Standard-library constants           -> usestdlibvars
+#   - Cyclomatic complexity (#6)           -> gocyclo
 #   - Dependency-structure validation (#4) -> depguard (layered import rules)
 version: "2"
 
@@ -14,8 +17,19 @@ linters:
   enable:
     - gocyclo
     - depguard
+    - wastedassign
+    - unparam
+    - gocritic
+    - usestdlibvars
 
   settings:
+    govet:
+      # Standard govet already covers many suspicious constructs; these passes
+      # catch the dead nil re-checks and unreachable code we recently removed.
+      enable:
+        - nilness
+        - unreachable
+
     gocyclo:
       # runPipeline (48) and tokenize (36) are //nolint:gocyclo-exempted with a
       # refactor note; receiveLoop and snapshotTable (30) are too. The gate is
@@ -105,11 +119,16 @@ linters:
   exclusions:
     generated: lax
     rules:
-      # Tests are allowed to be long/branchy and to cross layers freely.
+      # Tests are allowed to be long/branchy and to cross layers freely. They are
+    # also excluded from style / parameter / constant linters whose findings are
+    # overwhelmingly test-idiomatic rather than production slop.
       - path: _test\.go
         linters:
           - gocyclo
           - depguard
+          - unparam
+          - gocritic
+          - usestdlibvars
 
 # Surface every finding (defaults cap duplicates at 3, which can hide real
 # regressions in the log even though they still fail the build).

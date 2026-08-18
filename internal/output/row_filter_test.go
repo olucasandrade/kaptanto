@@ -604,9 +604,6 @@ func TestRowFilter_PrefixedColumns(t *testing.T) {
 			}
 			ev := makeEvent(tt.op, tt.before, tt.after)
 			got := mustMatch(t, f, ev)
-			if err != nil {
-				t.Fatalf("Match error: %v", err)
-			}
 			if got != tt.want {
 				t.Errorf("Match() = %v, want %v", got, tt.want)
 			}
