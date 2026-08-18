@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -43,7 +44,9 @@ func checkReplicaIdentity(ctx context.Context, conn *pgx.Conn, schema, table str
 // sent_lsn and write_lsn on the primary. If the lag exceeds thresholdBytes,
 // a slog.Warn is emitted. When m is non-nil, sets the SourceLagBytes gauge.
 //
-// This function only logs; it never returns an error.
+// This function only logs; it never returns an error. Single-node setups have
+// no replication rows, so a zero lag is reported rather than leaving the gauge
+// stale.
 func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64, sourceID string, m *observability.KaptantoMetrics) {
 	var lagBytes int64
 	err := conn.QueryRow(ctx,
@@ -51,7 +54,17 @@ func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64, sour
 		 FROM pg_stat_replication LIMIT 1`,
 	).Scan(&lagBytes)
 	if err != nil {
-		// No rows — no standbys attached. This is normal for a single-node setup.
+		if m != nil {
+			m.SourceLagBytes.WithLabelValues(sourceID).Set(0)
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No standbys attached — normal for a single-node setup.
+			return
+		}
+		slog.Warn("postgres: could not check WAL lag",
+			"source_id", sourceID,
+			"error", err,
+		)
 		return
 	}
 

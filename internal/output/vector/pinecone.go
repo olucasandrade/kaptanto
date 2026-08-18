@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Pinecone API version frozen against docs.pinecone.io (2025-10 data plane).
@@ -150,5 +151,11 @@ func truncate(s string) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "…"
+	suffix := "…"
+	limit := max - len(suffix)
+	cut := s[:limit]
+	for !utf8.ValidString(cut) && len(cut) > 0 {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + suffix
 }

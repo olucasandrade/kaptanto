@@ -251,8 +251,8 @@ Lower layers must never import upper layers. `internal/event` is a pure domain l
 - New functions must stay at or below cyclomatic complexity **25** (`gocyclo` gate).
 - Existing functions that exceed this are annotated `//nolint:gocyclo` with a refactor note.
 - Additional gates catch dead nil checks (`govet nilness/unreachable`), wasted
-  assignments (`wastedassign`), unused params (`unparam`), and stdlib constants
-  (`usestdlibvars`).
+  assignments (`wastedassign`), unused params (`unparam`), suspicious constructs
+  and duplicate branches (`gocritic`), and stdlib constants (`usestdlibvars`).
 
 ### TypeScript / Qwik (landing/)
 
