@@ -469,7 +469,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 
 	if cfg.SourceType() == "mongodb" {
-		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorStore, cursorRun, heartbeater, pm, outputServer, metrics, mcpServer)
+		return runMongoPipeline(ctx, cfg, ckStore, el, rtr, cursorRun, heartbeater, pm, outputServer, metrics, mcpServer)
 	}
 
 	tables := make([]string, 0, len(cfg.Tables))

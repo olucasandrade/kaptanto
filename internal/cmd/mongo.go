@@ -27,7 +27,6 @@ func runMongoPipeline(
 	ckStore checkpoint.CheckpointStore,
 	el eventlog.EventLog,
 	rtr *router.Router,
-	cursorStore router.ConsumerCursorStore,
 	cursorRun func(ctx context.Context),
 	heartbeater *cluster.NodeHeartbeater,
 	pm *cluster.PartitionManager,
