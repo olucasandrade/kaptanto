@@ -52,11 +52,6 @@ import (
 // Compile-time assertion: NATSSinkConsumer must implement router.Consumer.
 var _ router.Consumer = (*NATSSinkConsumer)(nil)
 
-// pendingNATSMessage holds a pre-encoded NATS message ready for async publish.
-type pendingNATSMessage struct {
-	msg *natsgo.Msg
-}
-
 // NATSSinkConsumer is a router.Consumer that publishes events to NATS JetStream.
 // It is safe for concurrent calls across different message group keys (RTR-04):
 // the NATS client serialises concurrent publishes internally.
@@ -73,7 +68,7 @@ type NATSSinkConsumer struct {
 	js       jetstream.JetStream
 	subjectT *template.Template
 	mu       sync.Mutex
-	pending  map[uint32][]pendingNATSMessage
+	pending  map[uint32][]*natsgo.Msg
 	m        *observability.KaptantoMetrics
 }
 
@@ -144,7 +139,7 @@ func NewNATSSinkConsumer(id string, cfg config.NATSSinkConfig) (*NATSSinkConsume
 		nc:       nc,
 		js:       js,
 		subjectT: tmpl,
-		pending:  make(map[uint32][]pendingNATSMessage),
+		pending:  make(map[uint32][]*natsgo.Msg),
 	}, nil
 }
 
@@ -212,7 +207,7 @@ func (c *NATSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry)
 
 	// 5. Append to pending buffer — FlushBatch performs the actual network call.
 	c.mu.Lock()
-	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], pendingNATSMessage{msg: msg})
+	c.pending[entry.PartitionID] = append(c.pending[entry.PartitionID], msg)
 	c.mu.Unlock()
 	return nil
 }
@@ -237,15 +232,15 @@ func (c *NATSSinkConsumer) FlushBatch(ctx context.Context, partitionID uint32) e
 
 	// Issue all publishes asynchronously and collect PubAck futures.
 	futures := make([]jetstream.PubAckFuture, 0, len(batch))
-	for _, pm := range batch {
-		fut, err := c.js.PublishMsgAsync(pm.msg)
+	for _, msg := range batch {
+		fut, err := c.js.PublishMsgAsync(msg)
 		if err != nil {
 			// Synchronous error (e.g. connection closed) — bail early.
 			if c.m != nil {
 				c.m.QueuePublishErrors.WithLabelValues("nats").Add(float64(len(batch)))
 				c.m.QueuePublishLatency.WithLabelValues("nats").Observe(time.Since(start).Seconds())
 			}
-			return fmt.Errorf("nats sink: publish async to subject %q: %w", pm.msg.Subject, err)
+			return fmt.Errorf("nats sink: publish async to subject %q: %w", msg.Subject, err)
 		}
 		futures = append(futures, fut)
 	}

@@ -91,7 +91,7 @@ The repository is a monorepo that also contains:
 ├── get/                   # Cloudflare Worker install redirect
 ├── test/e2e/              # Black-box binary tests (build tag `e2e`)
 ├── scripts/coverage-gate.sh   # Coverage thresholds (CI + local)
-├── .golangci.yml          # Linting (complexity + dependency rules)
+├── .golangci.yml          # Linting (complexity + dependency + dead-code rules)
 ├── .gremlins.yaml         # Mutation-testing configuration
 ├── .goreleaser.yaml       # Release artifact builds
 └── Dockerfile             # Distroless static-binary image
@@ -250,6 +250,9 @@ Lower layers must never import upper layers. `internal/event` is a pure domain l
 
 - New functions must stay at or below cyclomatic complexity **25** (`gocyclo` gate).
 - Existing functions that exceed this are annotated `//nolint:gocyclo` with a refactor note.
+- Additional gates catch dead nil checks (`govet nilness/unreachable`), wasted
+  assignments (`wastedassign`), unused params (`unparam`), suspicious constructs
+  and duplicate branches (`gocritic`), and stdlib constants (`usestdlibvars`).
 
 ### TypeScript / Qwik (landing/)
 

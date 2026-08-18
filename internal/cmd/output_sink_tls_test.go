@@ -409,7 +409,9 @@ func TestBuildObservabilityServer_ServesEndpoints(t *testing.T) {
 
 	metrics := observability.NewKaptantoMetrics()
 
-	fn, err := buildObservabilityServer(cfg, metrics, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	fn, err := buildObservabilityServer(cfg, metrics, []observability.HealthProbe{
+		{Name: "test", Check: func() error { return nil }},
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())

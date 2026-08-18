@@ -104,6 +104,7 @@ func newTestConsumer(t *testing.T, fake *fakeSQSClient, id string) *SQSSinkConsu
 		queueURL:        defaultURL,
 		validatedQueues: map[string]bool{defaultURL: true},
 		pending:         make(map[uint32][]pendingSQSMessage),
+		usedBatchIDs:    make(map[uint32]map[string]struct{}),
 	}
 }
 
@@ -133,6 +134,7 @@ func newTemplateConsumer(t *testing.T, fake *fakeSQSClient, id string, queueURLT
 		queueURLT:       tmpl,
 		validatedQueues: map[string]bool{defaultURL: true},
 		pending:         make(map[uint32][]pendingSQSMessage),
+		usedBatchIDs:    make(map[uint32]map[string]struct{}),
 	}
 }
 

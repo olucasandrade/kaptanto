@@ -104,13 +104,14 @@ func (a *ACL) Apply(ev *event.ChangeEvent) (*event.ChangeEvent, bool) {
 	out := *ev
 	cols := a.columnsFor(qualified)
 	if len(cols) == 0 {
+		// No columns are redacted, so return the allowed event copy unchanged.
+		// AIContext is intentionally retained here; it is only cleared when at
+		// least one column is being redacted (see TestDrain_AIContextRipple).
 		return &out, true
 	}
 	out.Before = maskColumns(out.Before, cols)
 	out.After = maskColumns(out.After, cols)
-	if len(cols) > 0 {
-		out.AIContext = nil
-	}
+	out.AIContext = nil
 	return &out, true
 }
 

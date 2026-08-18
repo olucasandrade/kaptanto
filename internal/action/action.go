@@ -40,26 +40,23 @@ func BuildConsumersWithRegistry(cfg *config.Config, m *observability.KaptantoMet
 	for i := range cfg.Actions {
 		a := &cfg.Actions[i]
 
-		// Step 1: validate name
 		if err := validateName(a.Name, seen); err != nil {
 			return nil, err
 		}
 		seen[a.Name] = struct{}{}
 
-		// Step 1: validate type exists
 		t := reg.Lookup(a.Type)
 		if t == nil {
 			return nil, fmt.Errorf("action %q: unknown type %q (registered types: %s)",
 				a.Name, a.Type, strings.Join(reg.Names(), ", "))
 		}
 
-		// Step 1: validate params against ParamSpec
 		resolved, err := validateAndResolveParams(a, t)
 		if err != nil {
 			return nil, err
 		}
 
-		// Step 3: compile routing match (RTG-01)
+		// Compile routing match (RTG-01)
 		matcher, err := routing.Compile(routing.MatchConfig{
 			Tables:     a.Match.Tables,
 			Operations: a.Match.Operations,
@@ -69,7 +66,6 @@ func BuildConsumersWithRegistry(cfg *config.Config, m *observability.KaptantoMet
 			return nil, fmt.Errorf("action %q: %w", a.Name, err)
 		}
 
-		// Step 4: build webhook config from type
 		var whCfg config.WebhookSinkConfig
 		var defaultTransform config.TransformConfig
 
@@ -91,16 +87,15 @@ func BuildConsumersWithRegistry(cfg *config.Config, m *observability.KaptantoMet
 			}
 		}
 
-		// Apply user overrides
 		if err := applyOverrides(a, t, &whCfg, defaultTransform); err != nil {
 			return nil, err
 		}
 
-		// Step 5: construct webhook consumer. Most action types resolve ${VAR}
-		// refs in validateAndResolveParams, so using the resolved-config constructor
-		// avoids a second expansion that corrupts secrets containing '$' (F5).
-		// The "custom" type is the exception: it intentionally passes raw ${VAR}
-		// placeholders through to the sink for late expansion.
+		// Most action types resolve ${VAR} refs in validateAndResolveParams, so using
+		// the resolved-config constructor avoids a second expansion that corrupts
+		// secrets containing '$' (F5). The "custom" type is the exception: it
+		// intentionally passes raw ${VAR} placeholders through to the sink for late
+		// expansion.
 		consumerID := fmt.Sprintf("action:%s:%s", a.Type, a.Name)
 		var inner *webhooksink.WebhookSinkConsumer
 		if a.Type == "custom" {
@@ -140,7 +135,6 @@ func validateName(name string, seen map[string]struct{}) error {
 func validateAndResolveParams(a *config.ActionConfig, t Type) (ResolvedParams, error) {
 	spec := t.ParamSpec()
 
-	// Check for unknown params
 	for k := range a.Params {
 		if _, ok := spec[k]; !ok {
 			return nil, fmt.Errorf("action %q: unknown param %q for type %q", a.Name, k, a.Type)
@@ -169,8 +163,7 @@ func validateAndResolveParams(a *config.ActionConfig, t Type) (ResolvedParams, e
 					"action %q: param %q is secret and must be an environment variable reference like %s",
 					a.Name, name, example)
 			}
-			// Resolve the env var
-			varName := trimmed[2 : len(trimmed)-1] // extract VAR from ${VAR}
+			varName := trimmed[2 : len(trimmed)-1]
 			val := os.Getenv(varName)
 			if val == "" {
 				return nil, fmt.Errorf(
@@ -179,16 +172,11 @@ func validateAndResolveParams(a *config.ActionConfig, t Type) (ResolvedParams, e
 			}
 			resolved[name] = val
 		} else {
-			resolved[name] = expandEnvRefs(raw)
+			resolved[name] = os.Expand(raw, os.Getenv)
 		}
 	}
 
 	return resolved, nil
-}
-
-// expandEnvRefs expands ${VAR} references in a string value.
-func expandEnvRefs(s string) string {
-	return os.Expand(s, os.Getenv)
 }
 
 // validateCustomWebhookSecrets enforces ACT-02 for the custom type's inline

@@ -28,7 +28,7 @@ func (e *goTemplateEngine) Language() string {
 }
 
 // Apply executes the template against ev. Empty TrimSpace output drops (TRF-02).
-// Execution errors are wrapped as *RuntimeError. raw is unused (jq path).
+// Execution errors are wrapped as *RuntimeError.
 func (e *goTemplateEngine) Apply(_ []byte, ev *event.ChangeEvent) ([]byte, bool, error) {
 	var buf bytes.Buffer
 	if err := e.tmpl.Execute(&buf, ev); err != nil {

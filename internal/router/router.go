@@ -608,10 +608,6 @@ func (r *Router) flushBatchConsumers(ctx context.Context, partitionID uint32, ba
 // the skip-set; then discard provisional. Never extend backoff after a
 // successful poison skip.
 func (r *Router) handlePoisonFlush(ctx context.Context, idx int, partitionID uint32, pfe *PermanentFlushError, backoffState map[int]*flusherBackoff) bool {
-	if pfe == nil {
-		return false
-	}
-
 	r.mu.Lock()
 	if idx >= len(r.consumers) {
 		r.mu.Unlock()
@@ -1021,7 +1017,7 @@ func (r *Router) applyDispatchCursors(ctx context.Context, partitionID uint32, e
 			r.advanceCursorLocked(cs, partitionID, entry.Seq+1, &saves)
 			continue
 		}
-		r.dispatchUpdateCursor(ctx, cs, snap, entry, partitionID, groupKey, errs, i, &saves)
+		r.dispatchUpdateCursor(cs, snap, entry, partitionID, groupKey, errs, i, &saves)
 	}
 	r.mu.Unlock()
 	for _, save := range saves {
@@ -1041,7 +1037,6 @@ func (r *Router) advanceCursorLocked(cs *consumerState, partitionID uint32, seq 
 // dispatchUpdateCursor handles Phase 3 per-consumer cursor logic.
 // Must be called under r.mu write lock.
 func (r *Router) dispatchUpdateCursor(
-	ctx context.Context,
 	cs *consumerState,
 	snap consumerSnap,
 	entry eventlog.LogEntry,
