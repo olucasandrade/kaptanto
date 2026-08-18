@@ -15,8 +15,8 @@ import (
 // columns are logged in old-row data), it emits a slog.Warn so operators
 // know they may get incomplete before-images for UPDATE/DELETE events.
 //
-// This function never returns an error for a DEFAULT identity; it only logs.
-func checkReplicaIdentity(ctx context.Context, conn *pgx.Conn, schema, table string) error {
+// This function only logs; it never returns an error.
+func checkReplicaIdentity(ctx context.Context, conn *pgx.Conn, schema, table string) {
 	var relreplident string
 	err := conn.QueryRow(ctx,
 		`SELECT relreplident::text FROM pg_class
@@ -28,7 +28,7 @@ func checkReplicaIdentity(ctx context.Context, conn *pgx.Conn, schema, table str
 		// Table might not exist yet — log but don't fail.
 		slog.Warn("postgres: could not check REPLICA IDENTITY",
 			"schema", schema, "table", table, "error", err)
-		return nil
+		return
 	}
 
 	if relreplident == "d" {
@@ -36,17 +36,15 @@ func checkReplicaIdentity(ctx context.Context, conn *pgx.Conn, schema, table str
 			"will only include primary key columns; set REPLICA IDENTITY FULL for complete before-images",
 			"schema", schema, "table", table)
 	}
-	return nil
 }
+
 
 // checkWALLag queries pg_stat_replication for the byte difference between
 // sent_lsn and write_lsn on the primary. If the lag exceeds thresholdBytes,
 // a slog.Warn is emitted. When m is non-nil, sets the SourceLagBytes gauge.
 //
-// Returns nil when:
-//   - No standbys are attached (empty pg_stat_replication — not an error).
-//   - Lag is within the threshold.
-func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64, sourceID string, m *observability.KaptantoMetrics) error {
+// This function only logs; it never returns an error.
+func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64, sourceID string, m *observability.KaptantoMetrics) {
 	var lagBytes int64
 	err := conn.QueryRow(ctx,
 		`SELECT COALESCE(sent_lsn - write_lsn, 0) AS lag_bytes
@@ -54,7 +52,7 @@ func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64, sour
 	).Scan(&lagBytes)
 	if err != nil {
 		// No rows — no standbys attached. This is normal for a single-node setup.
-		return nil
+		return
 	}
 
 	if m != nil {
@@ -67,8 +65,8 @@ func checkWALLag(ctx context.Context, conn *pgx.Conn, thresholdBytes int64, sour
 			"threshold_bytes", thresholdBytes,
 		)
 	}
-	return nil
 }
+
 
 // splitSchemaTable splits a "schema.table" string into its two parts.
 // Quoted identifiers (e.g. public."CamelCaseTable") are parsed into raw

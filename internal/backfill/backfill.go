@@ -434,37 +434,22 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 			bufLastPKValues = nil
 		}
 
-		// Advance cursor and persist state (BKF-03 crash-resumable).
-		// When appendBatchFn is set, flushEventBuf already persisted the cursor
-		// for rows that were flushed mid-page; this call covers the final state
-		// (ProcessedRows, status) after the page is fully processed.
-		if b.appendBatchFn == nil {
-			if lastPKValues != nil {
-				cursor.LastPK = lastPKValues
-				cursorJSON, marshalErr := json.Marshal(lastPKValues)
-				if marshalErr == nil {
-					state.CursorKey = cursorJSON
-				}
+		// Advance cursor to the last SCANNED PK (including watermark-skipped
+		// rows) so the next page query does not re-scan rows that were already
+		// evaluated and skipped. When appendBatchFn is set, flushEventBuf only
+		// advances to bufLastPKValues (last emitted PK), which can lag behind
+		// when trailing rows are skipped; this call covers the final state
+		// (ProcessedRows, status) after the page is fully processed (BKF-03).
+		if lastPKValues != nil {
+			cursor.LastPK = lastPKValues
+			cursorJSON, marshalErr := json.Marshal(lastPKValues)
+			if marshalErr == nil {
+				state.CursorKey = cursorJSON
 			}
-			if saveErr := b.store.SaveState(ctx, state); saveErr != nil {
-				return fmt.Errorf("save state after batch: %w", saveErr)
-			}
-		} else {
-			// Advance cursor to the last SCANNED PK (including watermark-skipped
-			// rows) so the next page query does not re-scan rows that were already
-			// evaluated and skipped. flushEventBuf only advances to bufLastPKValues
-			// (last emitted PK), which can lag behind when trailing rows are skipped.
-			if lastPKValues != nil {
-				cursor.LastPK = lastPKValues
-				cursorJSON, marshalErr := json.Marshal(lastPKValues)
-				if marshalErr == nil {
-					state.CursorKey = cursorJSON
-				}
-			}
-			// Persist end-of-page state (status + ProcessedRows).
-			if saveErr := b.store.SaveState(ctx, state); saveErr != nil {
-				return fmt.Errorf("save state after batch: %w", saveErr)
-			}
+		}
+		// Persist end-of-page state (status + ProcessedRows).
+		if saveErr := b.store.SaveState(ctx, state); saveErr != nil {
+			return fmt.Errorf("save state after batch: %w", saveErr)
 		}
 
 		optimizer.Adjust(time.Since(batchStart))
