@@ -1,7 +1,7 @@
 export type DocItem = { title: string; sub: string; body: string };
 
 // docs content
-export const DOCS_CONTENT: Record<string, DocItem> = {
+export const DOCS_CONTENT: Record<string, DocItem | undefined> = {
   "docs-intro": {
     title: "What is Kaptanto?",
     sub: "The fastest way to stream changes from Postgres and MongoDB to your application. One binary, no infrastructure.",

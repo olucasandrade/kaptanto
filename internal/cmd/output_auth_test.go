@@ -140,9 +140,9 @@ func TestBuildOutputServer_NoneWithMCPMetricsRequireBearer(t *testing.T) {
 	oaBytes, err := openapi.MarshalDocument(oaDoc)
 	require.NoError(t, err)
 
-	fn, err := buildObservabilityServer(cfg, metrics, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}), nil, openapi.NewHandler(oaBytes))
+	fn, err := buildObservabilityServer(cfg, metrics, []observability.HealthProbe{
+		{Name: "test", Check: func() error { return nil }},
+	}, openapi.NewHandler(oaBytes))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())

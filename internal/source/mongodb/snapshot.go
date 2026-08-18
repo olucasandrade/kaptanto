@@ -1,9 +1,9 @@
 // Package mongodb implements the MongoDB snapshot for CDC re-snapshot with
 // watermark coordination.
 //
-// MongoSnapshot iterates all configured collections using a keyset cursor
-// (sort by _id, never OFFSET — CLAUDE.md invariant 3) and applies the
-// WatermarkChecker before appending each event to ensure duplicates are
+// MongoSnapshot iterates all configured collections (documents sorted by _id,
+// never OFFSET — CLAUDE.md invariant 3) and applies the WatermarkChecker
+// before appending each event to ensure duplicates are
 // suppressed (CLAUDE.md invariant 4).
 package mongodb
 
@@ -138,7 +138,6 @@ func (s *MongoSnapshot) Run(ctx context.Context) error {
 	return nil
 }
 
-// snapshotCollection snapshots a single collection.
 func (s *MongoSnapshot) snapshotCollection(ctx context.Context, collName string) error {
 	// Build the O(1) watermark index for this collection before scanning any
 	// documents, if the checker supports it. Non-fatal on error: ShouldEmit
@@ -255,8 +254,8 @@ func (s *MongoSnapshot) normalizeSnapshotDoc(raw bson.Raw, collName string) (*ev
 	return ev, nil
 }
 
-// fetchDocs retrieves all documents from a collection, sorted by _id (keyset
-// cursor — never OFFSET, per CLAUDE.md invariant 3).
+// fetchDocs retrieves all documents from a collection with a single Find,
+// sorted by _id (never OFFSET, per CLAUDE.md invariant 3).
 //
 // In unit tests, findFn is injected via SetFindFn. In production, a real
 // mongo.Collection.Find call is made.

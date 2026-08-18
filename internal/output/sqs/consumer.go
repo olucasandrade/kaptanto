@@ -334,9 +334,6 @@ func (c *SQSSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) 
 
 	// 5. Append to pending buffer — FlushBatch performs the actual network call.
 	c.mu.Lock()
-	if c.usedBatchIDs == nil {
-		c.usedBatchIDs = make(map[uint32]map[string]struct{})
-	}
 	if c.usedBatchIDs[entry.PartitionID] == nil {
 		c.usedBatchIDs[entry.PartitionID] = make(map[string]struct{})
 	}

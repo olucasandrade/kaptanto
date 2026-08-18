@@ -51,7 +51,6 @@ type Matcher struct {
 func Compile(mc MatchConfig) (*Matcher, error) {
 	m := &Matcher{}
 
-	// --- Tables ---
 	if len(mc.Tables) == 0 {
 		m.matchAll = true
 	} else {
@@ -65,7 +64,6 @@ func Compile(mc MatchConfig) (*Matcher, error) {
 		}
 	}
 
-	// --- Operations ---
 	if len(mc.Operations) == 0 {
 		m.ops = opAll
 	} else {
@@ -79,7 +77,6 @@ func Compile(mc MatchConfig) (*Matcher, error) {
 		}
 	}
 
-	// --- WHERE ---
 	rf, err := output.ParseRowFilter(mc.Where)
 	if err != nil {
 		return nil, fmt.Errorf("compile match rule: where: %w", err)
@@ -111,7 +108,6 @@ func (m *Matcher) Match(ev *event.ChangeEvent) (bool, error) {
 	return m.rowFilter.Match(ev)
 }
 
-// matchOp checks the operation against the compiled bitmask.
 func (m *Matcher) matchOp(op event.Operation) bool {
 	switch op {
 	case event.OpInsert:
@@ -127,7 +123,6 @@ func (m *Matcher) matchOp(op event.Operation) bool {
 	}
 }
 
-// matchTable checks the qualified table name against all compiled globs.
 func (m *Matcher) matchTable(name string) bool {
 	for i := range m.tables {
 		if m.tables[i].match(name) {
@@ -137,7 +132,6 @@ func (m *Matcher) matchTable(name string) bool {
 	return false
 }
 
-// qualifiedName builds "schema.table" or just "table" when schema is empty.
 func qualifiedName(schema, table string) string {
 	if schema == "" {
 		return table

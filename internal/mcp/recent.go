@@ -125,7 +125,7 @@ func newRecentConsumer(capacity int) *recentConsumer {
 func (c *recentConsumer) ID() string { return recentConsumerID }
 
 func (c *recentConsumer) Deliver(_ context.Context, entry eventlog.LogEntry) error {
-	if err := entry.MaterializeEvent(); err != nil || entry.Event == nil || c == nil || c.idx == nil {
+	if err := entry.MaterializeEvent(); err != nil {
 		return nil
 	}
 	c.idx.put(entry.Event)
