@@ -61,7 +61,7 @@ type tableIndex struct {
 //   - Scan (fallback): the original implementation, used automatically when
 //     StartTable was never called for a table, when the table's index
 //     exceeded the memory cap, or when the underlying EventLog does not
-//     support AppendObservable (e.g. the NATS cluster-mode EventLog). Pages
+//     support AppendObservable (test fakes that omit the interface). Pages
 //     through the entire partition for the row's key on every call —
 //     correct but O(partition size) per row.
 type WatermarkChecker struct {
@@ -78,8 +78,8 @@ type WatermarkChecker struct {
 // NewWatermarkChecker creates a WatermarkChecker backed by the given EventLog.
 // numPartitions must match the EventLog's partition count.
 //
-// If el implements eventlog.AppendObservable (BadgerEventLog does; the NATS
-// cluster EventLog currently does not), the checker registers itself as an
+// If el implements eventlog.AppendObservable (BadgerEventLog and NatsEventLog
+// both do), the checker registers itself as an
 // AppendObserver immediately — before any table's index is ever built — so
 // the "observer attached before initial scan" ordering required for
 // correctness (see StartTable) holds for every table, from the very first
