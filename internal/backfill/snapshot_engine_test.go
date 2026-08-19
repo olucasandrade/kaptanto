@@ -12,9 +12,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	badger "github.com/dgraph-io/badger/v4"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/olucasandrade/kaptanto/internal/backfill"
@@ -481,4 +483,104 @@ func TestResetForSlotLoss_WaitsForInFlightRun(t *testing.T) {
 	require.NotNil(t, state)
 	assert.Equal(t, "pending", state.Status, "reset must run after in-flight snapshot completes")
 	assert.Nil(t, state.CursorKey)
+}
+
+// defaultMaxBatchSize returns Badger's default MaxBatchSize so the wide-row
+// regression test can size payloads dynamically.
+func defaultMaxBatchSize(t *testing.T) int64 {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := badger.Open(badger.DefaultOptions(dir).WithLogger(nil))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	return db.MaxBatchSize()
+}
+
+// TestSnapshotTable_WideRows_ChunkedAppend is the backfill-level regression
+// test for issue #56's follow-up comment. The snapshot reads wide rows (large
+// column values); the backfill engine buffers 256 rows per flush. Without
+// chunking inside BadgerEventLog.AppendBatch this would fail with
+// "Txn is too big to fit into one request".
+func TestSnapshotTable_WideRows_ChunkedAppend(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	maxSize := defaultMaxBatchSize(t)
+	// Each backfill flush is 256 rows; make each row large enough that 256 of
+	// them exceed Badger's per-transaction byte budget.
+	const flushSize = 256
+	const rowCount = 300
+	payloadSize := int(maxSize)/flushSize + 1_000
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Schema:        "public",
+		Table:         "orders",
+		Strategy:      "snapshot_and_stream",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	rows := make([][]any, rowCount)
+	for i := 0; i < rowCount; i++ {
+		rows[i] = []any{int64(i + 1), strings.Repeat("x", payloadSize)}
+	}
+
+	conn := &fakeSnapshotConn{
+		cols:  []string{"id", "payload"},
+		pages: [][][]any{rows},
+	}
+
+	idGen := event.NewIDGenerator()
+	appendBatchFn := func(_ context.Context, evs []*event.ChangeEvent) error {
+		_, err := el.AppendBatch(evs)
+		return err
+	}
+	eng := backfill.NewBackfillEngineWithBatch(
+		[]backfill.BackfillConfig{cfg}, store, idGen,
+		func(_ context.Context, _ *event.ChangeEvent) error { return nil },
+		appendBatchFn,
+		func(_ context.Context) (backfill.SnapshotConn, error) { return conn, nil },
+	)
+
+	require.NoError(t, eng.Run(context.Background()))
+
+	state, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, "completed", state.Status)
+	assert.Equal(t, int64(rowCount), state.ProcessedRows)
+
+	var lastPK []any
+	require.NoError(t, json.Unmarshal(state.CursorKey, &lastPK))
+	require.Len(t, lastPK, 1)
+	assert.InEpsilon(t, float64(rowCount), lastPK[0], 0.0001,
+		"cursor must advance to the last row's PK")
+
+	got := readEventsFromLog(t, el)
+	assert.Len(t, got, rowCount, "every wide row must be present in the event log")
+}
+
+// readEventsFromLog returns all OpRead events currently stored in el, ignoring
+// control events such as snapshot_complete.
+func readEventsFromLog(t *testing.T, el *eventlog.BadgerEventLog) []*event.ChangeEvent {
+	t.Helper()
+	ctx := context.Background()
+	var out []*event.ChangeEvent
+	for p := uint32(0); p < 64; p++ {
+		entries, err := el.ReadPartition(ctx, p, 0, 1_000_000)
+		require.NoError(t, err)
+		for _, e := range entries {
+			require.NoError(t, e.MaterializeEvent())
+			if e.Event.Operation == event.OpRead {
+				out = append(out, e.Event)
+			}
+		}
+	}
+	return out
 }

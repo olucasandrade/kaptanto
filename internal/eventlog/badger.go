@@ -224,17 +224,31 @@ func (b *BadgerEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 	return seq, nil
 }
 
-// AppendBatch durably writes all events in evs within a single db.Update
-// transaction, amortising the virtiofs fsync cost over the whole batch.
+// preparedEvent holds data allocated outside the Badger transaction for one
+// event in an AppendBatch call.
+type preparedEvent struct {
+	partition uint32
+	val       []byte
+	dedupKey  []byte
+	seq       uint64
+}
+
+// AppendBatch durably writes all events in evs, amortising fsync cost over the
+// whole logical batch.
 //
 // Phase 1: all per-event data (JSON marshal, sequence number) is prepared
 // outside the Badger transaction to avoid holding sequence locks inside the
 // MVCC window (same reasoning as Append). Sequence number gaps on crash are
 // acceptable (sequences need not be gapless — pitfall 3).
 //
-// Phase 2: a single db.Update writes every non-duplicate event atomically.
-// Duplicates (idempotency key already present) return seq=0 for that index,
-// matching Append's sentinel convention (LOG-03).
+// Phase 2: the logical batch is committed in one or more Badger transactions.
+// Badger caps a transaction by byte size (MaxBatchSize) and entry count
+// (MaxBatchCount). A single wide-row batch would otherwise fail with
+// ErrTxnTooBig (LOG-05). Because callers serialize Append/AppendBatch and
+// because every event carries an idempotency key, chunking is safe:
+// - duplicates inside the batch are still skipped (LOG-03);
+// - if a later chunk fails, earlier committed chunks are idempotent on retry
+//   (CHK-01/BKF-03: checkpoints/cursors only advance after a successful call).
 func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
 	if len(evs) == 0 {
 		return nil, nil
@@ -243,13 +257,7 @@ func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error)
 	seqs := make([]uint64, len(evs)) // zero-initialised; 0 = duplicate sentinel
 
 	// Phase 1: marshal and allocate sequence numbers before the transaction.
-	type prepared struct {
-		partition uint32
-		val       []byte
-		dedupKey  []byte
-		seq       uint64
-	}
-	items := make([]prepared, len(evs))
+	items := make([]preparedEvent, len(evs))
 	for i, ev := range evs {
 		partition := PartitionOf(ev.Key, b.numPartitions)
 		val, err := json.Marshal(ev)
@@ -260,7 +268,7 @@ func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error)
 		if err != nil {
 			return nil, fmt.Errorf("eventlog: sequence for partition %d: %w", partition, err)
 		}
-		items[i] = prepared{
+		items[i] = preparedEvent{
 			partition: partition,
 			val:       val,
 			dedupKey:  encodeDedupKey(ev.IdempotencyKey),
@@ -268,34 +276,12 @@ func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error)
 		}
 	}
 
-	// Phase 2: single transaction for all events (the key throughput fix).
-	err := b.db.Update(func(txn *badger.Txn) error {
-		for i, item := range items {
-			// Dedup check: skip if idempotency key already exists (LOG-03).
-			if _, err := txn.Get(item.dedupKey); err == nil {
-				continue // duplicate; seqs[i] stays 0
-			} else if err != badger.ErrKeyNotFound {
-				return fmt.Errorf("eventlog: dedup check[%d]: %w", i, err)
-			}
-
-			partKey := encodePartKey(item.partition, item.seq)
-
-			partEntry := badger.NewEntry(partKey, item.val).WithTTL(b.retention)
-			if err := txn.SetEntry(partEntry); err != nil {
-				return fmt.Errorf("eventlog: set partition entry[%d]: %w", i, err)
-			}
-
-			dedupEntry := badger.NewEntry(item.dedupKey, encodePartSeq(item.partition, item.seq)).WithTTL(b.retention)
-			if err := txn.SetEntry(dedupEntry); err != nil {
-				return fmt.Errorf("eventlog: set dedup entry[%d]: %w", i, err)
-			}
-
-			seqs[i] = item.seq
+	// Phase 2: split the prepared batch into Badger-sized chunks and commit each.
+	ranges := b.chunkRanges(items)
+	for ci, r := range ranges {
+		if err := b.commitChunk(items, r.start, r.end, seqs); err != nil {
+			return nil, fmt.Errorf("eventlog: append batch chunk %d/%d: %w", ci+1, len(ranges), err)
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	// Pulse notify channels for every partition that received at least one new
@@ -322,6 +308,104 @@ func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error)
 	b.notifyObservers(writtenEvs, writtenSeqs)
 
 	return seqs, nil
+}
+
+// chunkRange is a half-open [start,end) slice of prepared items.
+type chunkRange struct {
+	start int
+	end   int
+}
+
+// chunkRanges splits prepared events into ranges that each fit within Badger's
+// per-transaction byte and entry-count budgets. We leave 50% headroom because
+// Badger's skiplist node overhead is not part of MaxBatchSize/MaxBatchCount.
+func (b *BadgerEventLog) chunkRanges(items []preparedEvent) []chunkRange {
+	if len(items) == 0 {
+		return nil
+	}
+
+	maxSize := b.db.MaxBatchSize() / 2
+	maxCount := b.db.MaxBatchCount() / 2
+	if maxSize <= 0 {
+		maxSize = 1
+	}
+	if maxCount <= 0 {
+		maxCount = 1
+	}
+
+	var ranges []chunkRange
+	start := 0
+	var size int64
+	var count int64
+
+	for i, item := range items {
+		// Two entries per event: partition entry + dedup entry.
+		itemSize := int64(len(item.val) + len(item.dedupKey) +
+			len(encodePartKey(item.partition, item.seq)) +
+			len(encodePartSeq(item.partition, item.seq)))
+		itemCount := int64(2)
+
+		// Start a new chunk when the current one would exceed either budget.
+		// A single oversized item is still emitted in its own range so the
+		// caller receives a clean error from Badger (or from commitChunk's
+		// pre-check) rather than an infinite loop.
+		if i > start && (size+itemSize > maxSize || count+itemCount > maxCount) {
+			ranges = append(ranges, chunkRange{start: start, end: i})
+			start = i
+			size = 0
+			count = 0
+		}
+		size += itemSize
+		count += itemCount
+	}
+	if start < len(items) {
+		ranges = append(ranges, chunkRange{start: start, end: len(items)})
+	}
+	return ranges
+}
+
+// commitChunk writes items[start:end] to Badger. seqs is updated in-place for
+// non-duplicate events at their original indices.
+func (b *BadgerEventLog) commitChunk(items []preparedEvent, start, end int, seqs []uint64) error {
+	hardMaxSize := b.db.MaxBatchSize()
+
+	return b.db.Update(func(txn *badger.Txn) error {
+		for i := start; i < end; i++ {
+			item := items[i]
+
+			// Guard: an event that by itself exceeds Badger's hard transaction
+			// budget can never be written. Badger would return ErrTxnTooBig; we
+			// fail fast with a clearer message.
+			itemSize := int64(len(item.val) + len(item.dedupKey) +
+				len(encodePartKey(item.partition, item.seq)) +
+				len(encodePartSeq(item.partition, item.seq)))
+			if itemSize > hardMaxSize {
+				return fmt.Errorf("eventlog: event exceeds maximum transaction size (%d > %d)", itemSize, hardMaxSize)
+			}
+
+			// Dedup check: skip if idempotency key already exists (LOG-03).
+			if _, err := txn.Get(item.dedupKey); err == nil {
+				continue // duplicate; seqs[i] stays 0
+			} else if err != badger.ErrKeyNotFound {
+				return fmt.Errorf("eventlog: dedup check[%d]: %w", i, err)
+			}
+
+			partKey := encodePartKey(item.partition, item.seq)
+
+			partEntry := badger.NewEntry(partKey, item.val).WithTTL(b.retention)
+			if err := txn.SetEntry(partEntry); err != nil {
+				return fmt.Errorf("eventlog: set partition entry[%d]: %w", i, err)
+			}
+
+			dedupEntry := badger.NewEntry(item.dedupKey, encodePartSeq(item.partition, item.seq)).WithTTL(b.retention)
+			if err := txn.SetEntry(dedupEntry); err != nil {
+				return fmt.Errorf("eventlog: set dedup entry[%d]: %w", i, err)
+			}
+
+			seqs[i] = item.seq
+		}
+		return nil
+	})
 }
 
 // ReadPartition returns up to limit events from partition, starting at fromSeq (inclusive),
