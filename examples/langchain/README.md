@@ -35,7 +35,7 @@ docker compose up --build -d
 pip install 'kaptanto[langchain]'
 ```
 
-From this monorepo before the package is published:
+For local development from this monorepo:
 
 ```bash
 pip install -e '../../packages/kaptanto-python[langchain]'

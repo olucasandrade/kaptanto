@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@kaptanto/events` TypeScript SSE client and `n8n-nodes-kaptanto` community node
 - `@kaptanto/mastra` Mastra adapter (`kaptantoTrigger`, `toAgentContext`)
 - `kaptanto` Python SDK (pydantic `ChangeEvent` models + httpx SSE client, optional `langchain` extra)
+- Published `@kaptanto/events` 0.1.0, `@kaptanto/mastra` 0.1.0, `n8n-nodes-kaptanto` 0.1.0 to npm; `kaptanto` 0.1.0 to PyPI
 
 ### Changed
 

@@ -1299,15 +1299,13 @@ sinks:
 
   "docs-python-sdk": {
     title: "Python SDK",
-    sub: "pydantic ChangeEvent models and an httpx SSE client — install from source until the first PyPI release.",
+    sub: "pydantic ChangeEvent models and an httpx SSE client — install from PyPI.",
     body: `
 <h2 class="dh2">Install</h2>
-<div class="dcall"><p><strong>Registry status:</strong> <code>pip install kaptanto</code> is not yet on PyPI. Install from the repo until the first <code>python-v*</code> tag ships.</p></div>
-<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
-<span class="tg">$</span> pip install ./packages/kaptanto-python
+<div class="dcode"><span class="tg">$</span> pip install kaptanto
 
 <span class="tc"># Optional LangChain StructuredTool helper:</span>
-<span class="tg">$</span> pip install './packages/kaptanto-python[langchain]'</div>
+<span class="tg">$</span> pip install 'kaptanto[langchain]'</div>
 
 <h2 class="dh2">Models</h2>
 <div class="dcode"><span class="tc">from kaptanto import ChangeEvent, Operation</span>
@@ -1345,12 +1343,10 @@ asyncio.run(main())</div>
 
   "docs-events-sdk": {
     title: "TypeScript SDK",
-    sub: "Wire-format ChangeEvent types and runtime guards — install from source until the first npm release.",
+    sub: "Wire-format ChangeEvent types and runtime guards — install from npm.",
     body: `
 <h2 class="dh2">Install</h2>
-<div class="dcall"><p><strong>Registry status:</strong> <code>npm i @kaptanto/events</code> is not yet on npm. Install from the repo until the first <code>events-v*</code> tag ships.</p></div>
-<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
-<span class="tg">$</span> npm i ./packages/kaptanto-events</div>
+<div class="dcode"><span class="tg">$</span> npm i @kaptanto/events</div>
 
 <h2 class="dh2">Usage</h2>
 <div class="dcode"><span class="tc">import { type ChangeEvent, isChangeEvent, isInsert } from "@kaptanto/events";</span>
@@ -1377,13 +1373,11 @@ if (isChangeEvent(raw)) {
 
   "docs-mastra": {
     title: "Mastra Integration",
-    sub: "Trigger Mastra workflows from real-time database changes — install from source until the first npm release.",
+    sub: "Trigger Mastra workflows from real-time database changes — install @kaptanto/mastra from npm.",
     body: `
 <h2 class="dh2">Install</h2>
-<div class="dcall"><p><strong>Registry status:</strong> <code>npm i @kaptanto/mastra</code> is not yet on npm. Install from the repo until the first <code>mastra-v*</code> tag ships.</p></div>
-<div class="dcode"><span class="tg">$</span> git clone https://github.com/olucasandrade/kaptanto
-<span class="tg">$</span> npm i ./packages/kaptanto-mastra ./packages/kaptanto-events mastra</div>
-<p class="dp"><a onclick="go('docs-events-sdk')">@kaptanto/events</a> and <code>mastra</code> are peer dependencies.</p>
+<div class="dcode"><span class="tg">$</span> npm i @kaptanto/mastra @kaptanto/events @mastra/core</div>
+<p class="dp"><a onclick="go('docs-events-sdk')">@kaptanto/events</a> and <code>mastra</code> are peer dependencies; <code>@mastra/core</code> provides <code>createWorkflow</code>/<code>createStep</code>.</p>
 
 <h2 class="dh2">Trigger a workflow</h2>
 <div class="dcode"><span class="tc">import { kaptantoTrigger, toAgentContext } from "@kaptanto/mastra";</span>
@@ -1479,9 +1473,8 @@ match:
 <p class="dp">The <code>n8n-nodes-kaptanto</code> package provides a community trigger node that connects to kaptanto's SSE endpoint. Each database change starts an n8n workflow execution.</p>
 
 <h2 class="dh2">Installation</h2>
-<div class="dcode"><span class="tc"># In your n8n instance (pending npm publication)</span>
-npm install github:olucasandrade/kaptanto#n8n-nodes-kaptanto</div>
-<p class="dp">The package will also be available from the n8n community nodes UI once it is published to npm.</p>
+<div class="dcode"><span class="tg">$</span> npm install n8n-nodes-kaptanto</div>
+<p class="dp">Or search for <strong>kaptanto</strong> in the n8n community nodes UI. (n8n's own community-node registry verification is a separate manual process beyond npm publication.)</p>
 
 <h2 class="dh2">Configuration</h2>
 <p class="dp">The trigger node needs three settings:</p>
