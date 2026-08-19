@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -42,6 +43,11 @@ type BackfillEngine interface {
 	// HasPendingBackfills returns true if any configured table has a pending or
 	// running backfill that has not yet completed.
 	HasPendingBackfills() bool
+	// ResetForSlotLoss clears persisted snapshot progress so the next Run starts
+	// from page one with a new SnapshotID/SnapshotLSN. SRC-06: a recreated slot
+	// starts at current WAL, so rows changed only in the lost gap must be
+	// re-emitted as OpRead. stream_only tables are left untouched.
+	ResetForSlotLoss(ctx context.Context, snapshotLSN uint64) error
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +98,13 @@ type BackfillEngineImpl struct {
 	openConnFn    OpenConnFn
 	// watermark is optional; nil disables watermark deduplication.
 	watermark *WatermarkChecker
+	// mu serializes Run and ResetForSlotLoss so a slot-loss reset cannot race
+	// an in-flight snapshot's LoadState/SaveState.
+	mu sync.Mutex
 }
+
+// Compile-time assertion: BackfillEngineImpl must satisfy BackfillEngine.
+var _ BackfillEngine = (*BackfillEngineImpl)(nil)
 
 // NewBackfillEngine creates a BackfillEngineImpl with the given dependencies.
 // appendFn must not be nil. appendBatchFn must not be nil. openConnFn must not be nil.
@@ -164,8 +176,55 @@ func (b *BackfillEngineImpl) HasPendingBackfills() bool {
 	return false
 }
 
+// ResetForSlotLoss clears persisted snapshot progress so the next Run starts
+// from page one. It waits for an in-flight Run (same mutex) so a still-running
+// snapshot cannot race store writes. Idempotency keys stay in the EVT-03
+// format; a new SnapshotID lets EventLog accept the re-snapshot, including
+// gap rows whose previous OpRead used a different snapshot_id.
+func (b *BackfillEngineImpl) ResetForSlotLoss(ctx context.Context, snapshotLSN uint64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	for _, cfg := range b.configs {
+		if cfg.Strategy == "stream_only" {
+			continue
+		}
+		state, err := b.store.LoadState(ctx, cfg.SourceID, cfg.Table)
+		if err != nil {
+			return fmt.Errorf("reset slot-loss state %s/%s: %w", cfg.SourceID, cfg.Table, err)
+		}
+		if state == nil {
+			state = &BackfillState{
+				SourceID: cfg.SourceID,
+				Table:    cfg.Table,
+				Strategy: cfg.Strategy,
+			}
+		}
+		state.Status = "pending"
+		state.Strategy = cfg.Strategy
+		state.CursorKey = nil
+		state.TotalRows = 0
+		state.ProcessedRows = 0
+		state.SnapshotLSN = snapshotLSN
+		state.SnapshotID = newSnapshotID(cfg.SourceID, cfg.Table)
+		state.StartedAt = time.Time{}
+		state.UpdatedAt = now
+		if err := b.store.SaveState(ctx, state); err != nil {
+			return fmt.Errorf("save slot-loss reset %s/%s: %w", cfg.SourceID, cfg.Table, err)
+		}
+	}
+	return nil
+}
+
+func newSnapshotID(sourceID, table string) string {
+	return fmt.Sprintf("%s_%s_%d", sourceID, table, time.Now().UnixNano())
+}
+
 // Run executes all pending backfills in order.
 func (b *BackfillEngineImpl) Run(ctx context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	for _, cfg := range b.configs {
 		if err := b.runOne(ctx, cfg); err != nil {
 			return fmt.Errorf("backfill: run %s/%s: %w", cfg.SourceID, cfg.Table, err)
@@ -269,7 +328,7 @@ func (b *BackfillEngineImpl) snapshotTable(ctx context.Context, cfg BackfillConf
 	// Stable snapshotID for all rows in this run; persisted for crash-resume dedup.
 	snapshotID := state.SnapshotID
 	if snapshotID == "" {
-		snapshotID = fmt.Sprintf("%s_%s_%d", cfg.SourceID, cfg.Table, time.Now().UnixNano())
+		snapshotID = newSnapshotID(cfg.SourceID, cfg.Table)
 		state.SnapshotID = snapshotID
 	}
 
