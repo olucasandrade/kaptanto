@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 
@@ -78,8 +79,7 @@ func TestNatsEventLogReadPartition(t *testing.T) {
 
 	// Write several events that should land on one partition (deterministic key).
 	// Key `{"id": 1}` hashes to a fixed partition via FNV-1a — use PartitionOf to
-	// identify the exact partition rather than scanning all 64 (which would take
-	// up to 64 × FetchMaxWait = ~128s and exceed the test timeout).
+	// identify the exact partition rather than scanning all 64.
 	key := `{"id": 1}`
 	partition := eventlog.PartitionOf(json.RawMessage(key), 64)
 
@@ -211,4 +211,108 @@ func TestNatsEventLogPartitionIsolation(t *testing.T) {
 		require.NotEqual(t, evB.IdempotencyKey, e.Event.IdempotencyKey,
 			"event from partition B must not appear in partition A reads")
 	}
+}
+
+func listStreamConsumers(t *testing.T, el *eventlog.NatsEventLog) []*jetstream.ConsumerInfo {
+	t.Helper()
+	jsctx, err := jetstream.New(el.Conn())
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := jsctx.Stream(ctx, "kaptanto-events")
+	require.NoError(t, err)
+	lister := stream.ListConsumers(ctx)
+	var infos []*jetstream.ConsumerInfo
+	for info := range lister.Info() {
+		infos = append(infos, info)
+	}
+	require.NoError(t, lister.Err())
+	return infos
+}
+
+// TestNatsEventLogReadPartitionEmptyIsFast verifies empty ReadPartition returns
+// without waiting FetchMaxWait(2s). Scanning all 64 partitions must finish well
+// under the old 64x2s bound so idle notify can wake a partition.
+func TestNatsEventLogReadPartitionEmptyIsFast(t *testing.T) {
+	el := openTestNatsEventLog(t)
+	ctx := context.Background()
+	start := time.Now()
+	entries, err := el.ReadPartition(ctx, 0, 1, 10)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+	elapsed := time.Since(start)
+	require.Less(t, elapsed, 500*time.Millisecond,
+		"empty ReadPartition took %s; must not wait FetchMaxWait(2s)", elapsed)
+}
+
+// TestNatsEventLogReadPartitionRawPopulated verifies msg.Data is copied into Raw.
+func TestNatsEventLogReadPartitionRawPopulated(t *testing.T) {
+	el := openTestNatsEventLog(t)
+	key := `{"id": 1}`
+	partition := eventlog.PartitionOf(json.RawMessage(key), 64)
+	ev := makeNatsEvent("nats:raw:1:insert:0/1", key)
+	_, err := el.Append(ev)
+	require.NoError(t, err)
+
+	entries, err := el.ReadPartition(context.Background(), partition, 1, 10)
+	require.NoError(t, err)
+	require.NotEmpty(t, entries)
+	found := entries[0]
+	require.NotEmpty(t, found.Raw, "LogEntry.Raw must be populated by ReadPartition")
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(found.Raw, &decoded))
+	require.Equal(t, ev.IdempotencyKey, found.Event.IdempotencyKey)
+	// Mutating Raw must not affect a subsequent read (copied, not aliased).
+	found.Raw[0] ^= 0xff
+	entries2, err := el.ReadPartition(context.Background(), partition, 1, 10)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(entries2[0].Raw, &decoded))
+}
+
+// TestNatsEventLogReadPartitionReusesConsumer verifies repeated empty polls
+// do not create a new JetStream consumer each time.
+func TestNatsEventLogReadPartitionReusesConsumer(t *testing.T) {
+	el := openTestNatsEventLog(t)
+	ctx := context.Background()
+	for i := 0; i < 8; i++ {
+		entries, err := el.ReadPartition(ctx, 0, 1, 10)
+		require.NoError(t, err)
+		require.Empty(t, entries)
+	}
+	require.Len(t, listStreamConsumers(t, el), 1)
+}
+
+// TestNatsEventLogReleasePartitionDeletesConsumer verifies ownership release
+// removes the long-lived pull consumer.
+func TestNatsEventLogReleasePartitionDeletesConsumer(t *testing.T) {
+	el := openTestNatsEventLog(t)
+	_, err := el.ReadPartition(context.Background(), 0, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, listStreamConsumers(t, el), 1)
+
+	el.ReleasePartition(0)
+	require.Empty(t, listStreamConsumers(t, el))
+}
+
+// TestNatsEventLogReadPartitionRewindReReads verifies a lower fromSeq recreates
+// the pull consumer so failed delivery can re-read the same window.
+func TestNatsEventLogReadPartitionRewindReReads(t *testing.T) {
+	el := openTestNatsEventLog(t)
+	key := `{"id": 1}`
+	partition := eventlog.PartitionOf(json.RawMessage(key), 64)
+	for i := 1; i <= 3; i++ {
+		ev := makeNatsEvent(fmt.Sprintf("nats:rewind:%d:insert:0/%d", i, i), key)
+		_, err := el.Append(ev)
+		require.NoError(t, err)
+	}
+	ctx := context.Background()
+	first, err := el.ReadPartition(ctx, partition, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, first, 3)
+
+	again, err := el.ReadPartition(ctx, partition, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, again, 3)
+	require.Equal(t, first[0].Seq, again[0].Seq)
+	require.Equal(t, first[2].Seq, again[2].Seq)
 }

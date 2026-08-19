@@ -19,13 +19,17 @@ package eventlog
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
+	natssrv "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	natssrv "github.com/nats-io/nats-server/v2/server"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
 )
@@ -36,6 +40,8 @@ var _ EventLog = (*NatsEventLog)(nil)
 // Compile-time assertion: NatsEventLog implements PartitionNotifier.
 var _ PartitionNotifier = (*NatsEventLog)(nil)
 
+var _ PartitionReleaser = (*NatsEventLog)(nil)
+
 const (
 	// natsStreamName is the single JetStream stream that holds all 64 partition subjects.
 	// One stream per kaptanto instance — one Raft group, one SyncAlways applies.
@@ -43,12 +49,23 @@ const (
 
 	// natsSubjectPattern matches all partition subjects for use in StreamConfig.Subjects.
 	natsSubjectPattern = "kaptanto.events.*"
+
+	natsPullInactiveThreshold = 30 * time.Second
+	natsConsumerDeleteTimeout = 2 * time.Second
 )
 
 // natsSubject returns the JetStream subject for the given partition number.
 // Subject format: "kaptanto.events.{partition:05d}" — zero-padded for lexicographic ordering.
 func natsSubject(partition uint32) string {
 	return fmt.Sprintf("kaptanto.events.%05d", partition)
+}
+
+func newNatsInstanceID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // NatsEventLogConfig holds configuration for opening a NatsEventLog.
@@ -66,6 +83,15 @@ type NatsEventLogConfig struct {
 	Retention time.Duration
 }
 
+// natsPartitionReader holds the long-lived JetStream pull consumer for one
+// partition. nextSeq is the fromSeq this consumer will next deliver; a
+// mismatch (router rewind, watermark scan) deletes and recreates it.
+type natsPartitionReader struct {
+	mu      sync.Mutex
+	cons    jetstream.Consumer
+	nextSeq uint64
+}
+
 // NatsEventLog is the NATS JetStream-backed implementation of EventLog.
 // It is safe for sequential calls from a single goroutine. Callers must
 // serialize concurrent Append calls externally.
@@ -78,6 +104,8 @@ type NatsEventLog struct {
 	stream        jetstream.Stream
 	numPartitions uint32
 	notifyChs     []chan struct{} // one depth-1 buffered channel per partition
+	instanceID    string
+	readers       []*natsPartitionReader
 }
 
 // OpenNats opens a NatsEventLog, starting an embedded NATS server and creating
@@ -146,8 +174,10 @@ func OpenNats(cfg NatsEventLogConfig) (*NatsEventLog, error) {
 	}
 
 	notifyChs := make([]chan struct{}, numPartitions)
+	readers := make([]*natsPartitionReader, numPartitions)
 	for i := uint32(0); i < numPartitions; i++ {
 		notifyChs[i] = make(chan struct{}, 1)
+		readers[i] = &natsPartitionReader{}
 	}
 
 	return &NatsEventLog{
@@ -157,6 +187,8 @@ func OpenNats(cfg NatsEventLogConfig) (*NatsEventLog, error) {
 		stream:        stream,
 		numPartitions: numPartitions,
 		notifyChs:     notifyChs,
+		instanceID:    newNatsInstanceID(),
+		readers:       readers,
 	}, nil
 }
 
@@ -282,64 +314,156 @@ func (n *NatsEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
 }
 
 // ReadPartition returns up to limit events from the given partition, starting at
-// fromSeq (inclusive), using a JetStream OrderedConsumer.
+// fromSeq (inclusive), using a long-lived JetStream pull consumer per partition.
 //
-// The OrderedConsumer is created per call (stateless, no persistent subscription).
-// It uses DeliverByStartSequencePolicy with OptStartSeq=fromSeq, which tells
-// JetStream to deliver only messages at or after that stream-global sequence that
-// also match the partition's subject filter.
+// The consumer is created once and reused while fromSeq matches the next
+// sequence the consumer will deliver. A rewind (failed delivery) or a jump
+// (watermark scan vs router) deletes and recreates it with OptStartSeq=fromSeq.
+// Empty probes use FetchNoWait so idle notify can wake the partition without a
+// 2s FetchMaxWait tail.
 //
 // Note on sequence semantics (Pitfall 4): JetStream sequences are stream-global,
 // not partition-local. LogEntry.Seq contains the stream-global sequence. Callers
 // must treat seq as an opaque cursor — the router and backfill engine do this already.
 func (n *NatsEventLog) ReadPartition(ctx context.Context, partition uint32, fromSeq uint64, limit int) ([]LogEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
 	startSeq := fromSeq
 	if startSeq == 0 {
-		startSeq = 1 // JetStream sequences start at 1; fromSeq=0 is treated as "from start"
+		startSeq = 1
 	}
 
-	cons, err := n.js.OrderedConsumer(ctx, natsStreamName, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{natsSubject(partition)},
-		DeliverPolicy:  jetstream.DeliverByStartSequencePolicy,
-		OptStartSeq:    startSeq,
-	})
+	r := n.readers[partition]
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	cons, err := n.ensurePullConsumer(ctx, partition, r, startSeq)
 	if err != nil {
-		return nil, fmt.Errorf("nats eventlog: ordered consumer for partition %d: %w", partition, err)
+		return nil, err
 	}
 
-	msgs, err := cons.Fetch(limit, jetstream.FetchMaxWait(2*time.Second))
+	msgs, err := cons.FetchNoWait(limit)
 	if err != nil {
+		n.deletePullConsumerLocked(r)
 		return nil, fmt.Errorf("nats eventlog: fetch partition %d: %w", partition, err)
 	}
 
+	entries, lastSeq, err := collectPullEntries(msgs, partition)
+	if err != nil {
+		n.deletePullConsumerLocked(r)
+		return nil, err
+	}
+	if lastSeq != 0 {
+		r.nextSeq = lastSeq + 1
+	}
+	return entries, nil
+}
+
+func collectPullEntries(msgs jetstream.MessageBatch, partition uint32) ([]LogEntry, uint64, error) {
 	var entries []LogEntry
+	var lastSeq uint64
 	for msg := range msgs.Messages() {
+		data := msg.Data()
+		raw := make([]byte, len(data))
+		copy(raw, data)
+
 		var ev event.ChangeEvent
-		if err := json.Unmarshal(msg.Data(), &ev); err != nil {
-			return nil, fmt.Errorf("nats eventlog: unmarshal event in partition %d: %w", partition, err)
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			return nil, 0, fmt.Errorf("nats eventlog: unmarshal event in partition %d: %w", partition, err)
 		}
 		meta, err := msg.Metadata()
 		if err != nil {
-			return nil, fmt.Errorf("nats eventlog: message metadata in partition %d: %w", partition, err)
+			return nil, 0, fmt.Errorf("nats eventlog: message metadata in partition %d: %w", partition, err)
 		}
+		lastSeq = meta.Sequence.Stream
 		entries = append(entries, LogEntry{
-			Seq:         meta.Sequence.Stream,
+			Seq:         lastSeq,
 			PartitionID: partition,
 			Event:       &ev,
+			Raw:         raw,
 		})
 	}
+	if err := msgs.Error(); err != nil {
+		return nil, 0, err
+	}
+	return entries, lastSeq, nil
+}
 
-	return entries, msgs.Error()
+func (n *NatsEventLog) pullConsumerName(partition uint32) string {
+	return fmt.Sprintf("kaptanto-rp-%05d-%s", partition, n.instanceID)
+}
+
+func (n *NatsEventLog) ensurePullConsumer(ctx context.Context, partition uint32, r *natsPartitionReader, startSeq uint64) (jetstream.Consumer, error) {
+	if r.cons != nil && r.nextSeq == startSeq {
+		return r.cons, nil
+	}
+	n.deletePullConsumerLocked(r)
+
+	name := n.pullConsumerName(partition)
+	_ = n.stream.DeleteConsumer(ctx, name)
+
+	cons, err := n.stream.CreateConsumer(ctx, jetstream.ConsumerConfig{
+		Name:              name,
+		FilterSubject:     natsSubject(partition),
+		DeliverPolicy:     jetstream.DeliverByStartSequencePolicy,
+		OptStartSeq:       startSeq,
+		AckPolicy:         jetstream.AckNonePolicy,
+		ReplayPolicy:      jetstream.ReplayInstantPolicy,
+		MemoryStorage:     true,
+		InactiveThreshold: natsPullInactiveThreshold,
+		Replicas:          1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("nats eventlog: pull consumer for partition %d: %w", partition, err)
+	}
+	r.cons = cons
+	r.nextSeq = startSeq
+	return cons, nil
+}
+
+func (n *NatsEventLog) deletePullConsumerLocked(r *natsPartitionReader) {
+	if r.cons == nil {
+		return
+	}
+	name := r.cons.CachedInfo().Name
+	r.cons = nil
+	r.nextSeq = 0
+	delCtx, cancel := context.WithTimeout(context.Background(), natsConsumerDeleteTimeout)
+	defer cancel()
+	_ = n.stream.DeleteConsumer(delCtx, name)
+}
+
+// ReleasePartition stops and deletes the long-lived pull consumer for partition.
+// Safe to call when no consumer exists. Cluster ownership changes and
+// runPartition shutdown must call this so consumers do not leak across a steal.
+func (n *NatsEventLog) ReleasePartition(partition uint32) {
+	if partition >= n.numPartitions {
+		return
+	}
+	r := n.readers[partition]
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n.deletePullConsumerLocked(r)
 }
 
 // Close shuts down the NATS connection and the embedded server.
 // It is safe to call Close multiple times; subsequent calls are no-ops.
 func (n *NatsEventLog) Close() error {
+	for p := uint32(0); p < n.numPartitions; p++ {
+		n.ReleasePartition(p)
+	}
 	if n.nc != nil {
 		n.nc.Close()
+		n.nc = nil
 	}
 	if n.ns != nil {
 		n.ns.Shutdown()
+		n.ns = nil
 	}
 	return nil
 }

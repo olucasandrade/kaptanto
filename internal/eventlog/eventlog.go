@@ -36,6 +36,14 @@ type PartitionNotifier interface {
 	NotifyCh(partition uint32) <-chan struct{}
 }
 
+// PartitionReleaser is implemented by EventLog backends that keep per-partition
+// resources (for example NatsEventLog's long-lived JetStream pull consumers).
+// Callers must invoke ReleasePartition when they stop reading a partition so
+// those resources are not leaked across cluster ownership changes.
+type PartitionReleaser interface {
+	ReleasePartition(partition uint32)
+}
+
 // EventLog is the append-only durable event store interface.
 // Implementations must be safe for sequential calls from a single goroutine.
 // Callers must serialize concurrent Append calls externally if needed.
