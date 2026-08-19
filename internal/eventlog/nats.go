@@ -21,11 +21,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
+	natssrv "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	natssrv "github.com/nats-io/nats-server/v2/server"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
 )
@@ -35,6 +36,10 @@ var _ EventLog = (*NatsEventLog)(nil)
 
 // Compile-time assertion: NatsEventLog implements PartitionNotifier.
 var _ PartitionNotifier = (*NatsEventLog)(nil)
+
+// Compile-time assertion: NatsEventLog implements AppendObservable so
+// WatermarkChecker can build the O(1) index in cluster mode (BKF-02).
+var _ AppendObservable = (*NatsEventLog)(nil)
 
 const (
 	// natsStreamName is the single JetStream stream that holds all 64 partition subjects.
@@ -78,6 +83,10 @@ type NatsEventLog struct {
 	stream        jetstream.Stream
 	numPartitions uint32
 	notifyChs     []chan struct{} // one depth-1 buffered channel per partition
+
+	obsMu     sync.RWMutex
+	observers map[int]AppendObserver // keyed by monotonically increasing id for stable unregister
+	nextObsID int
 }
 
 // OpenNats opens a NatsEventLog, starting an embedded NATS server and creating
@@ -157,7 +166,46 @@ func OpenNats(cfg NatsEventLogConfig) (*NatsEventLog, error) {
 		stream:        stream,
 		numPartitions: numPartitions,
 		notifyChs:     notifyChs,
+		observers:     make(map[int]AppendObserver),
 	}, nil
+}
+
+// RegisterObserver implements AppendObservable. obs is called synchronously,
+// after a successful (non-duplicate) PubAck, on every future Append/AppendBatch
+// that writes at least one non-duplicate event — including calls already in
+// flight when RegisterObserver is invoked, since registration and the
+// observer dispatch loop both hold obsMu (see notifyObservers).
+func (n *NatsEventLog) RegisterObserver(obs AppendObserver) (unregister func()) {
+	n.obsMu.Lock()
+	id := n.nextObsID
+	n.nextObsID++
+	n.observers[id] = obs
+	n.obsMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			n.obsMu.Lock()
+			delete(n.observers, id)
+			n.obsMu.Unlock()
+		})
+	}
+}
+
+// notifyObservers dispatches evs/seqs (already filtered to non-duplicates by
+// the caller) to every registered observer, synchronously and in the calling
+// goroutine — this is what makes RegisterObserver's "sees every future
+// commit" guarantee hold: PubAck has already confirmed the JetStream write
+// before this runs, and this runs before Append/AppendBatch returns.
+func (n *NatsEventLog) notifyObservers(evs []*event.ChangeEvent, seqs []uint64) {
+	if len(evs) == 0 {
+		return
+	}
+	n.obsMu.RLock()
+	defer n.obsMu.RUnlock()
+	for _, obs := range n.observers {
+		obs.ObserveAppend(evs, seqs)
+	}
 }
 
 // NotifyCh returns the read-only notify channel for the given partition.
@@ -208,11 +256,13 @@ func (n *NatsEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 
 	// Duplicate detection: PubAck.Duplicate=true means the Nats-Msg-Id was seen before.
 	// Return seq=0 as the "duplicate detected" sentinel (LOG-03), matching BadgerEventLog.
+	// Observers must not fire for duplicates, and must not fire before PubAck.
 	if ack.Duplicate {
 		return 0, nil
 	}
 
 	n.notify(partition)
+	n.notifyObservers([]*event.ChangeEvent{ev}, []uint64{ack.Sequence})
 	return ack.Sequence, nil
 }
 
@@ -258,6 +308,8 @@ func (n *NatsEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
 	}
 
 	notifyPartitions := make(map[uint32]struct{})
+	writtenEvs := make([]*event.ChangeEvent, 0, len(evs))
+	writtenSeqs := make([]uint64, 0, len(evs))
 	for j, fut := range futures {
 		pm := preparedMsgs[j]
 		select {
@@ -269,6 +321,8 @@ func (n *NatsEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
 			} else {
 				seqs[pm.idx] = ack.Sequence
 				notifyPartitions[pm.partition] = struct{}{}
+				writtenEvs = append(writtenEvs, evs[pm.idx])
+				writtenSeqs = append(writtenSeqs, ack.Sequence)
 			}
 		case err := <-fut.Err():
 			return nil, fmt.Errorf("nats eventlog: AppendBatch pubAck[%d]: %w", pm.idx, err)
@@ -278,6 +332,10 @@ func (n *NatsEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
 	for partition := range notifyPartitions {
 		n.notify(partition)
 	}
+	// Notify observers only after every PubAck has been collected, and never
+	// for duplicates (seq==0). This matches BadgerEventLog's contract so
+	// WatermarkChecker can index cluster-mode appends without a scan fallback.
+	n.notifyObservers(writtenEvs, writtenSeqs)
 	return seqs, nil
 }
 

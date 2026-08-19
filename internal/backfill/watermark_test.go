@@ -489,3 +489,51 @@ func TestWatermarkChecker_StartTableError_DoesNotLeaveTrustedPartialIndex(t *tes
 			"before failing must still be suppressed via the scan fallback — the "+
 			"failed StartTable must not leave a partial index for ShouldEmit to trust")
 }
+
+// TestWatermarkChecker_NatsEventLog_IndexedPathSuppressesStaleRead proves the
+// cluster-mode wiring this fix adds: NatsEventLog implements AppendObservable,
+// NewWatermarkChecker registers the observer, and a post-StartTable Append
+// (after PubAck) is indexed so ShouldEmit suppresses without paging ReadPartition.
+func TestWatermarkChecker_NatsEventLog_IndexedPathSuppressesStaleRead(t *testing.T) {
+	el, err := eventlog.OpenNats(eventlog.NatsEventLogConfig{
+		Server: eventlog.NatsServerConfig{
+			ClientPort: -1,
+			StoreDir:   t.TempDir(),
+			SyncAlways: false,
+		},
+		NumPartitions: 64,
+		Retention:     time.Hour,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = el.Close() })
+
+	_, ok := any(el).(eventlog.AppendObservable)
+	require.True(t, ok, "NatsEventLog must implement AppendObservable")
+
+	ctx := context.Background()
+	const table = "orders"
+	const snapshotLSN = uint64(100)
+	checker := backfill.NewWatermarkChecker(el, 64)
+	defer checker.Close()
+	require.NoError(t, checker.StartTable(ctx, table, snapshotLSN))
+	defer checker.FinishTable(table)
+
+	targetKey := json.RawMessage(`{"id":42}`)
+	emit, err := checker.ShouldEmit(ctx, table, targetKey, snapshotLSN)
+	require.NoError(t, err)
+	assert.True(t, emit, "no WAL event yet — snapshot row should be emitted")
+
+	ev := &event.ChangeEvent{
+		Table:          table,
+		Key:            targetKey,
+		IdempotencyKey: "nats:wm:42:insert:0/C8",
+		Metadata:       map[string]any{"lsn": fmt.Sprintf("0/%X", snapshotLSN+100)},
+	}
+	seq, err := el.Append(ev)
+	require.NoError(t, err)
+	require.Greater(t, seq, uint64(0))
+
+	emit, err = checker.ShouldEmit(ctx, table, targetKey, snapshotLSN)
+	require.NoError(t, err)
+	assert.False(t, emit, "post-PubAck observer must index the WAL event so ShouldEmit suppresses without scanning")
+}

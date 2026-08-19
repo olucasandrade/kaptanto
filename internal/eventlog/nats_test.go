@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/oklog/ulid/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
@@ -211,4 +213,98 @@ func TestNatsEventLogPartitionIsolation(t *testing.T) {
 		require.NotEqual(t, evB.IdempotencyKey, e.Event.IdempotencyKey,
 			"event from partition B must not appear in partition A reads")
 	}
+}
+
+// TestNatsEventLog_ImplementsAppendObservable is the compile/runtime gate
+// that cluster backfill depends on: without this interface, WatermarkChecker
+// falls back to paging ReadPartition on every ShouldEmit.
+func TestNatsEventLog_ImplementsAppendObservable(t *testing.T) {
+	el := openTestNatsEventLog(t)
+	_, ok := any(el).(eventlog.AppendObservable)
+	require.True(t, ok, "NatsEventLog must implement AppendObservable")
+}
+
+// TestNatsEventLog_RegisterObserver_SyncAfterPubAck verifies the
+// AppendObserver contract for the NATS EventLog: observers fire
+// synchronously after a successful (non-duplicate) PubAck and before
+// Append/AppendBatch returns. Duplicates (seq==0) are never observed.
+func TestNatsEventLog_RegisterObserver_SyncAfterPubAck(t *testing.T) {
+	el := openTestNatsEventLog(t)
+
+	obs := &recordingObserver{}
+	unregister := el.RegisterObserver(obs)
+
+	ev1 := makeNatsEvent("nats:obs:1:insert:0/1", `{"id": 1}`)
+	seq1, err := el.Append(ev1)
+	require.NoError(t, err)
+	require.Greater(t, seq1, uint64(0))
+	require.Equal(t, []string{ev1.IdempotencyKey}, obs.allKeys(),
+		"observer must see the event before Append returns (synchronous after PubAck)")
+
+	evs := []*event.ChangeEvent{
+		makeNatsEvent("nats:obs:2:insert:0/2", `{"id": 2}`),
+		makeNatsEvent("nats:obs:3:insert:0/3", `{"id": 3}`),
+	}
+	seqs, err := el.AppendBatch(evs)
+	require.NoError(t, err)
+	require.Greater(t, seqs[0], uint64(0))
+	require.Greater(t, seqs[1], uint64(0))
+
+	assert.ElementsMatch(t, []string{ev1.IdempotencyKey, evs[0].IdempotencyKey, evs[1].IdempotencyKey}, obs.allKeys(),
+		"observer must see every non-duplicate event from Append and AppendBatch")
+
+	_, err = el.Append(ev1)
+	require.NoError(t, err)
+	_, err = el.AppendBatch(evs)
+	require.NoError(t, err)
+	assert.Len(t, obs.allKeys(), 3, "duplicate appends must not generate additional observer calls")
+
+	unregister()
+	ev4 := makeNatsEvent("nats:obs:4:insert:0/4", `{"id": 4}`)
+	_, err = el.Append(ev4)
+	require.NoError(t, err)
+	assert.Len(t, obs.allKeys(), 3, "unregistered observer must not receive further calls")
+
+	unregister()
+}
+
+// TestNatsEventLog_RegisterObserver_ConcurrentAppendAndUnregister exercises
+// RegisterObserver's synchronization under concurrent Append while another
+// goroutine registers/unregisters.
+func TestNatsEventLog_RegisterObserver_ConcurrentAppendAndUnregister(t *testing.T) {
+	el := openTestNatsEventLog(t)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		i := 0
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			ev := makeNatsEvent(fmt.Sprintf("nats:obs-race:%d:insert:0/%d", i, i), fmt.Sprintf(`{"id": %d}`, i))
+			_, err := el.Append(ev)
+			assert.NoError(t, err)
+			i++
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			obs := &recordingObserver{}
+			unregister := el.RegisterObserver(obs)
+			unregister()
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }
