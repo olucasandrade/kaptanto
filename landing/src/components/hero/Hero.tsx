@@ -37,7 +37,7 @@ export const Hero = component$<HeroProps>(({ currentDoc }) => {
         <div class="ha sr">
           <img src="/logo.png" alt="Kaptanto logo" />
           <span />
-          Open source — Apache 2.0 — v0.3.0
+          Open source — Apache 2.0 — latest tag v0.3.0
         </div>
         <h1 class="sr" style="position:relative">
           Turn every database write into a <em>real-time event.</em>

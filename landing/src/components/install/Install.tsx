@@ -75,6 +75,22 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
                     kaptanto ./cmd/kaptanto
                   </div>
                 )}
+                <p class="qs-hint">
+                  curl and Docker Hub pin the last tagged release (v0.3.0).
+                  webhook, vector, MCP, and actions are in this repository —
+                  build from source until the next tag. See{" "}
+                  <a
+                    href="/?doc=docs-install"
+                    onClick$={(e) => {
+                      e.preventDefault();
+                      currentDoc.value = "docs-install";
+                      window.scrollTo(0, 0);
+                    }}
+                  >
+                    Installation
+                  </a>
+                  .
+                </p>
               </div>
             </div>
           </div>
@@ -94,12 +110,26 @@ export const Install = component$<InstallProps>(({ currentDoc }) => {
                 <span class="ty">stdout</span>
               </div>
               <p class="qs-hint">
-                Use <code>--output sse</code> or <code>--output grpc</code> for
-                multi-consumer setups. Use{" "}
-                <code>--output nats|sqs|kafka|pubsub|rabbitmq</code> to push
-                directly to a queue. All of these require{" "}
-                <code>--auth-token</code> (or <code>--insecure</code> for local
-                dev) — see the{" "}
+                Postgres needs <code>wal_level=logical</code>, a{" "}
+                <code>REPLICATION</code> role with <code>SELECT</code>, and{" "}
+                <code>REPLICA IDENTITY FULL</code> — see{" "}
+                <a
+                  href="/?doc=docs-postgres"
+                  onClick$={(e) => {
+                    e.preventDefault();
+                    currentDoc.value = "docs-postgres";
+                    window.scrollTo(0, 0);
+                  }}
+                >
+                  Connect Postgres
+                </a>
+                . Use <code>--output sse</code> or <code>--output grpc</code>{" "}
+                for multi-consumer setups. Use{" "}
+                <code>--output nats|sqs|kafka|pubsub|rabbitmq|webhook|vector</code>{" "}
+                to push to a broker, webhook, or vector store, or{" "}
+                <code>--output none</code> for actions/MCP only. Network modes
+                require <code>--auth-token</code> (or <code>--insecure</code>{" "}
+                for local dev) — see the{" "}
                 <a
                   href="/?doc=docs-config"
                   onClick$={(e) => {
