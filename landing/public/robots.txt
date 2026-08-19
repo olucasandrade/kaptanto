@@ -1,5 +1,5 @@
 User-agent: *
 Allow: /
 
-Host: https://kaptanto.dev
-Sitemap: https://kaptanto.dev/sitemap.xml
+Host: https://kaptan.to
+Sitemap: https://kaptan.to/sitemap.xml
