@@ -21,6 +21,7 @@ const siteStyleLinks = [
     href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap",
   },
   { rel: "stylesheet", href: "/legacy.css" },
+  { rel: "stylesheet", href: "/ui-fixes.css" },
 ];
 
 export default component$(() => {
@@ -77,7 +78,7 @@ export const head: DocumentHead = ({ params }) => {
       { property: "og:title", content: `${doc.title} | Kaptanto Docs` },
       { property: "og:description", content: doc.description },
       { property: "og:url", content: canonical },
-      { property: "og:image", content: "https://kaptan.to/logo.png" },
+      { property: "og:image", content: "https://kaptan.to/og-image.png" },
       { name: "twitter:card", content: "summary" },
     ],
     links: siteStyleLinks,

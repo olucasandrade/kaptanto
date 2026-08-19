@@ -74,6 +74,13 @@ export default component$(() => {
     };
 
     readUrl();
+    const qs = new URLSearchParams(window.location.search);
+    if (!qs.get("doc") && window.location.hash) {
+      const id = window.location.hash.slice(1);
+      requestAnimationFrame(() => {
+        document.getElementById(id)?.scrollIntoView();
+      });
+    }
     window.addEventListener("popstate", readUrl);
     return () => window.removeEventListener("popstate", readUrl);
   });
@@ -140,8 +147,10 @@ export const head: DocumentHead = {
         "Stream every insert, update, and delete from Postgres and MongoDB with one binary.",
     },
     { property: "og:url", content: "https://kaptan.to/" },
-    { property: "og:image", content: "https://kaptan.to/logo.png" },
-    { property: "og:image:alt", content: "Kaptanto logo" },
+    { property: "og:image", content: "https://kaptan.to/og-image.png" },
+    { property: "og:image:alt", content: "Kaptanto — universal database CDC" },
+    { property: "og:image:width", content: "1200" },
+    { property: "og:image:height", content: "630" },
     { property: "og:image:type", content: "image/png" },
     { name: "twitter:card", content: "summary_large_image" },
     { name: "twitter:site", content: "@kaptanto" },
@@ -151,7 +160,7 @@ export const head: DocumentHead = {
       content:
         "Open-source CDC with ten outputs (stdout, SSE, gRPC, webhook, vector, NATS, SQS, Kafka, Pub/Sub, RabbitMQ) plus optional MCP and actions.",
     },
-    { name: "twitter:image", content: "https://kaptan.to/logo.png" },
+    { name: "twitter:image", content: "https://kaptan.to/og-image.png" },
   ],
   links: [
     { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -165,6 +174,7 @@ export const head: DocumentHead = {
       href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap",
     },
     { rel: "stylesheet", href: "/legacy.css" },
+    { rel: "stylesheet", href: "/ui-fixes.css" },
     { rel: "icon", type: "image/png", href: "/logo.png" },
     { rel: "alternate", hreflang: "en", href: "https://kaptan.to/" },
     { rel: "alternate", hreflang: "x-default", href: "https://kaptan.to/" },
