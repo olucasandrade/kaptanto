@@ -6,11 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oklog/ulid/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
@@ -315,4 +317,162 @@ func TestNatsEventLogReadPartitionRewindReReads(t *testing.T) {
 	require.Len(t, again, 3)
 	require.Equal(t, first[0].Seq, again[0].Seq)
 	require.Equal(t, first[2].Seq, again[2].Seq)
+}
+
+// TestNatsEventLog_ImplementsAppendObservable is the compile/runtime gate
+// that cluster backfill depends on: without this interface, WatermarkChecker
+// falls back to paging ReadPartition on every ShouldEmit.
+func TestNatsEventLog_ImplementsAppendObservable(t *testing.T) {
+	el := openTestNatsEventLog(t)
+	_, ok := any(el).(eventlog.AppendObservable)
+	require.True(t, ok, "NatsEventLog must implement AppendObservable")
+}
+
+// TestNatsEventLog_RegisterObserver_SyncAfterPubAck verifies the
+// AppendObserver contract for the NATS EventLog: observers fire
+// synchronously after a successful (non-duplicate) PubAck and before
+// Append/AppendBatch returns. Duplicates (seq==0) are never observed.
+func TestNatsEventLog_RegisterObserver_SyncAfterPubAck(t *testing.T) {
+	el := openTestNatsEventLog(t)
+
+	obs := &recordingObserver{}
+	unregister := el.RegisterObserver(obs)
+
+	ev1 := makeNatsEvent("nats:obs:1:insert:0/1", `{"id": 1}`)
+	seq1, err := el.Append(ev1)
+	require.NoError(t, err)
+	require.Greater(t, seq1, uint64(0))
+	require.Equal(t, []string{ev1.IdempotencyKey}, obs.allKeys(),
+		"observer must see the event before Append returns (synchronous after PubAck)")
+
+	evs := []*event.ChangeEvent{
+		makeNatsEvent("nats:obs:2:insert:0/2", `{"id": 2}`),
+		makeNatsEvent("nats:obs:3:insert:0/3", `{"id": 3}`),
+	}
+	seqs, err := el.AppendBatch(evs)
+	require.NoError(t, err)
+	require.Greater(t, seqs[0], uint64(0))
+	require.Greater(t, seqs[1], uint64(0))
+
+	assert.ElementsMatch(t, []string{ev1.IdempotencyKey, evs[0].IdempotencyKey, evs[1].IdempotencyKey}, obs.allKeys(),
+		"observer must see every non-duplicate event from Append and AppendBatch")
+
+	_, err = el.Append(ev1)
+	require.NoError(t, err)
+	_, err = el.AppendBatch(evs)
+	require.NoError(t, err)
+	assert.Len(t, obs.allKeys(), 3, "duplicate appends must not generate additional observer calls")
+
+	unregister()
+	ev4 := makeNatsEvent("nats:obs:4:insert:0/4", `{"id": 4}`)
+	_, err = el.Append(ev4)
+	require.NoError(t, err)
+	assert.Len(t, obs.allKeys(), 3, "unregistered observer must not receive further calls")
+
+	unregister()
+}
+
+// TestNatsEventLog_RegisterObserver_ConcurrentAppendAndUnregister exercises
+// RegisterObserver's synchronization under concurrent Append while another
+// goroutine registers/unregisters.
+func TestNatsEventLog_RegisterObserver_ConcurrentAppendAndUnregister(t *testing.T) {
+	el := openTestNatsEventLog(t)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		i := 0
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			ev := makeNatsEvent(fmt.Sprintf("nats:obs-race:%d:insert:0/%d", i, i), fmt.Sprintf(`{"id": %d}`, i))
+			_, err := el.Append(ev)
+			assert.NoError(t, err)
+			i++
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			obs := &recordingObserver{}
+			unregister := el.RegisterObserver(obs)
+			unregister()
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}
+
+// selfUnregisterObserver calls its unregister func from ObserveAppend. Used to
+// prove notifyObservers does not hold obsMu across callbacks.
+type selfUnregisterObserver struct {
+	unregister func()
+	mu         sync.Mutex
+	keys       []string
+}
+
+func (s *selfUnregisterObserver) ObserveAppend(evs []*event.ChangeEvent, _ []uint64) {
+	s.mu.Lock()
+	for _, ev := range evs {
+		s.keys = append(s.keys, ev.IdempotencyKey)
+	}
+	s.mu.Unlock()
+	if s.unregister != nil {
+		s.unregister()
+	}
+}
+
+func (s *selfUnregisterObserver) allKeys() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.keys))
+	copy(out, s.keys)
+	return out
+}
+
+// TestNatsEventLog_RegisterObserver_SelfUnregisterDuringCallback is the
+// deadlock regression: unregister takes obsMu.Lock, so ObserveAppend must not
+// run while notifyObservers still holds obsMu.RLock.
+func TestNatsEventLog_RegisterObserver_SelfUnregisterDuringCallback(t *testing.T) {
+	el := openTestNatsEventLog(t)
+
+	self := &selfUnregisterObserver{}
+	self.unregister = el.RegisterObserver(self)
+	kept := &recordingObserver{}
+	unregisterKept := el.RegisterObserver(kept)
+
+	ev1 := makeNatsEvent("nats:self-unreg:1:insert:0/1", `{"id": 1}`)
+	done := make(chan error, 1)
+	go func() {
+		_, err := el.Append(ev1)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "Append must complete when an observer unregisters itself")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Append deadlocked: observer unregistered while obsMu was held")
+	}
+
+	assert.Equal(t, []string{ev1.IdempotencyKey}, self.allKeys())
+	assert.Equal(t, []string{ev1.IdempotencyKey}, kept.allKeys(),
+		"snapshot observers captured before unregister still receive this append")
+
+	ev2 := makeNatsEvent("nats:self-unreg:2:insert:0/2", `{"id": 2}`)
+	_, err := el.Append(ev2)
+	require.NoError(t, err)
+	assert.Equal(t, []string{ev1.IdempotencyKey}, self.allKeys(),
+		"self-unregistered observer must not see later appends")
+	assert.ElementsMatch(t, []string{ev1.IdempotencyKey, ev2.IdempotencyKey}, kept.allKeys())
+	unregisterKept()
 }

@@ -26,6 +26,7 @@ const (
 	defaultStandbyTimeout  = 10 * time.Second
 	defaultWALLagThreshold = 100 * 1024 * 1024 // 100 MB
 	walLagCheckInterval    = 30 * time.Second
+	walBufFlushThreshold   = 1024
 )
 
 // Config holds all parameters for the PostgresConnector.
@@ -112,6 +113,22 @@ func EvalSlotCheck(slotPresent, wasEverConnected bool) (needsSnapshot bool) {
 		return false
 	}
 	return wasEverConnected
+}
+
+// ReplicationStartLSN returns the StartReplication LSN and the CHK-01 ack
+// floor after ensureSlot.
+//
+// Slot-loss (needsSnapshot=true): start at the new slot consistent point
+// and keep lastSavedLSN at 0 so we never confirm a lost-gap checkpoint.
+// Ordinary reconnect: resume at checkpoint+1 to skip the last delivered event.
+func ReplicationStartLSN(needsSnapshot bool, consistentPoint, checkpointLSN pglogrepl.LSN, hasCheckpoint bool) (startLSN, lastSavedLSN pglogrepl.LSN) {
+	if needsSnapshot {
+		return consistentPoint, 0
+	}
+	if !hasCheckpoint {
+		return 0, 0
+	}
+	return checkpointLSN + 1, checkpointLSN
 }
 
 // PostgresConnector implements the Postgres CDC source. It maintains a
@@ -365,7 +382,7 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 	}
 
 	// 6. Ensure slot exists; detect missing slot after failover (SRC-06).
-	needsSnapshot, _, err := ensureSlot(ctx, replConn, queryConn, c.cfg.SlotName, wasEverConnected)
+	needsSnapshot, consistentPoint, err := ensureSlot(ctx, replConn, queryConn, c.cfg.SlotName, wasEverConnected)
 	if err != nil {
 		return err
 	}
@@ -380,15 +397,23 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		return fmt.Errorf("postgres: load checkpoint: %w", err)
 	}
 
-	// 8. Parse stored LSN; start from 0 on first run.
-	var startLSN pglogrepl.LSN
-	if lastLSNStr != "" {
-		startLSN, err = pglogrepl.ParseLSN(lastLSNStr)
+	// 8. Parse stored LSN; start from 0 on first run. Slot-loss recovery
+	// ignores the stale checkpoint and starts at the new slot consistent point.
+	var checkpointLSN pglogrepl.LSN
+	hasCheckpoint := lastLSNStr != ""
+	if hasCheckpoint {
+		checkpointLSN, err = pglogrepl.ParseLSN(lastLSNStr)
 		if err != nil {
 			return fmt.Errorf("postgres: parse checkpoint LSN %q: %w", lastLSNStr, err)
 		}
-		// 9. Advance by 1 to avoid re-delivering the last event (off-by-one).
-		startLSN++
+	}
+	startLSN, lastSavedLSN := ReplicationStartLSN(needsSnapshot, consistentPoint, checkpointLSN, hasCheckpoint)
+
+	// SRC-06: reset completed snapshot cursors before StartReplication so
+	// Run cannot no-op. Reset waits for an in-flight snapshot (same mutex)
+	// and is skipped on ordinary reconnects (needsSnapshot=false).
+	if err := c.resetBackfillOnSlotLoss(ctx, needsSnapshot, uint64(consistentPoint)); err != nil {
+		return err
 	}
 
 	// 10. Clear relation cache — new session; Postgres will re-send RelationMessages.
@@ -408,26 +433,9 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		return fmt.Errorf("postgres: start replication: %w", err)
 	}
 
-	// 12. Launch backfill goroutine: pending work exists (12a), or slot loss
-	// requires re-snapshot (12b, SRC-06). Merged into a single launch to prevent
-	// two concurrent bkEng.Run goroutines when both conditions are simultaneously
-	// true (post-failover reconnect with existing pending backfills).
-	// BackfillEngineImpl has no Run-level mutex; concurrent runs would race on
-	// LoadState/SaveState and snapshotTable.
-	// TODO(SRC-06): on slot loss (needsSnapshot=true), consider resetting cursor
-	// state to force a full re-snapshot; currently resumes from the stored cursor
-	// position which may miss rows changed during the WAL gap.
-	if c.backfillEng != nil && (c.backfillEng.HasPendingBackfills() || needsSnapshot) {
-		go func() {
-			if err := c.backfillEng.Run(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("backfill engine: run failed",
-					"needs_snapshot", needsSnapshot,
-					"error", err)
-			}
-		}()
-	}
+	c.launchBackfill(ctx, needsSnapshot)
 
-	// 13. WAL lag monitoring goroutine (SRC-07).
+	// 12. WAL lag monitoring goroutine (SRC-07).
 	lagCtx, cancelLag := context.WithCancel(ctx)
 	defer cancelLag()
 	go func() {
@@ -443,63 +451,57 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		}
 	}()
 
-	// 14. ReceiveMessage loop (SRC-03).
-	var lastSavedLSN pglogrepl.LSN
-	if startLSN > 0 {
-		lastSavedLSN = startLSN - 1
-	}
+	// 13. ReceiveMessage loop (SRC-03).
 	return c.receiveLoop(ctx, replConn, lastSavedLSN)
+}
+
+// resetBackfillOnSlotLoss clears completed snapshot cursors on SRC-06 slot
+// loss. Ordinary reconnects (needsSnapshot=false) are a no-op.
+func (c *PostgresConnector) resetBackfillOnSlotLoss(ctx context.Context, needsSnapshot bool, snapshotLSN uint64) error {
+	if c.backfillEng == nil || !needsSnapshot {
+		return nil
+	}
+	if err := c.backfillEng.ResetForSlotLoss(ctx, snapshotLSN); err != nil {
+		return fmt.Errorf("postgres: reset backfill after slot loss: %w", err)
+	}
+	return nil
+}
+
+// launchBackfill starts at most one Run goroutine when pending work exists
+// or slot-loss recovery requested a re-snapshot.
+func (c *PostgresConnector) launchBackfill(ctx context.Context, needsSnapshot bool) {
+	if c.backfillEng == nil {
+		return
+	}
+	if !c.backfillEng.HasPendingBackfills() && !needsSnapshot {
+		return
+	}
+	go func() {
+		if err := c.backfillEng.Run(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("backfill engine: run failed",
+				"needs_snapshot", needsSnapshot,
+				"error", err)
+		}
+	}()
 }
 
 // receiveLoop runs the core WAL message receive loop using pgconn.ReceiveMessage
 // and pglogrepl parsers. It sends standby status updates on heartbeat timeout
 // and when PrimaryKeepalive.ReplyRequested is set.
 //
-// Fix B: WAL events are buffered in walBuf and flushed via AppendBatch in a
-// single Badger transaction per commit (or per 256 events). This amortises the
-// virtiofs fsync overhead that was capping sustained throughput at ~2–3k eps.
-// CHK-01 is preserved: flushWALBuf is always called before sendStandbyStatus
-// on the commit path, ensuring events are durable before the LSN advances.
+// WAL events are buffered and flushed via AppendBatch per commit, or per
+// walBufFlushThreshold events for non-streamed transactions. Streamed
+// transactions flush only on StreamCommit; StreamAbort discards the buffer.
+// CHK-01: flush happens before sendStandbyStatus on the commit path.
 //
-//nolint:gocyclo // the WAL receive loop dispatches every message type inline; splitting it would scatter the CHK-01 ordering guarantee. Tracked for incremental refactor.
+//nolint:gocyclo // keepalive vs XLogData dispatch stays inline; commit/abort live in handleXLogData.
 func (c *PostgresConnector) receiveLoop(
 	ctx context.Context,
 	replConn *pgconn.PgConn,
 	lastSavedLSN pglogrepl.LSN,
 ) error {
-	var clientXLogPos pglogrepl.LSN
+	st := &walReceiveState{lastSavedLSN: lastSavedLSN}
 	nextHeartbeat := time.Now().Add(c.cfg.StandbyTimeout)
-
-	// walBuf accumulates events within a Postgres transaction for batch writes.
-	var walBuf []*event.ChangeEvent
-
-	// flushWALBuf writes all buffered events to the event log in a single
-	// Badger transaction (Fix B: batch writes). Must be called before
-	// advancing the LSN checkpoint to Postgres (CHK-01). After a successful
-	// flush, each event is forwarded to the events channel (best-effort; drop
-	// is safe because the router reads from eventlog.ReadPartition).
-	flushWALBuf := func() error {
-		if len(walBuf) == 0 {
-			return nil
-		}
-		if c.eventLog != nil {
-			c.appendMu.Lock()
-			_, err := c.eventLog.AppendBatch(walBuf)
-			c.appendMu.Unlock()
-			if err != nil {
-				return fmt.Errorf("eventlog: append batch: %w", err)
-			}
-		}
-		for _, ev := range walBuf {
-			select {
-			case c.events <- ev:
-			default:
-				// Router reads from eventLog.ReadPartition; drop is safe.
-			}
-		}
-		walBuf = walBuf[:0]
-		return nil
-	}
 
 	for {
 		// Set receive deadline to next heartbeat.
@@ -511,7 +513,7 @@ func (c *PostgresConnector) receiveLoop(
 			if pgconn.Timeout(err) {
 				// Heartbeat deadline exceeded — send standby status update (SRC-03).
 				// CHK-01: never ack past the last durably checkpointed LSN.
-				if sendErr := c.sendStandbyStatus(ctx, replConn, ackLSN(clientXLogPos, lastSavedLSN)); sendErr != nil {
+				if sendErr := c.sendStandbyStatus(ctx, replConn, ackLSN(st.clientXLogPos, st.lastSavedLSN)); sendErr != nil {
 					return fmt.Errorf("postgres: send standby heartbeat: %w", sendErr)
 				}
 				nextHeartbeat = time.Now().Add(c.cfg.StandbyTimeout)
@@ -541,12 +543,12 @@ func (c *PostgresConnector) receiveLoop(
 				slog.Warn("postgres: parse keepalive message", "error", err)
 				continue
 			}
-			if pkm.ServerWALEnd > clientXLogPos {
-				clientXLogPos = pkm.ServerWALEnd
+			if pkm.ServerWALEnd > st.clientXLogPos {
+				st.clientXLogPos = pkm.ServerWALEnd
 			}
 			// If server requests a reply, send status immediately (SRC-03).
 			if pkm.ReplyRequested {
-				if sendErr := c.sendStandbyStatus(ctx, replConn, ackLSN(clientXLogPos, lastSavedLSN)); sendErr != nil {
+				if sendErr := c.sendStandbyStatus(ctx, replConn, ackLSN(st.clientXLogPos, st.lastSavedLSN)); sendErr != nil {
 					return fmt.Errorf("postgres: send standby on request: %w", sendErr)
 				}
 				nextHeartbeat = time.Now().Add(c.cfg.StandbyTimeout)
@@ -559,49 +561,13 @@ func (c *PostgresConnector) receiveLoop(
 				continue
 			}
 
-			ev, parseErr := c.parser.Parse(xld.WALData, false)
-			if parseErr != nil {
-				slog.Warn("postgres: parse WAL data error", "error", parseErr)
-				// Non-fatal: log and continue (unknown RelationID can occur transiently).
-				break
+			ack, committed, herr := c.handleXLogData(ctx, st, xld)
+			if herr != nil {
+				return herr
 			}
-			if ev != nil {
-				// Buffer event; flush when batch is full (Fix B).
-				// Threshold 1024 > default loadgen batch-size 500, so each
-				// CopyFrom call produces exactly one Badger transaction.
-				walBuf = append(walBuf, ev)
-				if len(walBuf) >= 1024 {
-					// Mid-transaction flush: durably write the batch but do NOT
-					// advance clientXLogPos — CHK-01 requires all events for a
-					// transaction to be durable before acknowledging the Commit LSN.
-					if err := flushWALBuf(); err != nil {
-						return err
-					}
-				}
-			}
-
-			// Advance client position.
-			end := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
-			if end > clientXLogPos {
-				clientXLogPos = end
-			}
-
-			// CHK-01: save checkpoint BEFORE advancing LSN to Postgres.
-			// When the parser emits nil (Commit message), we persist the LSN.
-			// We detect "commit" by checking if WALData[0] == 'C' (CommitMessage).
-			if len(xld.WALData) > 0 && xld.WALData[0] == 'C' {
-				// CHK-01: flush all buffered events before acknowledging commit LSN.
-				if err := flushWALBuf(); err != nil {
-					return err
-				}
-				lsnStr := clientXLogPos.String()
-				if saveErr := c.store.Save(ctx, c.cfg.SourceID, lsnStr); saveErr != nil {
-					return fmt.Errorf("postgres: save checkpoint: %w", saveErr)
-				}
-				lastSavedLSN = clientXLogPos
-				// CHK-01: checkpoint BEFORE advancing LSN to Postgres.
-				if sendErr := c.sendStandbyStatus(ctx, replConn, clientXLogPos); sendErr != nil {
-					return fmt.Errorf("postgres: send standby after commit: %w", sendErr)
+			if committed {
+				if sendErr := c.sendStandbyStatus(ctx, replConn, ack); sendErr != nil {
+					return fmt.Errorf("postgres: send standby after checkpoint: %w", sendErr)
 				}
 				nextHeartbeat = time.Now().Add(c.cfg.StandbyTimeout)
 			}
@@ -616,6 +582,136 @@ func ackLSN(clientPos, lastSaved pglogrepl.LSN) pglogrepl.LSN {
 		return lastSaved
 	}
 	return clientPos
+}
+
+// walReceiveState holds in-flight WAL decode state for receiveLoop.
+// Tests drive handleXLogData against this struct as a fake walsender.
+type walReceiveState struct {
+	walBuf        []*event.ChangeEvent
+	streamedOpen  bool
+	clientXLogPos pglogrepl.LSN
+	lastSavedLSN  pglogrepl.LSN
+}
+
+func (st *walReceiveState) flushWALBuf(c *PostgresConnector) error {
+	if len(st.walBuf) == 0 {
+		return nil
+	}
+	if c.eventLog != nil {
+		c.appendMu.Lock()
+		_, err := c.eventLog.AppendBatch(st.walBuf)
+		c.appendMu.Unlock()
+		if err != nil {
+			return fmt.Errorf("eventlog: append batch: %w", err)
+		}
+	}
+	for _, ev := range st.walBuf {
+		select {
+		case c.events <- ev:
+		default:
+		}
+	}
+	st.walBuf = st.walBuf[:0]
+	return nil
+}
+
+func (st *walReceiveState) bufferEvent(c *PostgresConnector, ev *event.ChangeEvent) error {
+	st.walBuf = append(st.walBuf, ev)
+	if len(st.walBuf) >= walBufFlushThreshold && !st.streamedOpen {
+		return st.flushWALBuf(c)
+	}
+	return nil
+}
+
+func (c *PostgresConnector) checkpointLSN(ctx context.Context, st *walReceiveState) error {
+	if saveErr := c.store.Save(ctx, c.cfg.SourceID, st.clientXLogPos.String()); saveErr != nil {
+		return fmt.Errorf("postgres: save checkpoint: %w", saveErr)
+	}
+	st.lastSavedLSN = st.clientXLogPos
+	return nil
+}
+
+// handleXLogData applies one logical decoding payload. Tests call this as a
+// fake walsender: StreamStart, N inserts, StreamStop, StreamCommit/Abort.
+func (c *PostgresConnector) handleXLogData(ctx context.Context, st *walReceiveState, xld pglogrepl.XLogData) (ack pglogrepl.LSN, committed bool, err error) {
+	ev, parseErr := c.parser.Parse(xld.WALData, false)
+	if parseErr != nil {
+		slog.Warn("postgres: parse WAL data error", "error", parseErr)
+		return 0, false, nil
+	}
+	if ev != nil {
+		if bufErr := st.bufferEvent(c, ev); bufErr != nil {
+			return 0, false, bufErr
+		}
+	}
+	end := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
+	if end > st.clientXLogPos {
+		st.clientXLogPos = end
+	}
+	if len(xld.WALData) == 0 {
+		return 0, false, nil
+	}
+	return c.finishXLogData(ctx, st, pglogrepl.MessageType(xld.WALData[0]))
+}
+
+func (c *PostgresConnector) finishXLogData(ctx context.Context, st *walReceiveState, msgType pglogrepl.MessageType) (pglogrepl.LSN, bool, error) {
+	switch msgType {
+	case pglogrepl.MessageTypeStreamStart:
+		st.streamedOpen = true
+		return 0, false, nil
+	case pglogrepl.MessageTypeStreamAbort:
+		st.walBuf = st.walBuf[:0]
+		st.streamedOpen = false
+		if err := c.checkpointLSN(ctx, st); err != nil {
+			return 0, false, err
+		}
+		return st.clientXLogPos, true, nil
+	case pglogrepl.MessageTypeCommit, pglogrepl.MessageTypeStreamCommit:
+		if msgType == pglogrepl.MessageTypeStreamCommit {
+			stampCommitLSN(st.walBuf, c.parser.CurrentLSN())
+		}
+		if err := st.flushWALBuf(c); err != nil {
+			return 0, false, err
+		}
+		if err := c.checkpointLSN(ctx, st); err != nil {
+			return 0, false, err
+		}
+		st.streamedOpen = false
+		return st.clientXLogPos, true, nil
+	default:
+		return 0, false, nil
+	}
+}
+
+func stampCommitLSN(evs []*event.ChangeEvent, lsn pglogrepl.LSN) {
+	lsnStr := lsn.String()
+	for _, ev := range evs {
+		if ev == nil {
+			continue
+		}
+		rewriteIdempotencyLSN(ev, lsnStr)
+		if ev.Metadata == nil {
+			ev.Metadata = make(map[string]any, 2)
+		}
+		ev.Metadata["lsn"] = lsnStr
+	}
+}
+
+// rewriteIdempotencyLSN replaces the LSN segment of
+// sourceID:schema.table:pk:op:lsn:changeSeq. pk is JSON and may contain colons,
+// so only the second-to-last colon-separated field is rewritten.
+func rewriteIdempotencyLSN(ev *event.ChangeEvent, lsnStr string) {
+	key := ev.IdempotencyKey
+	last := strings.LastIndexByte(key, ':')
+	if last <= 0 {
+		return
+	}
+	rest := key[:last]
+	second := strings.LastIndexByte(rest, ':')
+	if second < 0 {
+		return
+	}
+	ev.IdempotencyKey = key[:second+1] + lsnStr + key[last:]
 }
 
 // sendStandbyStatus sends a StandbyStatusUpdate to the server.

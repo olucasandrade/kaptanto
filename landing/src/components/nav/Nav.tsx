@@ -1,11 +1,15 @@
 import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
 import type { Signal } from "@builder.io/qwik";
+import { useLocation } from "@builder.io/qwik-city";
+import { isDocsPath } from "../../data/docs-html";
 
 interface NavProps {
   currentDoc: Signal<string | null>;
 }
 
 export const Nav = component$<NavProps>(({ currentDoc }) => {
+  const loc = useLocation();
+  const docsRoute = isDocsPath(loc.url.pathname);
   const isMenuOpen = useSignal(false);
   const isLanding = !currentDoc.value;
   const stars = useSignal<string | null>(null);
@@ -35,19 +39,23 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
   return (
     <nav class="nav">
       <div class="ni">
-        <div
+        <a
+          href="/"
           class="nb"
-          onClick$={() => {
+          onClick$={(e) => {
+            if (docsRoute) return;
+            e.preventDefault();
             currentDoc.value = null;
           }}
         >
           <img src="/logo.png" alt="Kaptanto logo" class="nlg" />
           kaptanto
-        </div>
+        </a>
         <div class={`nl${isMenuOpen.value ? " open" : ""}`} id="navL">
           <a
             href="/"
             onClick$={(e) => {
+              if (docsRoute) return;
               e.preventDefault();
               currentDoc.value = null;
               window.scrollTo(0, 0);
@@ -58,8 +66,9 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
             Home
           </a>
           <a
-            href="/?doc=docs-intro"
+            href={docsRoute ? "/docs/docs-intro" : "/?doc=docs-intro"}
             onClick$={(e) => {
+              if (docsRoute) return;
               e.preventDefault();
               currentDoc.value = "docs-intro";
               window.scrollTo(0, 0);
@@ -70,32 +79,36 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
             Docs
           </a>
           <a
-            href="#features"
+            href={docsRoute ? "/#features" : "#features"}
             onClick$={() => {
+              if (docsRoute) return;
               currentDoc.value = null;
             }}
           >
             Features
           </a>
           <a
-            href="#compare"
+            href={docsRoute ? "/#compare" : "#compare"}
             onClick$={() => {
+              if (docsRoute) return;
               currentDoc.value = null;
             }}
           >
             Compare
           </a>
           <a
-            href="#changelog"
+            href={docsRoute ? "/#changelog" : "#changelog"}
             onClick$={() => {
+              if (docsRoute) return;
               currentDoc.value = null;
             }}
           >
             Changelog
           </a>
           <a
-            href="/?doc=docs-benchmarks"
+            href={docsRoute ? "/docs/docs-benchmarks" : "/?doc=docs-benchmarks"}
             onClick$={(e) => {
+              if (docsRoute) return;
               e.preventDefault();
               currentDoc.value = "docs-benchmarks";
               window.scrollTo(0, 0);

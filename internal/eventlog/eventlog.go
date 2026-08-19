@@ -106,8 +106,8 @@ type AppendObserver interface {
 }
 
 // AppendObservable is implemented by EventLog backends that support
-// synchronous append observers (currently BadgerEventLog). Callers must type-
-// assert an EventLog to this interface — it is optional so fakes used in
+// synchronous append observers (BadgerEventLog and NatsEventLog). Callers must
+// type-assert an EventLog to this interface — it is optional so fakes used in
 // tests need not implement it.
 type AppendObservable interface {
 	// RegisterObserver registers obs to be called synchronously on every
