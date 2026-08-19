@@ -308,3 +308,67 @@ func TestNatsEventLog_RegisterObserver_ConcurrentAppendAndUnregister(t *testing.
 	close(stop)
 	wg.Wait()
 }
+
+// selfUnregisterObserver calls its unregister func from ObserveAppend. Used to
+// prove notifyObservers does not hold obsMu across callbacks.
+type selfUnregisterObserver struct {
+	unregister func()
+	mu         sync.Mutex
+	keys       []string
+}
+
+func (s *selfUnregisterObserver) ObserveAppend(evs []*event.ChangeEvent, _ []uint64) {
+	s.mu.Lock()
+	for _, ev := range evs {
+		s.keys = append(s.keys, ev.IdempotencyKey)
+	}
+	s.mu.Unlock()
+	if s.unregister != nil {
+		s.unregister()
+	}
+}
+
+func (s *selfUnregisterObserver) allKeys() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.keys))
+	copy(out, s.keys)
+	return out
+}
+
+// TestNatsEventLog_RegisterObserver_SelfUnregisterDuringCallback is the
+// deadlock regression: unregister takes obsMu.Lock, so ObserveAppend must not
+// run while notifyObservers still holds obsMu.RLock.
+func TestNatsEventLog_RegisterObserver_SelfUnregisterDuringCallback(t *testing.T) {
+	el := openTestNatsEventLog(t)
+
+	self := &selfUnregisterObserver{}
+	self.unregister = el.RegisterObserver(self)
+	kept := &recordingObserver{}
+	unregisterKept := el.RegisterObserver(kept)
+
+	ev1 := makeNatsEvent("nats:self-unreg:1:insert:0/1", `{"id": 1}`)
+	done := make(chan error, 1)
+	go func() {
+		_, err := el.Append(ev1)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "Append must complete when an observer unregisters itself")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Append deadlocked: observer unregistered while obsMu was held")
+	}
+
+	assert.Equal(t, []string{ev1.IdempotencyKey}, self.allKeys())
+	assert.Equal(t, []string{ev1.IdempotencyKey}, kept.allKeys(),
+		"snapshot observers captured before unregister still receive this append")
+
+	ev2 := makeNatsEvent("nats:self-unreg:2:insert:0/2", `{"id": 2}`)
+	_, err := el.Append(ev2)
+	require.NoError(t, err)
+	assert.Equal(t, []string{ev1.IdempotencyKey}, self.allKeys(),
+		"self-unregistered observer must not see later appends")
+	assert.ElementsMatch(t, []string{ev1.IdempotencyKey, ev2.IdempotencyKey}, kept.allKeys())
+	unregisterKept()
+}

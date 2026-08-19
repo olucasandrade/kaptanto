@@ -495,13 +495,16 @@ func TestWatermarkChecker_StartTableError_DoesNotLeaveTrustedPartialIndex(t *tes
 // NewWatermarkChecker registers the observer, and a post-StartTable Append
 // (after PubAck) is indexed so ShouldEmit suppresses without paging ReadPartition.
 func TestWatermarkChecker_NatsEventLog_IndexedPathSuppressesStaleRead(t *testing.T) {
+	// One partition: NATS ReadPartition still uses FetchMaxWait(2s) on empty
+	// pages, so a 64-partition StartTable (~128s) exceeds CI's 120s timeout.
+	const numPartitions = uint32(1)
 	el, err := eventlog.OpenNats(eventlog.NatsEventLogConfig{
 		Server: eventlog.NatsServerConfig{
 			ClientPort: -1,
 			StoreDir:   t.TempDir(),
 			SyncAlways: false,
 		},
-		NumPartitions: 64,
+		NumPartitions: numPartitions,
 		Retention:     time.Hour,
 	})
 	require.NoError(t, err)
@@ -510,10 +513,11 @@ func TestWatermarkChecker_NatsEventLog_IndexedPathSuppressesStaleRead(t *testing
 	_, ok := any(el).(eventlog.AppendObservable)
 	require.True(t, ok, "NatsEventLog must implement AppendObservable")
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	const table = "orders"
 	const snapshotLSN = uint64(100)
-	checker := backfill.NewWatermarkChecker(el, 64)
+	checker := backfill.NewWatermarkChecker(el, numPartitions)
 	defer checker.Close()
 	require.NoError(t, checker.StartTable(ctx, table, snapshotLSN))
 	defer checker.FinishTable(table)
