@@ -170,19 +170,19 @@ export const SEO_DOCS: SeoDoc[] = [
     slug: "docs-events-sdk",
     title: "TypeScript SDK",
     description:
-      "ChangeEvent wire types and runtime guards for @kaptanto/events — install from source until npm publish.",
+      "ChangeEvent wire types and runtime guards for @kaptanto/events — install from npm.",
   },
   {
     slug: "docs-python-sdk",
     title: "Python SDK",
     description:
-      "pydantic ChangeEvent models and an httpx SSE client — install from source until PyPI publish.",
+      "pydantic ChangeEvent models and an httpx SSE client — install from PyPI.",
   },
   {
     slug: "docs-mastra",
     title: "Mastra Integration",
     description:
-      "Trigger Mastra workflows from real-time database changes — install @kaptanto/mastra from source until npm publish.",
+      "Trigger Mastra workflows from real-time database changes — install @kaptanto/mastra from npm.",
   },
   {
     slug: "docs-n8n",

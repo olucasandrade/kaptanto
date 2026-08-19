@@ -7,8 +7,8 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "@kaptanto/events": "file:../../packages/kaptanto-events",
-    "@kaptanto/mastra": "file:../../packages/kaptanto-mastra",
+    "@kaptanto/events": "^0.1.0",
+    "@kaptanto/mastra": "^0.1.0",
     "@mastra/core": "^1.51.0",
     "zod": "^3.24.0"
   },
