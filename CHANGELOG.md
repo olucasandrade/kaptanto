@@ -7,31 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-19
+
 ### Added
 
-- Actions engine with built-in types: `slack`, `discord`, `email`, `cache-invalidate`, `vector-upsert`, `inngest`, `trigger-dev`, `http-request`, and `custom`
-- Routing rules (`match:`) with table globs, operation filtering, and row-level `where` expressions
-- Dead-letter queue (DLQ) with SQLite backing and configurable retention
-- OpenAPI 3.0 discovery endpoint at `/openapi.json`
-- `output: webhook` sink mode
-- `@kaptanto/events` TypeScript SSE client and `n8n-nodes-kaptanto` community node
-- `@kaptanto/mastra` Mastra adapter (`kaptantoTrigger`, `toAgentContext`)
-- `kaptanto` Python SDK (pydantic `ChangeEvent` models + httpx SSE client, optional `langchain` extra)
+#### Actions engine
+- **Actions** (`actions:` in YAML, `output: none` for a pure action processor): each type is a function from params + secrets to a webhook sink config and transform (ACT-01). Events that match no rule are acknowledged and the cursor advances (ACT-03)
+- Built-in types: `slack`, `discord`, `email`, `cache-invalidate`, `vector-upsert`, `inngest`, `triggerdev`, `http-request`, `custom`, `lambda`, `cloudflare-worker`, `vercel`
+- **Routing rules** (`match:`) compile at startup (RTG-01): table globs, operation bitmasks, and row-level `where` expressions; miss-path matching allocates nothing (RTG-02)
+- Secret params must be `${VAR}` env-var references — never logged, never in OpenAPI, never stored as literals (ACT-02)
+
+#### Webhook sink & transforms
+- **`output: webhook`** — HTTP sink with HMAC, optional AWS SigV4 (`auth.aws-sigv4`), batching, and ping templates
+- **Transform engines** — `go-template` and `jq` (gojq) with a runtime timeout; missing template keys and long-running jq filters are execution errors
+
+#### Dead-letter queue
+- SQLite-backed **DLQ** with configurable retention; permanent delivery errors skip poison events and advance the cursor instead of blocking the key forever
+- Prometheus metrics for DLQ and transform failures
+
+#### OpenAPI discovery
+- Deterministic OpenAPI 3.0.3 spec at `/openapi.json` (OAS-01), reflecting configured actions and omitting secret params
+
+#### Vector sink
+- **`output: vector`** — extract text → embed → upsert/delete into pgvector, Pinecone, or Qdrant
+- SHA-256 hash cache skips re-embed of unchanged text (VEC-01); embedders return order-preserving vectors (VEC-02); stable IDs are `<schema.table>:<canonical-key-JSON>` (VEC-03)
+
+#### MCP server
+- Optional **MCP** server (disabled by default, MCP-04): streamable HTTP, per-key ACL + redaction on every tool result (MCP-01), session-scoped ring subscriptions (MCP-02), and a complete audit log that never contains row data or key material (MCP-03)
+- Tools include `list_tables`, `get_table_schema`, ring drain, and a recent-event index (`get_event_by_id`)
+
+#### AI enrichment
+- Fail-open HTTP **`ai_context`** stage before EventLog.Append (AIC-01); response bodies must be JSON objects ≤ 16 KiB (AIC-02). Enrichment failure never blocks durability
+
+#### SDKs & integrations
+- `@kaptanto/events` TypeScript SSE client (`KaptantoStream`) and `n8n-nodes-kaptanto` community trigger node
+- `@kaptanto/mastra` adapter (`kaptantoTrigger`, `toAgentContext`)
+- `kaptanto` Python SDK (pydantic `ChangeEvent` + httpx SSE client, optional `langchain` extra)
 - Published `@kaptanto/events` 0.1.0, `@kaptanto/mastra` 0.1.0, `n8n-nodes-kaptanto` 0.1.0 to npm; `kaptanto` 0.1.0 to PyPI
 
 ### Changed
 
-- **Breaking:** broker-sink observability endpoints (`/metrics`, `/healthz`, `/openapi.json`) and the gRPC observability port now require TLS unless `--insecure` is set. Previously these endpoints started in plaintext. To migrate, either configure `server-tls` or pass `--insecure` for local development.
+- **Breaking:** broker-sink observability endpoints (`/metrics`, `/healthz`, `/openapi.json`) and the gRPC observability port now require TLS unless `--insecure` is set. Previously these endpoints started in plaintext. To migrate, either configure `server-tls` or pass `--insecure` for local development
 
 ### Fixed
 
+#### Pipeline wiring
 - DLQ is now wired into the production pipeline
-- Webhook sink URLs are redacted in errors and DLQ reason strings
+- Webhook sink URLs are redacted in errors and DLQ reason strings; non-HTTP(S) URLs are rejected at startup or dead-lettered after rendering
 - Resolved action secrets are no longer expanded a second time by the webhook sink
-- Non-HTTP(S) webhook URLs are rejected at startup or dead-lettered after rendering
-- Inngest events now use the event timestamp instead of send-time; Inngest supports a configurable `api-url`
+- Inngest events use the event timestamp instead of send-time; Inngest supports a configurable `api-url`
 - Shared event-name template validation between Inngest and Trigger.dev
 - `cache-invalidate` url-template supports `{{.After.<col>}}` and `{{.Before.<col>}}`
+
+#### Source / checkpoint / backfill
+- Streamed Postgres WAL commits are checkpointed and aborted transactions are discarded
+- A completed backfill is reset when the replication slot is lost
+- Quoted Postgres identifiers parse correctly in snapshot SQL
+- Standby heartbeat acknowledgements cap at the last saved LSN
+- MongoDB uses per-collection resume tokens and resumes across reconnect; decode failures skip-and-advance with a metric
+- SnapshotID stays stable across crash-resume; cluster backfill watermarks are indexed via NATS observers
+
+#### EventLog / router / auth
+- `AppendBatch` chunks wide rows so Badger does not return `ErrTxnTooBig`
+- Cluster EventLog reuses long-lived NATS pull consumers in `ReadPartition`
+- `BatchFlusher` cursor save is capped at the retry floor (RTR-04)
+- SSE/gRPC consumer IDs are bound to the bearer principal
+
+#### Enrichment / MCP / vector
+- Enricher dials a vetted IP (SSRF TOCTOU closed), uses keep-alives, and half-opens the circuit breaker after cool-down
+- MCP requires `MCP_API_KEY`; Cloudflare Worker actions require auth opt-in
+- Vector hash-skip tracks pending IDs, isolates delete poison, and tolerates concurrent `CREATE TABLE IF NOT EXISTS` unique-violation races
+
+### Performance
+
+- TOAST cache capped with LRU eviction
+- NATS EventLog: async `AppendBatch` and partition notify; Badger `ReadPartition` lazy-decodes via raw bytes
+- Router persists cursors after releasing `Router.mu`
+- Vector: LRU hash cache, batched writes, fewer extract allocations
+- SQS: per-partition batch ID collision map persisted across flushes
+
+### Infrastructure
+
+- Tag-triggered npm (`events-v*` / `mastra-v*` / `n8n-v*`) and PyPI (`python-v*`) publish workflows with OIDC provenance
+- Landing homepage refreshed for ten outputs and AI-native features; crawlable `/docs/[slug]` routes render full HTML
+- CI: mutation-test floors ratcheted for enrich/vector/action/mcp; zizmor cache-poisoning and impostor-commit alerts cleared; Go, GitHub Actions, and Rust dependency groups bumped
 
 ## [0.3.0] - 2026-07-04
 

@@ -399,7 +399,48 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
         <div class="chlog sr">
           <div class="chver">
             <div class="chver-h">
-              <span class="chtag">v0.3.0</span>
+              <span class="chtag">v1.0.0</span>
+              <span class="chdate">Aug 2026</span>
+              <span class="chname">Actions & AI-native</span>
+            </div>
+            <ul class="chlist">
+              <li>
+                Actions engine — route CDC to Slack, Discord, email, cache
+                invalidation, Inngest, Trigger.dev, Lambda, and custom webhooks
+                via compiled <code>match:</code> rules
+              </li>
+              <li>
+                New outputs: HTTP webhook sink (HMAC / AWS SigV4) and vector
+                sink (embed → pgvector / Pinecone / Qdrant)
+              </li>
+              <li>
+                Optional MCP server with ACL, audit, and ring-buffer
+                subscriptions; fail-open <code>ai_context</code> enrichment
+                before durable append
+              </li>
+              <li>
+                Dead-letter queue and deterministic <code>/openapi.json</code>{" "}
+                discovery for configured actions
+              </li>
+              <li>
+                SDKs: <code>@kaptanto/events</code>,{" "}
+                <code>@kaptanto/mastra</code>, <code>n8n-nodes-kaptanto</code>,
+                and the <code>kaptanto</code> Python package
+              </li>
+              <li>
+                Breaking: sink observability and the gRPC observability port
+                require TLS unless <code>--insecure</code> is set
+              </li>
+              <li>
+                Source correctness: WAL commit checkpointing, backfill reset
+                after slot loss, per-collection MongoDB resume tokens, EventLog
+                batch chunking
+              </li>
+            </ul>
+          </div>
+          <div class="chver chver-old">
+            <div class="chver-h">
+              <span class="chtag chtag-old">v0.3.0</span>
               <span class="chdate">Jul 2026</span>
               <span class="chname">Security & Correctness</span>
             </div>
