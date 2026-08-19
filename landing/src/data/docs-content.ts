@@ -13,7 +13,7 @@ export const DOCS_CONTENT: Record<string, DocItem | undefined> = {
 <div class="dcard" onclick="go('docs-schema')"><h4>Event Schema</h4><p>Unified event format across all sources.</p></div>
 </div>
 <h2 class="dh2">How it works</h2>
-<p class="dp">Kaptanto connects to your database's native change log — the WAL for Postgres, the oplog for MongoDB — and emits a unified stream of events. Every insert, update, and delete is captured and delivered to stdout, SSE, gRPC, queue sinks, webhook actions, vector stores, or an optional MCP listener — depending on your configured <code>output</code> mode.</p>
+<p class="dp">Kaptanto connects to your database's native change log — WAL logical replication for Postgres, Change Streams for MongoDB — and emits a unified stream of events. Every insert, update, and delete is captured and delivered to stdout, SSE, gRPC, queue sinks, webhook actions, vector stores, or an optional MCP listener — depending on your configured <code>output</code> mode.</p>
 <div class="dcode"><span class="tg">$</span> kaptanto --source postgres://localhost:5432/mydb \\
     --tables orders,payments --output stdout
 
@@ -84,7 +84,7 @@ max_wal_senders = 4</div>
 
 <h2 class="dh2">Docker</h2>
 <div class="dcode"><span class="tg">$</span> docker pull olucasandrade/kaptanto:latest
-<span class="tg">$</span> docker run olucasandrade/kaptanto --source postgres://host.docker.internal:5432/mydb --output stdout</div>
+<span class="tg">$</span> docker run olucasandrade/kaptanto --source postgres://host.docker.internal:5432/mydb --tables orders --output stdout</div>
 
 <h2 class="dh2">From source</h2>
 <p class="dp">Requires Go 1.25+:</p>
@@ -94,7 +94,7 @@ max_wal_senders = 4</div>
 <h2 class="dh2">With Rust acceleration</h2>
 <p class="dp">For maximum parsing performance, compile with the Rust FFI parser:</p>
 <div class="dcode"><span class="tg">$</span> make build-rust</div>
-<p class="dp">Requires Rust 1.77+ and CGO. Provides 30-40% lower CPU usage for the pgoutput decoding path.</p>`,
+<p class="dp">Requires Rust 1.77+ and CGO. The published 2026-07-04 shared-CPU table shows the rust build winning burst p50 and crash recovery, not steady eps or RSS — see Benchmarks.</p>`,
   },
 
   "docs-postgres": {
@@ -107,7 +107,10 @@ max_wal_senders = 4</div>
 <li><strong>wal_level = logical</strong> — Enables the write-ahead log to include logical change data.</li>
 <li><strong>max_replication_slots >= 1</strong> — At least one slot for kaptanto.</li>
 <li><strong>max_wal_senders >= 1</strong> — Allows kaptanto to connect as a replication client.</li>
+<li><strong>REPLICATION role + SELECT</strong> — the connecting user must be able to create a slot and snapshot rows.</li>
 </ul>
+<div class="dcode">CREATE ROLE kaptanto WITH REPLICATION LOGIN PASSWORD 'secret';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO kaptanto;</div>
 
 <h2 class="dh2">Recommended: REPLICA IDENTITY FULL</h2>
 <p class="dp">For complete before/after values on updates and deletes:</p>
@@ -477,7 +480,7 @@ dlq:
     sub: "Run kaptanto in HA mode with automatic failover.",
     body: `
 <h2 class="dh2">Agent failover</h2>
-<p class="dp">Run two kaptanto instances against the same source. Only one actively consumes via Postgres advisory lock leader election.</p>
+<p class="dp">Run two kaptanto instances against the same <strong>Postgres</strong> source. Only one actively consumes via Postgres advisory lock leader election. <code>--ha</code> with a MongoDB source is a startup error — use replica-set elections and resume tokens instead.</p>
 <div class="dcode"><span class="tc"># Instance 1</span>
 <span class="tg">$</span> kaptanto --source postgres://... --ha --node-id node-1
 
