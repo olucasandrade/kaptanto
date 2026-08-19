@@ -40,10 +40,11 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
           </div>
           <div class="fc">
             <div class="fc-i">checkpoint</div>
-            <h3>Crash-safe cursors</h3>
+            <h3>Crash-safe capture</h3>
             <p>
-              Per-consumer positions persist on every event. Reconnect and
-              resume from exactly where you stopped.
+              The source checkpoint advances only after the Event Log append
+              (CHK-01). Consumer positions flush on a short interval so a crash
+              replays a small window — at-least-once, per consumer.
             </p>
           </div>
           <div class="fc">
@@ -66,8 +67,10 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">ha</div>
             <h3>Built-in HA</h3>
             <p>
-              Two instances, one leader. Advisory lock election —
-              session-scoped, no clock skew, ~5-second failover.
+              Two instances, one leader. Postgres advisory-lock election —
+              session-scoped, ~5-second failover. MongoDB uses replica-set
+              elections and resume tokens instead; <code>--ha</code> is
+              Postgres-only.
             </p>
           </div>
           <div class="fc">
@@ -127,16 +130,17 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
             <div class="fc-i">search</div>
             <h3>Live search sync</h3>
             <p>
-              Product catalog change → Elasticsearch or Typesense index update
-              within seconds, automatically.
+              Product catalog change → your search index via SSE, webhook, or
+              a vector sink. You wire the indexer; kaptanto does not ship
+              Elasticsearch or Typesense outputs.
             </p>
           </div>
           <div class="fc">
             <div class="fc-i">cache</div>
             <h3>Cache invalidation</h3>
             <p>
-              Row updated → Redis key evicted before the next read hits the
-              database. Consistent by design.
+              Row updated → cache-invalidate action (Cloudflare) or your own
+              webhook. There is no Redis sink.
             </p>
           </div>
           <div class="fc">
@@ -229,14 +233,33 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
                 <div class="ci-d">Protobuf · HTTP/2 · backpressure</div>
               </div>
             </div>
+            <div class="ci">
+              <div
+                class="ci-i"
+                style="background:rgba(255,92,138,.08);color:var(--ro)"
+              >
+                WH
+              </div>
+              <div>
+                <div class="ci-n">Webhook</div>
+                <div class="ci-d">HTTP POST · HMAC · transforms</div>
+              </div>
+            </div>
+            <div class="ci">
+              <div
+                class="ci-i"
+                style="background:rgba(110,125,247,.1);color:var(--bl)"
+              >
+                VEC
+              </div>
+              <div>
+                <div class="ci-n">Vector</div>
+                <div class="ci-d">pgvector · Pinecone · Qdrant</div>
+              </div>
+            </div>
           </div>
           <div class="cc">
-            <h3>
-              Queue sinks{" "}
-              <span style="font-size:.6rem;padding:.1rem .35rem;background:rgba(101,196,140,.1);color:var(--g);border-radius:3px;margin-left:.3rem;vertical-align:middle">
-                v0.2.0
-              </span>
-            </h3>
+            <h3>Queue sinks</h3>
             <div class="ci">
               <div
                 class="ci-i"
@@ -454,8 +477,9 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
                 <code>--output nats|sqs|kafka|pubsub|rabbitmq</code>
               </li>
               <li>
-                At-least-once delivery — cursor never advances before the broker
-                acknowledges receipt (CHK-01 preserved)
+                At-least-once delivery — the router cursor advances only after
+                the broker ack (DLV). CHK-01 is the source checkpoint after
+                Event Log append.
               </li>
               <li>
                 Per-key ordering end-to-end: <code>MessageGroupId</code> (SQS),
