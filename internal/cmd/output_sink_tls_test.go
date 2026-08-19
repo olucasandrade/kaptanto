@@ -386,6 +386,7 @@ func TestBuildOutputServer_WebhookStarts(t *testing.T) {
 func TestBuildOutputServer_NoneObservabilityRequiresTLS(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Output = "none"
+	cfg.AuthToken = "tls-check-token"
 
 	metrics := observability.NewKaptantoMetrics()
 	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())

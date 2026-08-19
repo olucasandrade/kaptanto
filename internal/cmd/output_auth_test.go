@@ -173,3 +173,77 @@ func TestBuildOutputServer_NoneWithMCPMetricsRequireBearer(t *testing.T) {
 	cancel()
 	time.Sleep(50 * time.Millisecond)
 }
+
+// TestBuildOutputServer_NoneRequiresAuthToken asserts output=none requires
+// --auth-token even when MCP is disabled (actions-only observability).
+func TestBuildOutputServer_NoneRequiresAuthToken(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile := generateSelfSignedCert(t, dir)
+
+	cfg := config.Defaults()
+	cfg.Output = "none"
+	cfg.MCP.Enabled = false
+	cfg.Insecure = false
+	cfg.AuthToken = ""
+	cfg.ServerTLS = config.ServerTLSConfig{CertFile: certFile, KeyFile: keyFile}
+
+	metrics := observability.NewKaptantoMetrics()
+	rtr := router.NewRouter(nil, 1, router.NewNoopCursorStore())
+
+	_, err := buildOutputServer(cfg, rtr, router.NewNoopCursorStore(), metrics, http.NotFoundHandler(), nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "auth-token")
+}
+
+func TestBuildOutputServer_NoneMetricsRequireBearer(t *testing.T) {
+	const token = "none-actions-obs-token"
+	dir := t.TempDir()
+	certFile, keyFile := generateSelfSignedCert(t, dir)
+
+	cfg := config.Defaults()
+	port, lis := newLocalListener(t)
+	cfg.Port = port
+	_ = lis.Close()
+	cfg.Output = "none"
+	cfg.MCP.Enabled = false
+	cfg.AuthToken = token
+	cfg.ServerTLS = config.ServerTLSConfig{CertFile: certFile, KeyFile: keyFile}
+
+	metrics := observability.NewKaptantoMetrics()
+	oaDoc := openapi.Generate(openapi.NewGenerateOptions(cfg))
+	oaBytes, err := openapi.MarshalDocument(oaDoc)
+	require.NoError(t, err)
+
+	fn, err := buildObservabilityServer(cfg, metrics, []observability.HealthProbe{
+		{Name: "test", Check: func() error { return nil }},
+	}, openapi.NewHandler(oaBytes))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = fn(ctx) }()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	addr := fmt.Sprintf("https://127.0.0.1:%d", cfg.Port)
+	waitForObsServer(t, addr, client)
+
+	resp, err := client.Get(addr + "/metrics")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	_ = resp.Body.Close()
+
+	req, err := http.NewRequest(http.MethodGet, addr+"/metrics", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = client.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	_ = resp.Body.Close()
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+}

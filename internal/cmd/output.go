@@ -138,7 +138,7 @@ func buildOutputServer(
 		"nats": true, "sqs": true, "kafka": true, "pubsub": true, "rabbitmq": true,
 		"vector": true,
 	}
-	requiresAuth := networkOutputs[cfg.Output] || (cfg.Output == "none" && cfg.MCP.Enabled)
+	requiresAuth := networkOutputs[cfg.Output] || cfg.Output == "none"
 	if requiresAuth && cfg.AuthToken == "" {
 		if !cfg.Insecure {
 			return nil, fmt.Errorf(
