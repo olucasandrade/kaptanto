@@ -1,5 +1,6 @@
 import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
 import type { Signal } from "@builder.io/qwik";
+import { Pipeline3D } from "./Pipeline3D";
 
 interface HeroProps {
   currentDoc: Signal<string | null>;
@@ -24,8 +25,13 @@ const DOUBLED = [...STREAM_EVENTS, ...STREAM_EVENTS];
 
 export const Hero = component$<HeroProps>(({ currentDoc }) => {
   const glitchMounted = useSignal(false);
+  const htRef = useSignal<HTMLElement>();
 
+  // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
     glitchMounted.value = true;
   });
 
@@ -34,92 +40,116 @@ export const Hero = component$<HeroProps>(({ currentDoc }) => {
   return (
     <>
       <div class="hw">
-        <div class="ha sr">
-          <img src="/logo.png" alt="Kaptanto logo" />
-          <span />
-          Open source — Apache 2.0 — v0.3.0
-        </div>
-        <h1 class="sr" style="position:relative">
-          Turn every database write into a <em>real-time event.</em>
-          {glitchMounted.value && (
-            <>
-              <span class="glitch-layer glitch-layer-1" aria-hidden="true">
-                {h1Text}
-              </span>
-              <span class="glitch-layer glitch-layer-2" aria-hidden="true">
-                {h1Text}
-              </span>
-            </>
-          )}
-        </h1>
-        <p class="hs sr">
-          kaptanto captures every insert, update, and delete from Postgres and
-          MongoDB the moment it happens — stdout, SSE, gRPC, webhook, vector, or
-          broker sinks (NATS, SQS, Kafka, Pub/Sub, RabbitMQ). Optional MCP
-          server, HTTP enrichment, and YAML actions for AI-native pipelines. One
-          static binary. Deploys anywhere.
-        </p>
-        <div class="hact sr">
-          <a href="#install" class="bg">
-            Install now
-          </a>
-          <a
-            href="/?doc=docs-intro"
-            onClick$={(e) => {
-              e.preventDefault();
-              currentDoc.value = "docs-intro";
-              window.scrollTo(0, 0);
+        <div class="hw-col">
+          <div class="ha sr">
+            <img src="/logo.png" alt="Kaptanto logo" />
+            <span />
+            Open source — Apache 2.0 — v0.3.0
+          </div>
+          <h1 class="sr" style="position:relative">
+            Turn every database write into a <em>real-time event.</em>
+            {glitchMounted.value && (
+              <>
+                <span class="glitch-layer glitch-layer-1" aria-hidden="true">
+                  {h1Text}
+                </span>
+                <span class="glitch-layer glitch-layer-2" aria-hidden="true">
+                  {h1Text}
+                </span>
+              </>
+            )}
+          </h1>
+          <p class="hs sr">
+            kaptanto captures every insert, update, and delete from Postgres and
+            MongoDB the moment it happens — stdout, SSE, gRPC, webhook, vector,
+            or broker sinks (NATS, SQS, Kafka, Pub/Sub, RabbitMQ). Optional MCP
+            server, HTTP enrichment, and YAML actions for AI-native pipelines.
+            One static binary. Deploys anywhere.
+          </p>
+          <div class="hact sr">
+            <a href="#install" class="bg">
+              Install now
+            </a>
+            <a
+              href="/?doc=docs-intro"
+              onClick$={(e) => {
+                e.preventDefault();
+                currentDoc.value = "docs-intro";
+                window.scrollTo(0, 0);
+              }}
+              class="bo"
+            >
+              Read the docs
+            </a>
+          </div>
+          <div
+            class="ht sr"
+            ref={htRef}
+            onMouseMove$={(e) => {
+              if (
+                window.matchMedia("(prefers-reduced-motion: reduce)").matches
+              ) {
+                return;
+              }
+              const el = htRef.value;
+              if (!el) return;
+              const r = el.getBoundingClientRect();
+              const px = (e.clientX - r.left) / r.width - 0.5;
+              const py = (e.clientY - r.top) / r.height - 0.5;
+              const ry = Math.max(-5, Math.min(5, px * 10));
+              const rx = Math.max(-5, Math.min(5, -py * 10));
+              el.style.transform = `perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg)`;
             }}
-            class="bo"
+            onMouseLeave$={() => {
+              if (htRef.value) htRef.value.style.transform = "";
+            }}
           >
-            Read the docs
-          </a>
-        </div>
-        <div class="ht sr">
-          <div class="tb">
-            <span class="td" />
-            <span class="td" />
-            <span class="td" />
-            <span class="tl">kaptanto</span>
-          </div>
-          <div class="tt">
-            <div class="tln">
-              <span class="tc"># stream order changes to your services</span>
+            <div class="tb">
+              <span class="td" />
+              <span class="td" />
+              <span class="td" />
+              <span class="tl">kaptanto</span>
             </div>
-            <div class="tln">
-              <span class="tg">$</span> <span class="tw">kaptanto</span>{" "}
-              <span class="tbl">--source</span>{" "}
-              <span class="ty">postgres://prod:5432/fintech</span>{" "}
-              <span class="tw">\</span>
-            </div>
-            <div class="tln" style="padding-left:1.1rem">
-              <span class="tbl">--tables</span>{" "}
-              <span class="ty">orders,payments</span>{" "}
-              <span class="tbl">--output</span> <span class="ty">stdout</span>
-            </div>
-            <div class="tln" style="margin-top:.35rem">
-              <span class="to">
-                {
-                  '{"operation":"insert","table":"orders","after":{"id":1234,"status":"pending","amount":149.90}}'
-                }
-              </span>
-            </div>
-            <div class="tln">
-              <span class="to">
-                {
-                  '{"operation":"update","table":"orders","after":{"id":1234,"status":"settled","amount":149.90}}'
-                }
-              </span>
-            </div>
-            <div class="tln">
-              <span class="to">
-                {
-                  '{"operation":"insert","table":"payments","after":{"id":5678,"order_id":1234,"method":"pix"}}'
-                }
-              </span>
+            <div class="tt">
+              <div class="tln">
+                <span class="tc"># stream order changes to your services</span>
+              </div>
+              <div class="tln">
+                <span class="tg">$</span> <span class="tw">kaptanto</span>{" "}
+                <span class="tbl">--source</span>{" "}
+                <span class="ty">postgres://prod:5432/fintech</span>{" "}
+                <span class="tw">\</span>
+              </div>
+              <div class="tln" style="padding-left:1.1rem">
+                <span class="tbl">--tables</span>{" "}
+                <span class="ty">orders,payments</span>{" "}
+                <span class="tbl">--output</span> <span class="ty">stdout</span>
+              </div>
+              <div class="tln" style="margin-top:.35rem">
+                <span class="to">
+                  {
+                    '{"operation":"insert","table":"orders","after":{"id":1234,"status":"pending","amount":149.90}}'
+                  }
+                </span>
+              </div>
+              <div class="tln">
+                <span class="to">
+                  {
+                    '{"operation":"update","table":"orders","after":{"id":1234,"status":"settled","amount":149.90}}'
+                  }
+                </span>
+              </div>
+              <div class="tln">
+                <span class="to">
+                  {
+                    '{"operation":"insert","table":"payments","after":{"id":5678,"order_id":1234,"method":"pix"}}'
+                  }
+                </span>
+              </div>
             </div>
           </div>
         </div>
+        <Pipeline3D />
       </div>
       <div class="sb">
         <div class="st" id="stk">
