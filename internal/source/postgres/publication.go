@@ -47,7 +47,7 @@ func ensurePublication(ctx context.Context, conn pubQuerier, pubName string, tab
 		return fmt.Errorf("postgres: check publication existence: %w", err)
 	}
 	if count > 0 {
-		return nil // already exists
+		return verifyPublicationMembership(ctx, conn, pubName, tables, allowAllTables)
 	}
 
 	var createSQL string
@@ -78,6 +78,66 @@ func ensurePublication(ctx context.Context, conn pubQuerier, pubName string, tab
 		return fmt.Errorf("postgres: create publication %q: %w", pubName, err)
 	}
 	return nil
+}
+
+// verifyPublicationMembership fails startup when an existing publication's
+// FOR ALL TABLES flag or table list does not match this process's config.
+func verifyPublicationMembership(ctx context.Context, conn pubQuerier, pubName string, tables []string, allowAllTables bool) error {
+	var pubAll bool
+	var members []string
+	err := conn.QueryRow(ctx, `
+SELECT p.puballtables,
+       COALESCE((
+         SELECT array_agg(schemaname || '.' || tablename ORDER BY schemaname, tablename)
+         FROM pg_publication_tables
+         WHERE pubname = $1
+       ), '{}'::text[])
+FROM pg_publication p
+WHERE p.pubname = $1`, pubName).Scan(&pubAll, &members)
+	if err != nil {
+		return fmt.Errorf("postgres: inspect publication %q membership: %w", pubName, err)
+	}
+	if allowAllTables {
+		if !pubAll {
+			return fmt.Errorf("postgres: publication %q exists but is not FOR ALL TABLES (refusing to reuse a narrower publication)", pubName)
+		}
+		return nil
+	}
+	if pubAll {
+		return fmt.Errorf("postgres: publication %q is FOR ALL TABLES but config lists specific tables (refusing to capture extra relations)", pubName)
+	}
+	want, err := canonicalTableSet(tables)
+	if err != nil {
+		return err
+	}
+	have := make(map[string]struct{}, len(members))
+	for _, m := range members {
+		have[m] = struct{}{}
+	}
+	if len(have) != len(want) {
+		return fmt.Errorf("postgres: publication %q table list does not match configured tables", pubName)
+	}
+	for t := range want {
+		if _, ok := have[t]; !ok {
+			return fmt.Errorf("postgres: publication %q table list does not match configured tables", pubName)
+		}
+	}
+	return nil
+}
+
+func canonicalTableSet(tables []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{}, len(tables))
+	for _, t := range tables {
+		schema, table, err := pgident.Parse(t)
+		if err != nil {
+			return nil, fmt.Errorf("postgres: invalid table %q for publication: %w", t, err)
+		}
+		if schema == "" {
+			schema = "public"
+		}
+		out[schema+"."+table] = struct{}{}
+	}
+	return out, nil
 }
 
 // ensureSlot checks whether the replication slot named slotName exists.

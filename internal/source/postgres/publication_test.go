@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,17 +18,34 @@ import (
 // fakeRow is a minimal pgx.Row substitute. Scan copies count into dest[0]
 // (an *int), or returns err if set.
 type fakeRow struct {
-	count int
-	err   error
+	count   int
+	pubAll  bool
+	members []string
+	err     error
+	kind    string
 }
 
 func (r fakeRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
 	}
-	if len(dest) > 0 {
-		if p, ok := dest[0].(*int); ok {
-			*p = r.count
+	switch r.kind {
+	case "membership":
+		if len(dest) > 0 {
+			if p, ok := dest[0].(*bool); ok {
+				*p = r.pubAll
+			}
+		}
+		if len(dest) > 1 {
+			if p, ok := dest[1].(*[]string); ok {
+				*p = append([]string(nil), r.members...)
+			}
+		}
+	default:
+		if len(dest) > 0 {
+			if p, ok := dest[0].(*int); ok {
+				*p = r.count
+			}
 		}
 	}
 	return nil
@@ -39,6 +57,9 @@ func (r fakeRow) Scan(dest ...any) error {
 type fakePubConn struct {
 	existCount   int
 	existErr     error
+	memberErr    error
+	pubAll       bool
+	members      []string
 	execErr      error
 	execCalled   bool
 	execSQL      string
@@ -49,6 +70,9 @@ type fakePubConn struct {
 func (f *fakePubConn) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	f.queryRowSQL = sql
 	f.queryRowArgs = args
+	if strings.Contains(sql, "puballtables") {
+		return fakeRow{kind: "membership", pubAll: f.pubAll, members: f.members, err: f.memberErr}
+	}
 	return fakeRow{count: f.existCount, err: f.existErr}
 }
 
@@ -61,7 +85,7 @@ func (f *fakePubConn) Exec(_ context.Context, sql string, _ ...any) (pgconn.Comm
 // TestEnsurePublication_AlreadyExists verifies that when the existence check
 // returns count>0, ensurePublication returns nil without ever calling Exec.
 func TestEnsurePublication_AlreadyExists(t *testing.T) {
-	conn := &fakePubConn{existCount: 1}
+	conn := &fakePubConn{existCount: 1, members: []string{"public.orders"}}
 
 	err := ensurePublication(context.Background(), conn, "kaptanto_pub", []string{"public.orders"}, false)
 
@@ -146,6 +170,26 @@ func TestEnsurePublication_CreateError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create publication")
+}
+
+func TestEnsurePublication_ExistingAllTablesRejectedForNarrowConfig(t *testing.T) {
+	conn := &fakePubConn{existCount: 1, pubAll: true}
+
+	err := ensurePublication(context.Background(), conn, "kaptanto_pub", []string{"public.orders"}, false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FOR ALL TABLES")
+	assert.False(t, conn.execCalled)
+}
+
+func TestEnsurePublication_ExistingTableMismatchRejected(t *testing.T) {
+	conn := &fakePubConn{existCount: 1, members: []string{"public.orders", "public.secrets"}}
+
+	err := ensurePublication(context.Background(), conn, "kaptanto_pub", []string{"public.orders"}, false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "table list does not match")
+	assert.False(t, conn.execCalled)
 }
 
 // TestEnsurePublication_Integration_AllowAllTablesTrue is an integration test
