@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -73,18 +74,32 @@ func (r *fakeConnRows) Values() ([]any, error) {
 // pagination in the caller regardless of the LIMIT/OFFSET-free SQL text
 // snapshotTable actually generates (which this fake never parses).
 type fakeSnapshotConn struct {
-	cols       []string
-	pages      [][][]any
-	pageIdx    int
-	queryErr   error
-	closeCalls int
+	cols         []string
+	pages        [][][]any
+	pageIdx      int
+	queryErr     error
+	closeCalls   int
+	queries      []string
+	queryGate    chan struct{}
+	queryEntered chan struct{}
 }
 
 func (c *fakeSnapshotConn) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
 	return fakeConnRow{}
 }
 
-func (c *fakeSnapshotConn) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+func (c *fakeSnapshotConn) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+	c.queries = append(c.queries, sql)
+	if c.queryEntered != nil {
+		select {
+		case <-c.queryEntered:
+		default:
+			close(c.queryEntered)
+		}
+	}
+	if c.queryGate != nil {
+		<-c.queryGate
+	}
 	if c.queryErr != nil {
 		return nil, c.queryErr
 	}
@@ -284,4 +299,186 @@ func TestSnapshotTable_FlushFailure_DoesNotAdvancePersistedCursor(t *testing.T) 
 		"persisted cursor must remain nil: the successful flush only updated an "+
 			"in-memory cursor/state that snapshotTable never got to persist before "+
 			"the second flush failed and aborted the page")
+}
+
+// TestResetForSlotLoss_CompletedStateRestartsFromPageOne is the SRC-06 gap
+// recovery case: a completed snapshot left CursorKey on the last PK, so a
+// naive Run no-ops and never re-emits rows changed only in the lost WAL gap.
+// After ResetForSlotLoss the snapshot starts from page one and emits the
+// gap row as OpRead.
+func TestResetForSlotLoss_CompletedStateRestartsFromPageOne(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Schema:        "public",
+		Table:         "orders",
+		Strategy:      "snapshot_and_stream",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	cursorKey, err := json.Marshal([]any{int64(2)})
+	require.NoError(t, err)
+	require.NoError(t, store.SaveState(context.Background(), &backfill.BackfillState{
+		SourceID:      "pg1",
+		Table:         "orders",
+		Status:        "completed",
+		Strategy:      "snapshot_and_stream",
+		CursorKey:     cursorKey,
+		ProcessedRows: 2,
+		SnapshotID:    "old_snap",
+		SnapshotLSN:   100,
+	}))
+
+	conn := &fakeSnapshotConn{
+		cols: []string{"id", "status"},
+		pages: [][][]any{
+			{
+				{int64(1), "pending"},
+				{int64(2), "shipped"}, // gap UPDATE lost with the dropped slot
+			},
+		},
+	}
+
+	idGen := event.NewIDGenerator()
+	bl := &countingBatchLog{}
+	eng := backfill.NewBackfillEngineWithBatch(
+		[]backfill.BackfillConfig{cfg}, store, idGen,
+		bl.appendSingle, bl.appendBatch,
+		func(_ context.Context) (backfill.SnapshotConn, error) { return conn, nil },
+	)
+
+	// Without reset, completed state makes Run a no-op.
+	require.NoError(t, eng.Run(context.Background()))
+	assert.Empty(t, readEvents(bl.received), "completed backfill must not re-scan before reset")
+	assert.Empty(t, conn.queries)
+
+	const newLSN = uint64(999)
+	require.NoError(t, eng.ResetForSlotLoss(context.Background(), newLSN))
+
+	state, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, "pending", state.Status)
+	assert.Nil(t, state.CursorKey)
+	assert.Equal(t, newLSN, state.SnapshotLSN)
+	assert.NotEqual(t, "old_snap", state.SnapshotID)
+	assert.NotEmpty(t, state.SnapshotID)
+	assert.True(t, eng.HasPendingBackfills())
+
+	require.NoError(t, eng.Run(context.Background()))
+
+	require.NotEmpty(t, conn.queries, "re-snapshot must query from page one")
+	assert.NotContains(t, conn.queries[0], ">",
+		"first snapshot query after reset must be BuildFirstQuery, not keyset resume")
+
+	got := readEvents(bl.received)
+	require.Len(t, got, 2, "both rows including the gap UPDATE must be emitted as OpRead")
+	var foundGap bool
+	for _, ev := range got {
+		assert.Equal(t, event.OpRead, ev.Operation)
+		assert.Contains(t, ev.IdempotencyKey, ":read:")
+		assert.NotContains(t, ev.IdempotencyKey, "old_snap",
+			"new SnapshotID must be used so EventLog does not drop the gap row as a dup")
+		if string(ev.Key) == `{"id":"2"}` {
+			foundGap = true
+			assert.Contains(t, string(ev.After), "shipped")
+		}
+	}
+	assert.True(t, foundGap, "gap row id=2 must be re-emitted as OpRead")
+}
+
+func TestResetForSlotLoss_SkipsStreamOnly(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	require.NoError(t, store.SaveState(context.Background(), &backfill.BackfillState{
+		SourceID: "pg1",
+		Table:    "orders",
+		Status:   "completed",
+		Strategy: "stream_only",
+	}))
+
+	eng := backfill.NewBackfillEngine(
+		[]backfill.BackfillConfig{{
+			SourceID: "pg1",
+			Table:    "orders",
+			Strategy: "stream_only",
+			PKCols:   []string{"id"},
+		}},
+		store, event.NewIDGenerator(),
+		func(context.Context, *event.ChangeEvent) error { return nil },
+		func(context.Context) (backfill.SnapshotConn, error) {
+			return nil, errors.New("stream_only must not open a snapshot connection")
+		},
+	)
+
+	require.NoError(t, eng.ResetForSlotLoss(context.Background(), 42))
+	state, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, "completed", state.Status, "stream_only must not be reset on slot loss")
+}
+
+func TestResetForSlotLoss_WaitsForInFlightRun(t *testing.T) {
+	store, err := backfill.OpenSQLiteBackfillStore(t.TempDir() + "/backfill.db")
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	cfg := backfill.BackfillConfig{
+		SourceID:      "pg1",
+		Schema:        "public",
+		Table:         "orders",
+		Strategy:      "snapshot_and_stream",
+		PKCols:        []string{"id"},
+		NumPartitions: 64,
+	}
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	conn := &fakeSnapshotConn{
+		cols:         []string{"id"},
+		pages:        [][][]any{idRows(1, 3)},
+		queryGate:    gate,
+		queryEntered: entered,
+	}
+
+	eng := backfill.NewBackfillEngineWithBatch(
+		[]backfill.BackfillConfig{cfg}, store, event.NewIDGenerator(),
+		func(context.Context, *event.ChangeEvent) error { return nil },
+		func(context.Context, []*event.ChangeEvent) error { return nil },
+		func(context.Context) (backfill.SnapshotConn, error) { return conn, nil },
+	)
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- eng.Run(context.Background()) }()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for in-flight snapshot query")
+	}
+
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- eng.ResetForSlotLoss(context.Background(), 7) }()
+
+	select {
+	case err := <-resetDone:
+		t.Fatalf("ResetForSlotLoss returned before Run finished: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(gate)
+	require.NoError(t, <-runDone)
+	require.NoError(t, <-resetDone)
+
+	state, err := store.LoadState(context.Background(), "pg1", "orders")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, "pending", state.Status, "reset must run after in-flight snapshot completes")
+	assert.Nil(t, state.CursorKey)
 }

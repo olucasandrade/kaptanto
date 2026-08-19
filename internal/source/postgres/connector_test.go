@@ -315,7 +315,8 @@ type mockBackfillEngine struct {
 	runCalled  chan struct{}
 }
 
-func (m *mockBackfillEngine) HasPendingBackfills() bool { return m.hasPending }
+func (m *mockBackfillEngine) HasPendingBackfills() bool                          { return m.hasPending }
+func (m *mockBackfillEngine) ResetForSlotLoss(_ context.Context, _ uint64) error { return nil }
 func (m *mockBackfillEngine) Run(_ context.Context) error {
 	if m.runCalled != nil {
 		close(m.runCalled)
@@ -401,6 +402,9 @@ type mockBackfillEngineSimple struct{ pending bool }
 
 func (m *mockBackfillEngineSimple) Run(_ context.Context) error { return nil }
 func (m *mockBackfillEngineSimple) HasPendingBackfills() bool   { return m.pending }
+func (m *mockBackfillEngineSimple) ResetForSlotLoss(_ context.Context, _ uint64) error {
+	return nil
+}
 
 // TestSetBackfillEngine verifies that calling SetBackfillEngine on a connector
 // constructed with NewWithEventLog (nil engine) sets the engine; subsequent
@@ -778,5 +782,30 @@ func TestNewWithoutEventLog_NilGuard(t *testing.T) {
 		}
 	default:
 		t.Error("event not forwarded to channel when eventLog is nil")
+	}
+}
+
+func TestReplicationStartLSN(t *testing.T) {
+	const checkpoint = 50
+	const consistent = 200
+
+	start, saved := postgres.ReplicationStartLSN(true, consistent, checkpoint, true)
+	if start != consistent || saved != 0 {
+		t.Errorf("slot-loss: start=%d saved=%d, want start=%d saved=0", start, saved, consistent)
+	}
+
+	start, saved = postgres.ReplicationStartLSN(false, consistent, checkpoint, true)
+	if start != checkpoint+1 || saved != checkpoint {
+		t.Errorf("ordinary reconnect: start=%d saved=%d, want start=%d saved=%d", start, saved, checkpoint+1, checkpoint)
+	}
+
+	start, saved = postgres.ReplicationStartLSN(false, consistent, 0, false)
+	if start != 0 || saved != 0 {
+		t.Errorf("first run: start=%d saved=%d, want 0, 0", start, saved)
+	}
+
+	start, saved = postgres.ReplicationStartLSN(true, 0, checkpoint, true)
+	if start != 0 || saved != 0 {
+		t.Errorf("slot-loss with zero consistent point: start=%d saved=%d, want 0, 0", start, saved)
 	}
 }
