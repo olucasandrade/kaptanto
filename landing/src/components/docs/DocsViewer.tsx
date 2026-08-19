@@ -1,36 +1,27 @@
 import { component$, useVisibleTask$ } from "@builder.io/qwik";
 import type { Signal } from "@builder.io/qwik";
-import { DOCS_CONTENT, SIDEBAR, DOC_FLOW } from "../../data/docs-content";
+import { useLocation } from "@builder.io/qwik-city";
+import { SIDEBAR } from "../../data/docs-content";
+import { isDocsPath, renderDocPageHtml } from "../../data/docs-html";
 
 interface DocsViewerProps {
   currentDoc: Signal<string | null>;
 }
 
-function docLabel(id: string): string {
-  for (const section of SIDEBAR) {
-    for (const [slug, label] of section.items) {
-      if (slug === id) return label;
-    }
-  }
-  return DOCS_CONTENT[id]?.title ?? id;
-}
-
-function buildNextSteps(id: string): string {
-  const i = DOC_FLOW.indexOf(id);
-  if (i === -1) return "";
-  const next1 = DOC_FLOW[(i + 1) % DOC_FLOW.length];
-  const next2 = DOC_FLOW[(i + 2) % DOC_FLOW.length];
-  return `<h2 class="dh2">Next steps</h2><div class="dcards">
-<a class="dcard" href="/docs/${next1}" onclick="return window.__go('${next1}')"><h4>${docLabel(next1)}</h4><p>Next page.</p></a>
-<a class="dcard" href="/docs/${next2}" onclick="return window.__go('${next2}')"><h4>${docLabel(next2)}</h4><p>Then read this.</p></a>
-</div>`;
-}
-
 export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
-  // Register window.__go so onclick="go(...)" handlers in the docs HTML work.
+  const loc = useLocation();
+  const docsRoute = isDocsPath(loc.url.pathname);
+
+  // Register window.__go / go() so in-doc handlers work.
+  // On /docs/[slug], navigate to the crawlable URL; on /?doc=, keep the SPA.
   // Content is static, trusted HTML from src/data/docs-content.ts — not user input.
+  // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(() => {
     const go = (id: string) => {
+      if (isDocsPath(window.location.pathname)) {
+        window.location.assign(`/docs/${id}`);
+        return false;
+      }
       currentDoc.value = id;
       window.history.pushState({}, "", `/?doc=${id}`);
       window.scrollTo(0, 0);
@@ -40,6 +31,7 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
     (window as any).go = go;
   });
 
+  // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ track }) => {
     track(() => currentDoc.value);
     requestAnimationFrame(() => {
@@ -54,9 +46,9 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
   });
 
   const id = currentDoc.value ?? "docs-intro";
-  const doc = DOCS_CONTENT[id];
+  const content = renderDocPageHtml(id);
 
-  if (!doc) {
+  if (!content) {
     return (
       <div class="dl">
         <main class="dc">
@@ -65,9 +57,6 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
       </div>
     );
   }
-
-  // Trusted static content from docs-content.ts — safe to use dangerouslySetInnerHTML.
-  const content = `<div class="dhead"><img src="/logo.png" alt="Kaptanto logo" class="dlg"><h1>${doc.title}</h1></div><p class="dsub">${doc.sub}</p>${doc.body}${buildNextSteps(id)}`;
 
   return (
     <div class="dl">
@@ -90,6 +79,7 @@ export const DocsViewer = component$<DocsViewerProps>(({ currentDoc }) => {
                   class={`dsa${slug === id ? " act" : ""}`}
                   href={`/docs/${slug}`}
                   onClick$={(e) => {
+                    if (docsRoute) return;
                     e.preventDefault();
                     currentDoc.value = slug;
                     window.history.pushState({}, "", `/?doc=${slug}`);
