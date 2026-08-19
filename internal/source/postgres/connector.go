@@ -114,6 +114,22 @@ func EvalSlotCheck(slotPresent, wasEverConnected bool) (needsSnapshot bool) {
 	return wasEverConnected
 }
 
+// ReplicationStartLSN returns the StartReplication LSN and the CHK-01 ack
+// floor after ensureSlot.
+//
+// Slot-loss (needsSnapshot=true): start at the new slot consistent point
+// and keep lastSavedLSN at 0 so we never confirm a lost-gap checkpoint.
+// Ordinary reconnect: resume at checkpoint+1 to skip the last delivered event.
+func ReplicationStartLSN(needsSnapshot bool, consistentPoint, checkpointLSN pglogrepl.LSN, hasCheckpoint bool) (startLSN, lastSavedLSN pglogrepl.LSN) {
+	if needsSnapshot {
+		return consistentPoint, 0
+	}
+	if !hasCheckpoint {
+		return 0, 0
+	}
+	return checkpointLSN + 1, checkpointLSN
+}
+
 // PostgresConnector implements the Postgres CDC source. It maintains a
 // replication connection (for WAL streaming) and a separate query connection
 // (for schema queries, slot/publication management, and lag monitoring).
@@ -365,7 +381,7 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 	}
 
 	// 6. Ensure slot exists; detect missing slot after failover (SRC-06).
-	needsSnapshot, _, err := ensureSlot(ctx, replConn, queryConn, c.cfg.SlotName, wasEverConnected)
+	needsSnapshot, consistentPoint, err := ensureSlot(ctx, replConn, queryConn, c.cfg.SlotName, wasEverConnected)
 	if err != nil {
 		return err
 	}
@@ -380,15 +396,23 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		return fmt.Errorf("postgres: load checkpoint: %w", err)
 	}
 
-	// 8. Parse stored LSN; start from 0 on first run.
-	var startLSN pglogrepl.LSN
-	if lastLSNStr != "" {
-		startLSN, err = pglogrepl.ParseLSN(lastLSNStr)
+	// 8. Parse stored LSN; start from 0 on first run. Slot-loss recovery
+	// ignores the stale checkpoint and starts at the new slot consistent point.
+	var checkpointLSN pglogrepl.LSN
+	hasCheckpoint := lastLSNStr != ""
+	if hasCheckpoint {
+		checkpointLSN, err = pglogrepl.ParseLSN(lastLSNStr)
 		if err != nil {
 			return fmt.Errorf("postgres: parse checkpoint LSN %q: %w", lastLSNStr, err)
 		}
-		// 9. Advance by 1 to avoid re-delivering the last event (off-by-one).
-		startLSN++
+	}
+	startLSN, lastSavedLSN := ReplicationStartLSN(needsSnapshot, consistentPoint, checkpointLSN, hasCheckpoint)
+
+	// SRC-06: reset completed snapshot cursors before StartReplication so
+	// Run cannot no-op. Reset waits for an in-flight snapshot (same mutex)
+	// and is skipped on ordinary reconnects (needsSnapshot=false).
+	if err := c.resetBackfillOnSlotLoss(ctx, needsSnapshot, uint64(consistentPoint)); err != nil {
+		return err
 	}
 
 	// 10. Clear relation cache — new session; Postgres will re-send RelationMessages.
@@ -408,26 +432,9 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		return fmt.Errorf("postgres: start replication: %w", err)
 	}
 
-	// 12. Launch backfill goroutine: pending work exists (12a), or slot loss
-	// requires re-snapshot (12b, SRC-06). Merged into a single launch to prevent
-	// two concurrent bkEng.Run goroutines when both conditions are simultaneously
-	// true (post-failover reconnect with existing pending backfills).
-	// BackfillEngineImpl has no Run-level mutex; concurrent runs would race on
-	// LoadState/SaveState and snapshotTable.
-	// TODO(SRC-06): on slot loss (needsSnapshot=true), consider resetting cursor
-	// state to force a full re-snapshot; currently resumes from the stored cursor
-	// position which may miss rows changed during the WAL gap.
-	if c.backfillEng != nil && (c.backfillEng.HasPendingBackfills() || needsSnapshot) {
-		go func() {
-			if err := c.backfillEng.Run(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("backfill engine: run failed",
-					"needs_snapshot", needsSnapshot,
-					"error", err)
-			}
-		}()
-	}
+	c.launchBackfill(ctx, needsSnapshot)
 
-	// 13. WAL lag monitoring goroutine (SRC-07).
+	// 12. WAL lag monitoring goroutine (SRC-07).
 	lagCtx, cancelLag := context.WithCancel(ctx)
 	defer cancelLag()
 	go func() {
@@ -443,12 +450,38 @@ func (c *PostgresConnector) connectAndStream(ctx context.Context, wasEverConnect
 		}
 	}()
 
-	// 14. ReceiveMessage loop (SRC-03).
-	var lastSavedLSN pglogrepl.LSN
-	if startLSN > 0 {
-		lastSavedLSN = startLSN - 1
-	}
+	// 13. ReceiveMessage loop (SRC-03).
 	return c.receiveLoop(ctx, replConn, lastSavedLSN)
+}
+
+// resetBackfillOnSlotLoss clears completed snapshot cursors on SRC-06 slot
+// loss. Ordinary reconnects (needsSnapshot=false) are a no-op.
+func (c *PostgresConnector) resetBackfillOnSlotLoss(ctx context.Context, needsSnapshot bool, snapshotLSN uint64) error {
+	if c.backfillEng == nil || !needsSnapshot {
+		return nil
+	}
+	if err := c.backfillEng.ResetForSlotLoss(ctx, snapshotLSN); err != nil {
+		return fmt.Errorf("postgres: reset backfill after slot loss: %w", err)
+	}
+	return nil
+}
+
+// launchBackfill starts at most one Run goroutine when pending work exists
+// or slot-loss recovery requested a re-snapshot.
+func (c *PostgresConnector) launchBackfill(ctx context.Context, needsSnapshot bool) {
+	if c.backfillEng == nil {
+		return
+	}
+	if !c.backfillEng.HasPendingBackfills() && !needsSnapshot {
+		return
+	}
+	go func() {
+		if err := c.backfillEng.Run(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("backfill engine: run failed",
+				"needs_snapshot", needsSnapshot,
+				"error", err)
+		}
+	}()
 }
 
 // receiveLoop runs the core WAL message receive loop using pgconn.ReceiveMessage
