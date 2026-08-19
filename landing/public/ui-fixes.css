@@ -166,6 +166,7 @@ button:focus-visible,
   }
   .p3d-dot {
     animation: none !important;
+    display: none;
   }
 }
 

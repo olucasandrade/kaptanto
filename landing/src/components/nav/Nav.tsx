@@ -71,6 +71,7 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
           href="/"
           class="nb"
           onClick$={(e) => {
+            isMenuOpen.value = false;
             if (docsRoute) return;
             e.preventDefault();
             currentDoc.value = null;
@@ -83,6 +84,7 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
           <a
             href="/"
             onClick$={(e) => {
+              isMenuOpen.value = false;
               if (docsRoute) return;
               e.preventDefault();
               currentDoc.value = null;
@@ -96,6 +98,7 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
           <a
             href={docsRoute ? "/docs/docs-intro" : "/?doc=docs-intro"}
             onClick$={(e) => {
+              isMenuOpen.value = false;
               if (docsRoute) return;
               e.preventDefault();
               currentDoc.value = "docs-intro";
@@ -109,6 +112,7 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
           <a
             href={docsRoute ? "/#features" : "#features"}
             onClick$={() => {
+              isMenuOpen.value = false;
               if (docsRoute) return;
               currentDoc.value = null;
             }}
@@ -118,6 +122,7 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
           <a
             href={docsRoute ? "/#compare" : "#compare"}
             onClick$={() => {
+              isMenuOpen.value = false;
               if (docsRoute) return;
               currentDoc.value = null;
             }}
@@ -127,6 +132,7 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
           <a
             href={docsRoute ? "/#changelog" : "#changelog"}
             onClick$={() => {
+              isMenuOpen.value = false;
               if (docsRoute) return;
               currentDoc.value = null;
             }}
@@ -136,6 +142,7 @@ export const Nav = component$<NavProps>(({ currentDoc }) => {
           <a
             href={docsRoute ? "/docs/docs-benchmarks" : "/?doc=docs-benchmarks"}
             onClick$={(e) => {
+              isMenuOpen.value = false;
               if (docsRoute) return;
               e.preventDefault();
               currentDoc.value = "docs-benchmarks";

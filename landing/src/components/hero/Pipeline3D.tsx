@@ -1,25 +1,10 @@
-import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
+import { component$ } from "@builder.io/qwik";
 
 /**
  * Decorative CSS-3D isometric CDC pipeline for the unused hero rail.
- * Hidden below 960px and when the user prefers reduced motion (static planes only).
+ * Hidden below 960px via CSS. Dots hide when the user prefers reduced motion.
  */
 export const Pipeline3D = component$(() => {
-  const show = useSignal(false);
-
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(({ cleanup }) => {
-    const mq = window.matchMedia("(min-width: 960px)");
-    const sync = () => {
-      show.value = mq.matches;
-    };
-    sync();
-    mq.addEventListener("change", sync);
-    cleanup(() => mq.removeEventListener("change", sync));
-  });
-
-  if (!show.value) return null;
-
   return (
     <div class="p3d" aria-hidden="true">
       <div class="p3d-stage">
