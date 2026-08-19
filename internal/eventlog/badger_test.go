@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	badger "github.com/dgraph-io/badger/v4"
 	"github.com/oklog/ulid/v2"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
@@ -742,4 +744,205 @@ func TestBadgerEventLog_RegisterObserver_ConcurrentAppendAndUnregister(t *testin
 	time.Sleep(30 * time.Millisecond)
 	close(stop)
 	wg.Wait()
+}
+
+// defaultMaxBatchSize returns Badger's default MaxBatchSize for the current
+// platform/options. Tests use this to size payloads dynamically instead of
+// hardcoding megabytes, so they stay valid if Badger defaults change.
+func defaultMaxBatchSize(t *testing.T) int64 {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := badger.Open(badger.DefaultOptions(dir).WithLogger(nil))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	return db.MaxBatchSize()
+}
+
+// makeLargeEvent returns an event whose After JSON contains a payload of the
+// requested byte size. The idempotency key and CDC key are caller-controlled.
+func makeLargeEvent(idempotencyKey, keyJSON string, payloadSize int) *event.ChangeEvent {
+	ev := makeEvent(idempotencyKey, keyJSON)
+	row := map[string]any{
+		"id":      json.RawMessage(keyJSON),
+		"payload": strings.Repeat("x", payloadSize),
+	}
+	b, _ := json.Marshal(row)
+	ev.After = json.RawMessage(b)
+	return ev
+}
+
+// readAllEntries returns every LogEntry currently visible across all partitions.
+func readAllEntries(t *testing.T, el *eventlog.BadgerEventLog) []eventlog.LogEntry {
+	t.Helper()
+	ctx := context.Background()
+	var all []eventlog.LogEntry
+	for p := uint32(0); p < 64; p++ {
+		entries, err := el.ReadPartition(ctx, p, 0, 1_000_000)
+		require.NoError(t, err)
+		all = append(all, entries...)
+	}
+	return all
+}
+
+// TestAppendBatch_TxnTooBig_Chunks is the regression test for issue #56's
+// follow-up comment: a batch large enough to exceed Badger's per-transaction
+// size limit must be split into multiple transactions rather than failing with
+// "Txn is too big to fit into one request".
+func TestAppendBatch_TxnTooBig_Chunks(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	maxSize := defaultMaxBatchSize(t)
+	payloadSize := 100_000 // ~100 KiB per event
+	// Total event bytes ≈ eventCount * payloadSize. Aim for > 2 * maxSize so
+	// even conservative chunking produces multiple transactions.
+	eventCount := int(2*maxSize/int64(payloadSize)) + 5
+
+	evs := make([]*event.ChangeEvent, eventCount)
+	for i := 0; i < eventCount; i++ {
+		keyJSON := fmt.Sprintf(`{"id": %d}`, i)
+		evs[i] = makeLargeEvent(fmt.Sprintf("src:public.t:%d:insert:0/%d", i, i), keyJSON, payloadSize)
+	}
+
+	seqs, err := el.AppendBatch(evs)
+	require.NoError(t, err, "AppendBatch must chunk oversized batches instead of returning ErrTxnTooBig")
+	require.Len(t, seqs, eventCount)
+	for i, s := range seqs {
+		assert.Greater(t, s, uint64(0), "seq[%d] should be > 0 (not a duplicate)", i)
+	}
+
+	all := readAllEntries(t, el)
+	require.Len(t, all, eventCount, "every chunked event must be readable")
+
+	seen := make(map[string]bool, eventCount)
+	for _, e := range all {
+		ent := materializeEntry(t, e)
+		seen[ent.IdempotencyKey] = true
+	}
+	assert.Len(t, seen, eventCount, "each event must have a distinct idempotency key")
+}
+
+// TestAppendBatch_ChunkedDedup verifies that duplicate idempotency keys are
+// still skipped when the batch is large enough to require chunking.
+func TestAppendBatch_ChunkedDedup(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	maxSize := defaultMaxBatchSize(t)
+	payloadSize := 100_000
+	eventCount := int(2*maxSize/int64(payloadSize)) + 10
+
+	// Pre-seed one idempotency key so a later batch occurrence is a cross-chunk dup.
+	preseedKey := "src:public.t:preseed:insert:0/1"
+	preseed := makeLargeEvent(preseedKey, `{"id": -1}`, payloadSize)
+	_, err = el.Append(preseed)
+	require.NoError(t, err)
+
+	evs := make([]*event.ChangeEvent, eventCount)
+	for i := 0; i < eventCount; i++ {
+		evs[i] = makeLargeEvent(fmt.Sprintf("src:public.t:%d:insert:0/%d", i, i), fmt.Sprintf(`{"id": %d}`, i), payloadSize)
+	}
+
+	// Inject duplicate pairs at start, middle, and end of the batch.
+	mid := eventCount / 2
+	evs[0].IdempotencyKey = "src:public.t:dup-first:insert:0/1"
+	evs[1].IdempotencyKey = "src:public.t:dup-first:insert:0/1"
+	evs[mid].IdempotencyKey = "src:public.t:dup-mid:insert:0/1"
+	evs[mid+1].IdempotencyKey = "src:public.t:dup-mid:insert:0/1"
+	evs[eventCount-3].IdempotencyKey = "src:public.t:dup-last:insert:0/1"
+	evs[eventCount-2].IdempotencyKey = "src:public.t:dup-last:insert:0/1"
+	// Preseeded key appears once inside the batch, across a likely chunk boundary.
+	evs[3].IdempotencyKey = preseedKey
+
+	seqs, err := el.AppendBatch(evs)
+	require.NoError(t, err)
+	require.Len(t, seqs, eventCount)
+
+	duplicateIdx := map[int]struct{}{
+		1: {}, mid + 1: {}, eventCount - 2: {}, 3: {},
+	}
+	duplicates := 0
+	for i, s := range seqs {
+		if _, isDup := duplicateIdx[i]; isDup {
+			assert.Equal(t, uint64(0), s, "duplicate occurrence seq[%d] should be 0", i)
+		}
+		if s == 0 {
+			duplicates++
+		}
+	}
+	assert.Equal(t, 4, duplicates, "expected four duplicate occurrences to be skipped")
+
+	all := readAllEntries(t, el)
+	unique := make(map[string]struct{})
+	for _, e := range all {
+		ent := materializeEntry(t, e)
+		unique[ent.IdempotencyKey] = struct{}{}
+	}
+	// eventCount batch keys minus 4 duplicates, plus the preseed that was already stored.
+	assert.Len(t, unique, eventCount-3, "only one durable entry per idempotency key")
+}
+
+// TestAppendBatch_ChunkedSequenceMonotonic verifies that when a batch is split
+// across multiple Badger transactions, sequence numbers within a partition stay
+// strictly increasing and ReadPartition returns events in order.
+func TestAppendBatch_ChunkedSequenceMonotonic(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	maxSize := defaultMaxBatchSize(t)
+	payloadSize := 100_000
+	eventCount := int(2*maxSize/int64(payloadSize)) + 5
+
+	// Same CDC key forces every event into the same partition, making seq ordering
+	// easy to verify. Distinct idempotency keys prevent dedup.
+	evs := make([]*event.ChangeEvent, eventCount)
+	for i := 0; i < eventCount; i++ {
+		evs[i] = makeLargeEvent(fmt.Sprintf("src:public.t:same:%d", i), `{"id": 1}`, payloadSize)
+	}
+
+	seqs, err := el.AppendBatch(evs)
+	require.NoError(t, err)
+	require.Len(t, seqs, eventCount)
+
+	prev := uint64(0)
+	for _, s := range seqs {
+		assert.Greater(t, s, prev, "sequence numbers must be strictly increasing within the partition")
+		prev = s
+	}
+
+	partition := eventlog.PartitionOf(evs[0].Key, 64)
+	ctx := context.Background()
+	entries, err := el.ReadPartition(ctx, partition, 0, eventCount+10)
+	require.NoError(t, err)
+	require.Len(t, entries, eventCount)
+
+	for i, e := range entries {
+		assert.Equal(t, seqs[i], e.Seq, "ReadPartition seq must match AppendBatch returned seq")
+	}
+}
+
+// TestAppendBatch_SingleEventTooLarge verifies that a single event exceeding
+// Badger's hard transaction size returns a clear error and does not corrupt
+// the event log (subsequent normal appends still work).
+func TestAppendBatch_SingleEventTooLarge(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	maxSize := defaultMaxBatchSize(t)
+	// Payload alone must push the whole event past Badger's hard limit.
+	huge := makeLargeEvent("src:public.t:huge:insert:0/1", `{"id": 1}`, int(maxSize)+1_000_000)
+
+	_, err = el.AppendBatch([]*event.ChangeEvent{huge})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "exceeds maximum transaction size")
+
+	// The event log must remain usable.
+	ev := makeEvent("src:public.t:ok:insert:0/1", `{"id": 1}`)
+	seq, err := el.Append(ev)
+	require.NoError(t, err)
+	assert.Greater(t, seq, uint64(0))
 }
