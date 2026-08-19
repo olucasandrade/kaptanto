@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAPI 3.0 discovery endpoint at `/openapi.json`
 - `output: webhook` sink mode
 - `@kaptanto/events` TypeScript SSE client and `n8n-nodes-kaptanto` community node
+- `@kaptanto/mastra` Mastra adapter (`kaptantoTrigger`, `toAgentContext`)
+- `kaptanto` Python SDK (pydantic `ChangeEvent` models + httpx SSE client, optional `langchain` extra)
 
 ### Changed
 

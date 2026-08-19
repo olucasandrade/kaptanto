@@ -5,10 +5,10 @@ Mastra adapter for [Kaptanto](https://github.com/olucasandrade/kaptanto) CDC —
 ## Install
 
 ```bash
-npm install @kaptanto/mastra @kaptanto/events mastra
+npm install @kaptanto/mastra @kaptanto/events @mastra/core
 ```
 
-`@kaptanto/events` and `mastra` are peer dependencies.
+`@kaptanto/events` and `mastra` are peer dependencies; `@mastra/core` provides the `createWorkflow`/`createStep` API used below.
 
 ## Usage
 

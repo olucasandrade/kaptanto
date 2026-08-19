@@ -23,6 +23,8 @@ The repository is a monorepo that also contains:
 - `examples/` — runnable React + Vite demo applications with their own `docker-compose.yml` files.
 - `rust/kaptanto-ffi/` — an optional Rust static library that accelerates the Postgres `pgoutput` parser via CGO.
 - `get/` — a tiny Cloudflare Worker that redirects `curl -L get.kaptanto.dev` to the install script.
+- `packages/` — the published SDKs: `kaptanto-events` (`@kaptanto/events`, TS types + SSE client), `kaptanto-mastra` (`@kaptanto/mastra`, Mastra adapter), and `kaptanto-python` (`kaptanto` on PyPI, pydantic models + httpx SSE client).
+- `n8n-nodes-kaptanto/` — the n8n community trigger node, published to npm.
 
 ## Technology Stack
 
@@ -89,6 +91,8 @@ The repository is a monorepo that also contains:
 ├── examples/              # Runnable CDC demos
 ├── rust/kaptanto-ffi/     # Optional Rust staticlib
 ├── get/                   # Cloudflare Worker install redirect
+├── packages/              # Published SDKs (@kaptanto/events, @kaptanto/mastra, PyPI kaptanto)
+├── n8n-nodes-kaptanto/    # n8n community trigger node (npm)
 ├── test/e2e/              # Black-box binary tests (build tag `e2e`)
 ├── scripts/coverage-gate.sh   # Coverage thresholds (CI + local)
 ├── .golangci.yml          # Linting (complexity + dependency + dead-code rules)
@@ -316,6 +320,7 @@ Use `--config <file>` or individual flags. `--source` or `--config` is required.
 - **Docker Hub:** `.github/workflows/release.yml` also builds and pushes `olucasandrade/kaptanto` for `linux/amd64` and `linux/arm64`.
 - **Install script:** `scripts/install.sh` is fetched by `curl -L get.kaptanto.dev` (via the `get/` Cloudflare Worker).
 - **Landing site:** deployed to Cloudflare Pages from `landing/`. Cloudflare Pages root directory must be `landing`, build command `npm run build`, output directory `dist`.
+- **npm/PyPI packages:** `@kaptanto/events`, `@kaptanto/mastra`, `n8n-nodes-kaptanto` (npm) and `kaptanto` (PyPI) publish via tag-triggered workflows (`events-v*`, `mastra-v*`, `n8n-v*`, `python-v*`); versions are independent of the Go binary. See `RELEASING.md` for the required publish order (`@kaptanto/events` first).
 
 ## CI Workflows
 
@@ -334,6 +339,10 @@ All workflows live in `.github/workflows/`:
 - `zizmor.yml` — workflow permission audit.
 - `benchmark.yml` — benchmark harness runs.
 - `release.yml` — `goreleaser` + Docker Hub publish.
+- `ts.yml` — build + vitest for `packages/kaptanto-events`, `packages/kaptanto-mastra`, `n8n-nodes-kaptanto`, plus fixture drift (`make fixtures`).
+- `python.yml` — pytest matrix (3.10–3.13) for `packages/kaptanto-python`, plus a core-only (no langchain) acceptance job.
+- `npm-publish.yml` — tag-triggered (`events-v*`/`mastra-v*`/`n8n-v*`) npm publish with OIDC provenance.
+- `pypi-publish.yml` — tag-triggered (`python-v*`) PyPI publish via trusted publishing (GitHub environment `pypi`).
 
 ## Commit and Pull Request Conventions
 
