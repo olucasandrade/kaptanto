@@ -437,6 +437,10 @@ type flusherBackoff struct {
 // grown as needed and reset ([:0]) per event. This eliminates the two
 // per-event heap allocations that the previous dispatch signature caused.
 func (r *Router) runPartition(ctx context.Context, partitionID uint32) {
+	if rel, ok := r.eventLog.(eventlog.PartitionReleaser); ok {
+		defer rel.ReleasePartition(partitionID)
+	}
+
 	// Capture the notify channel once; nil if EventLog doesn't implement
 	// PartitionNotifier (fakes/tests fall back to pure timer polling).
 	var notifyCh <-chan struct{}
