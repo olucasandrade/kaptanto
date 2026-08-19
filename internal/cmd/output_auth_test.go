@@ -247,3 +247,18 @@ func TestBuildOutputServer_NoneMetricsRequireBearer(t *testing.T) {
 	cancel()
 	time.Sleep(50 * time.Millisecond)
 }
+func TestSourceHealthProbes_MongoSkipsPostgres(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Source = "mongodb://localhost:27017/db"
+	for _, p := range sourceHealthProbes(cfg) {
+		assert.NotEqual(t, "postgres", p.Name)
+	}
+}
+
+func TestSourceHealthProbes_PostgresIncludesPostgres(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Source = "postgres://localhost/db"
+	probes := sourceHealthProbes(cfg)
+	require.Len(t, probes, 1)
+	assert.Equal(t, "postgres", probes[0].Name)
+}

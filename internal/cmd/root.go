@@ -415,20 +415,8 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		{Name: "eventlog", Check: elPing},
 		{Name: "checkpoint", Check: ckProbe},
 		{Name: "cursors", Check: cursorPing},
-		{
-			Name: "postgres",
-			Check: func() error {
-				pCtx, pCancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer pCancel()
-				conn, err := pgx.Connect(pCtx, cfg.Source)
-				if err != nil {
-					return err
-				}
-				_ = conn.Close(context.Background())
-				return nil
-			},
-		},
 	}
+	healthProbes = append(healthProbes, sourceHealthProbes(cfg)...)
 	if cfg.HA {
 		healthProbes = append(healthProbes, observability.HealthProbe{
 			Name:  "ha_lock",
@@ -581,4 +569,27 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	}
 	slog.Info("kaptanto shut down cleanly")
 	return nil
+}
+
+// sourceHealthProbes returns the source-database probe for /healthz.
+// MongoDB URIs must not be probed with pgx (that always fails and 503s
+// healthy Mongo pipelines).
+func sourceHealthProbes(cfg *config.Config) []observability.HealthProbe {
+	if cfg.SourceType() == "mongodb" {
+		return nil
+	}
+	dsn := cfg.Source
+	return []observability.HealthProbe{{
+		Name: "postgres",
+		Check: func() error {
+			pCtx, pCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer pCancel()
+			conn, err := pgx.Connect(pCtx, dsn)
+			if err != nil {
+				return err
+			}
+			_ = conn.Close(context.Background())
+			return nil
+		},
+	}}
 }
