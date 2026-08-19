@@ -4,7 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/olucasandrade/kaptanto/internal/redact"
 )
+
+// httpStatusErr is a StatusError whose message names the method and a
+// redacted URL only — never userinfo, query credentials, or response bodies
+// that /healthz would otherwise echo.
+func httpStatusErr(component, method, rawURL string, status int) *StatusError {
+	return &StatusError{
+		Status: status,
+		Msg:    fmt.Sprintf("%s: %s %s", component, method, redact.URL(rawURL)),
+	}
+}
 
 // StatusError wraps a non-2xx HTTP response from an embedder or store.
 // Consumers classify 408/429/5xx as transient and other 4xx as poison.

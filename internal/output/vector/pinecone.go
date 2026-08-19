@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/olucasandrade/kaptanto/internal/redact"
 )
 
 // Pinecone API version frozen against docs.pinecone.io (2025-10 data plane).
@@ -122,15 +124,12 @@ func (s *PineconeStore) doJSON(ctx context.Context, method, url string, payload 
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("vector: pinecone: %s %s: %w", method, url, err)
+		return fmt.Errorf("vector: pinecone: %s %s: %w", method, redact.URL(url), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &StatusError{
-			Status: resp.StatusCode,
-			Msg:    fmt.Sprintf("pinecone: %s %s: %s", method, url, truncate(string(body))),
-		}
+		return httpStatusErr("pinecone", method, url, resp.StatusCode)
 	}
 	return nil
 }

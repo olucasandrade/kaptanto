@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -275,4 +276,35 @@ func TestOpenStore_UnknownProvider(t *testing.T) {
 		Table:    "t",
 	}, 3)
 	require.Error(t, err)
+}
+
+func TestQdrant_ErrorRedactsURLAndOmitsBody(t *testing.T) {
+	const secret = "s3cret"
+	var gets int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			gets++
+			if gets == 1 {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+				return
+			}
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`password=` + secret))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	u.User = url.UserPassword("user", secret)
+	store, err := vector.OpenQdrant(context.Background(), u.String(), "", "c", 2)
+	require.NoError(t, err)
+	err = store.Ping(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "502")
+	assert.NotContains(t, err.Error(), secret)
+	assert.NotContains(t, err.Error(), "password=")
 }

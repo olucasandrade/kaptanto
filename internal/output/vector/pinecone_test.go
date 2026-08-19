@@ -6,11 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/olucasandrade/kaptanto/internal/config"
+	"github.com/olucasandrade/kaptanto/internal/observability"
 	"github.com/olucasandrade/kaptanto/internal/output/vector"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -146,17 +148,39 @@ func TestPinecone_OpenValidation(t *testing.T) {
 	require.NoError(t, store.Close())
 }
 
-func TestPinecone_LongErrorBodyTruncated(t *testing.T) {
+func TestPinecone_ErrorRedactsURLAndOmitsBody(t *testing.T) {
+	const secret = "s3cret"
+	const queryKey = "supersecret"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(strings.Repeat("x", 600)))
 	}))
 	t.Cleanup(srv.Close)
-	store, err := vector.OpenPinecone("k", srv.URL, "")
+
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	u.User = url.UserPassword("user", secret)
+	q := u.Query()
+	q.Set("api_key", queryKey)
+	u.RawQuery = q.Encode()
+
+	store, err := vector.OpenPinecone("k", u.String(), "")
 	require.NoError(t, err)
 	err = store.Ping(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "…")
+	assert.Contains(t, err.Error(), "500")
+	assert.NotContains(t, err.Error(), secret)
+	assert.NotContains(t, err.Error(), queryKey)
+	assert.NotContains(t, err.Error(), strings.Repeat("x", 20))
+	assert.NotContains(t, err.Error(), "…")
+
+	rr := httptest.NewRecorder()
+	observability.NewHealthHandler([]observability.HealthProbe{
+		{Name: "vector-store", Check: func() error { return err }},
+	}).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	assert.NotContains(t, rr.Body.String(), secret)
+	assert.NotContains(t, rr.Body.String(), queryKey)
 }
 
 func TestOpenStore_Pinecone(t *testing.T) {

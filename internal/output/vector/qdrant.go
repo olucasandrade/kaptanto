@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/olucasandrade/kaptanto/internal/redact"
 )
 
 // qdrantIDNamespace is a fixed UUID namespace for deterministic point IDs.
@@ -70,7 +71,7 @@ func (s *QdrantStore) ensureCollection(ctx context.Context) error {
 		return nil
 	}
 	if status != http.StatusNotFound {
-		return fmt.Errorf("vector: qdrant: get collection: status %d: %s", status, truncate(string(body)))
+		return fmt.Errorf("vector: qdrant: get collection: status %d", status)
 	}
 	create := map[string]any{
 		"vectors": map[string]any{
@@ -90,7 +91,7 @@ func (s *QdrantStore) ensureCollection(ctx context.Context) error {
 	if status == http.StatusBadRequest && strings.Contains(strings.ToLower(string(body)), "already") {
 		return nil
 	}
-	return fmt.Errorf("vector: qdrant: create collection: status %d: %s", status, truncate(string(body)))
+	return fmt.Errorf("vector: qdrant: create collection: status %d", status)
 }
 
 type qdrantPoint struct {
@@ -148,12 +149,12 @@ func (s *QdrantStore) Delete(ctx context.Context, ids []string) error {
 // Ping GETs the collection.
 func (s *QdrantStore) Ping(ctx context.Context) error {
 	path := s.baseURL + "/collections/" + url.PathEscape(s.collection)
-	status, body, err := s.doRaw(ctx, http.MethodGet, path, nil)
+	status, _, err := s.doRaw(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return fmt.Errorf("vector: qdrant: ping: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return &StatusError{Status: status, Msg: "qdrant: ping: " + truncate(string(body))}
+		return httpStatusErr("qdrant", http.MethodGet, path, status)
 	}
 	return nil
 }
@@ -167,15 +168,12 @@ func qdrantPointID(canonicalID string) string {
 }
 
 func (s *QdrantStore) doJSON(ctx context.Context, method, rawURL string, payload any) error {
-	status, body, err := s.doRaw(ctx, method, rawURL, payload)
+	status, _, err := s.doRaw(ctx, method, rawURL, payload)
 	if err != nil {
 		return err
 	}
 	if status < 200 || status >= 300 {
-		return &StatusError{
-			Status: status,
-			Msg:    fmt.Sprintf("qdrant: %s %s: %s", method, rawURL, truncate(string(body))),
-		}
+		return httpStatusErr("qdrant", method, rawURL, status)
 	}
 	return nil
 }
@@ -191,7 +189,7 @@ func (s *QdrantStore) doRaw(ctx context.Context, method, rawURL string, payload 
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, rdr)
 	if err != nil {
-		return 0, nil, fmt.Errorf("vector: qdrant: request: %w", err)
+		return 0, nil, fmt.Errorf("vector: qdrant: request %s: %w", redact.URL(rawURL), err)
 	}
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -201,7 +199,7 @@ func (s *QdrantStore) doRaw(ctx context.Context, method, rawURL string, payload 
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, fmt.Errorf("vector: qdrant: %s %s: %w", method, redact.URL(rawURL), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
