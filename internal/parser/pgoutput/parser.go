@@ -32,7 +32,7 @@ type Parser struct {
 	relations  *RelationCache
 	toast      *TOASTCache
 	currentLSN pglogrepl.LSN
-	changeSeq  uint64 // per-transaction monotonic counter, reset on BeginMessage
+	changeSeq  uint64 // per-transaction monotonic counter, reset on Begin and first StreamStart
 	inStream   bool   // true between StreamStartMessageV2 and StreamStopMessageV2
 }
 
@@ -87,6 +87,13 @@ func (p *Parser) Parse(walData []byte, _ bool) (*event.ChangeEvent, error) {
 
 	case *pglogrepl.StreamStartMessageV2:
 		p.inStream = true
+		// FirstSegment==1 is the streamed equivalent of Begin: reset the
+		// per-transaction counter so crash replay mints the same keys.
+		// Later segments of the same XID must not reset — that would collide
+		// changeSeq across segments of one transaction.
+		if m.FirstSegment == 1 {
+			p.changeSeq = 0
+		}
 		return nil, nil
 
 	case *pglogrepl.StreamStopMessageV2:
@@ -94,11 +101,16 @@ func (p *Parser) Parse(walData []byte, _ bool) (*event.ChangeEvent, error) {
 		return nil, nil
 
 	case *pglogrepl.StreamCommitMessageV2:
-		// Streamed transaction committed — no ChangeEvent.
+		// Analogous to Begin.FinalLSN: CommitLSN is the durable identity of
+		// this transaction. DML already parsed in this stream still carries
+		// the previous currentLSN; the connector rewrites those keys before
+		// AppendBatch (CHK-01: streamed rows stay in walBuf until now).
+		p.currentLSN = m.CommitLSN
+		p.inStream = false
 		return nil, nil
 
 	case *pglogrepl.StreamAbortMessageV2:
-		// Streamed transaction aborted — no ChangeEvent.
+		p.inStream = false
 		return nil, nil
 
 	default:
@@ -277,6 +289,13 @@ func (p *Parser) newEvent(
 	}
 }
 
+// CurrentLSN returns the commit LSN of the current (or just-completed)
+// transaction. For streamed transactions this is 0 until StreamCommit, then
+// StreamCommit.CommitLSN.
+func (p *Parser) CurrentLSN() pglogrepl.LSN {
+	return p.currentLSN
+}
+
 // ClearRelationCache resets the relation cache and streaming state. It must be
 // called at the start of every new replication session — Postgres re-sends
 // RelationMessages at the beginning of each session, so stale OID → schema
@@ -284,6 +303,8 @@ func (p *Parser) newEvent(
 func (p *Parser) ClearRelationCache() {
 	p.relations = NewRelationCache()
 	p.inStream = false
+	p.changeSeq = 0
+	p.currentLSN = 0
 }
 
 // RelationCache returns the live relation metadata cache. Callers must not
