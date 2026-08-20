@@ -401,6 +401,8 @@ curl http://localhost:7655/metrics   # Prometheus text format
 
 ## Development
 
+This directory is the Go module for the CDC binary (`go.mod` / `go.sum` at the repo root) plus its tool contracts: `.golangci.yml`, `.goreleaser.yaml`, and `.gremlins.yaml`. CI workflows live in `.github/`. Public docs are the Qwik app in `landing/`; engineering architecture is `docs/`. Publishable clients are under `packages/`. Runnable stacks are grouped in `examples/{demos,ai,integrations,supporting}/`.
+
 ```bash
 make build            # CGO_ENABLED=0 static binary (default, cross-platform)
 make lint             # golangci-lint over ./internal/... ./cmd/...

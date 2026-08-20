@@ -8,6 +8,19 @@ Kaptanto is an open-source, single Go binary for universal database Change Data 
 
 The implementation is complete. [`docs/architecture/technical-specification.md`](docs/architecture/technical-specification.md) remains the authoritative architecture reference.
 
+### Where things live
+
+- `cmd/` + `internal/` — the CDC binary (Go module root is the repo root: `go.mod`).
+- `packages/` — anything published to npm/PyPI (TypeScript, Python, Mastra, n8n).
+- `landing/` — kaptan.to; public docs are HTML in `landing/src/data/docs-content.ts`.
+- `docs/` — engineering architecture and the technical spec; see [`docs/README.md`](docs/README.md).
+- `examples/` — docker-compose demos grouped as `demos/`, `ai/`, `integrations/`, `supporting/`.
+- `bench/` — Debezium/Sequin/PeerDB harness (its own `go.mod`).
+- `get/` + `scripts/install.sh` — `curl | sh` install path.
+- `rust/` — optional parser accel; not part of the default `CGO_ENABLED=0` binary.
+
+Root `.golangci.yml`, `.goreleaser.yaml`, and `.gremlins.yaml` are tool contracts for the binary module. CI YAML lives in `.github/`. Local-only working trees (`.claude/`, `.agents/`, `.planning/`, `tutorial-video/`) are not product folders; prefer `.claude/skills` and treat `.agents/` as a duplicate.
+
 ## Build, Lint & Test
 
 ```bash
@@ -255,4 +268,4 @@ actions:
 
 ## Landing Page
 
-`landing/` is a Qwik app. Run `npm run dev` from `landing/` for local development. Documentation content lives in `landing/src/data/docs-content.ts` as the `DOCS_CONTENT` record; the sidebar is the `SIDEBAR` array in the same file. SEO-crawlable routes are at `landing/src/routes/docs/`; the corresponding SEO metadata is in `landing/src/data/docs.ts`.
+`landing/` is a Qwik app (Cloudflare Pages root directory is `landing`). Run `npm run dev` from `landing/` for local development. Public documentation content lives in `landing/src/data/docs-content.ts` as the `DOCS_CONTENT` record; the sidebar is the `SIDEBAR` array in the same file. SEO-crawlable routes are at `landing/src/routes/docs/`; the corresponding SEO metadata is in `landing/src/data/docs.ts`. Engineering specs and diagrams live in `docs/`, not on the website.
