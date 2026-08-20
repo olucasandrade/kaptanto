@@ -14,12 +14,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExamplesConfigsLoad ensures every examples/*/kaptanto.yaml can be loaded
+// exampleYAMLPaths returns every grouped example config
+// (examples/{demos,ai,integrations,supporting}/*/kaptanto.yaml).
+func exampleYAMLPaths(t *testing.T) []string {
+	t.Helper()
+	matches, err := filepath.Glob("../../examples/*/*/kaptanto.yaml")
+	require.NoError(t, err)
+	return matches
+}
+
+// TestExamplesConfigsLoad ensures every example kaptanto.yaml can be loaded
 // and, when it declares actions, produces valid action consumers. This catches
 // drift between example YAMLs and the action type registry.
 func TestExamplesConfigsLoad(t *testing.T) {
-	matches, err := filepath.Glob("../../examples/*/kaptanto.yaml")
-	require.NoError(t, err)
+	matches := exampleYAMLPaths(t)
 	require.NotEmpty(t, matches, "no example kaptanto.yaml files found")
 
 	for _, path := range matches {
@@ -85,8 +93,7 @@ func validateExampleConfig(t *testing.T, name string, cfg *config.Config) {
 // YAMLs. The registry itself enforces this at runtime; this test gives a
 // file-level error message when an example drifts.
 func TestExamplesNoLiteralSecrets(t *testing.T) {
-	matches, err := filepath.Glob("../../examples/*/kaptanto.yaml")
-	require.NoError(t, err)
+	matches := exampleYAMLPaths(t)
 
 	for _, path := range matches {
 		data, err := os.ReadFile(path)
