@@ -229,7 +229,7 @@ When a network output (SSE, gRPC, queue sinks, or `output: webhook`) or `output:
 
 Self-contained examples for workflow platforms live in `examples/`:
 
-- **n8n** — `examples/n8n-trigger/` (SSE trigger node, see also `n8n-nodes-kaptanto/`)
+- **n8n** — `examples/n8n-trigger/` (SSE trigger node, see also `packages/n8n-nodes-kaptanto/`)
 - **Inngest** — `examples/inngest/` (Docker Compose + function handler)
 - **Trigger.dev** — `examples/trigger-dev/` (task definition + config)
 

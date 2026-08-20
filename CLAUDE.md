@@ -84,7 +84,7 @@ Backfill runs concurrently with WAL streaming. The WatermarkChecker discards sna
 | `packages/kaptanto-events/` | TypeScript SDK: typed SSE client, `ChangeEvent` types, auto-reconnect |
 | `packages/kaptanto-python/` | Python SDK: pydantic models, httpx SSE client, optional LangChain tools |
 | `packages/kaptanto-mastra/` | Mastra adapter: `kaptantoTrigger` + `toAgentContext` |
-| `n8n-nodes-kaptanto/` | n8n community node: SSE trigger node with table/operation/consumer filters |
+| `packages/n8n-nodes-kaptanto/` | n8n community node: SSE trigger node with table/operation/consumer filters |
 
 ### Runtime Data Directory
 

@@ -6,7 +6,7 @@ on:
     paths:
       - "packages/kaptanto-events/**"
       - "packages/kaptanto-mastra/**"
-      - "n8n-nodes-kaptanto/**"
+      - "packages/n8n-nodes-kaptanto/**"
       - "internal/event/testdata/changeevent_fixtures.ndjson"
       - "Makefile"
       - ".github/workflows/ts.yml"
@@ -15,7 +15,7 @@ on:
     paths:
       - "packages/kaptanto-events/**"
       - "packages/kaptanto-mastra/**"
-      - "n8n-nodes-kaptanto/**"
+      - "packages/n8n-nodes-kaptanto/**"
       - "internal/event/testdata/changeevent_fixtures.ndjson"
       - "Makefile"
       - ".github/workflows/ts.yml"
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: n8n-nodes-kaptanto
+        working-directory: packages/n8n-nodes-kaptanto
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -102,7 +102,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: n8n-nodes-kaptanto/package-lock.json
+          cache-dependency-path: packages/n8n-nodes-kaptanto/package-lock.json
 
       # @kaptanto/events is a local linked dependency. Its dist/ is not checked
       # in, so we must build it before the n8n package can resolve the module.

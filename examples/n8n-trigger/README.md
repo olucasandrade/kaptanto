@@ -5,7 +5,7 @@ Trigger n8n workflows from real-time database changes using the Kaptanto communi
 ## What It Shows
 
 - Postgres row changes are captured by Kaptanto and exposed via SSE.
-- The `n8n-nodes-kaptanto` trigger node connects to Kaptanto's SSE endpoint.
+- The `n8n-nodes-kaptanto` trigger node (source: `packages/n8n-nodes-kaptanto/`) connects to Kaptanto's SSE endpoint.
 - Any database change instantly triggers your n8n workflow — no polling needed.
 
 ## Architecture

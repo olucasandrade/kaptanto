@@ -40,6 +40,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/olucasandrade/kaptanto",
-    "directory": "n8n-nodes-kaptanto"
+    "directory": "packages/n8n-nodes-kaptanto"
   }
 }
