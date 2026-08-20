@@ -1,0 +1,41 @@
+%%{init: {'theme': 'base'}}%%
+flowchart TB
+    subgraph CROSS["Cross-cutting components"]
+        direction LR
+        HA["HA Leader Election\ninternal/ha/leader.go\nPostgres advisory lock, ~5s failover\nCFG-01: --ha / --node-id"]
+        CLUSTER["Cluster / shared cursors\n--cluster + --cluster-dsn\nPostgresCursorStore across nodes;\nNATS JetStream peers (--cluster-peers)"]
+        OBS["Observability\ninternal/observability/metrics.go\nPrivate prometheus.Registry\n/metrics + /healthz"]
+        CFG["Config\ninternal/config/config.go\nYAML + CLI flags, flags win\nSinks / ServerTLS / HA / Cluster blocks"]
+        SEC["Server security\nServerTLS (SSE/gRPC TLS + mTLS)\nauth-token / KAPTANTO_AUTH_TOKEN\n--insecure disables both (dev only)"]
+        CLI["CLI / Assembly\ninternal/cmd/root.go\nCobra CLI, graceful shutdown"]
+        EVT["ChangeEvent\ninternal/event/event.go\nULID ID, unified op types"]
+    end
+
+    subgraph INV["Critical Invariants — never violate"]
+        direction TB
+        I1["CHK-01 — Durability\nCheckpoint advances only after\nEventLog.Append() succeeds"]
+        I2["RTR-04 — Per-key ordering\nFailed delivery blocks only that key"]
+        I3["BKF-02 — Watermark consistency\nSame 64-partition hash as EventLog"]
+        I4["TOAST handling\nParser merges from TOASTCache\nkeyed by (relation_id, primary_key)"]
+        I5["Keyset cursors, never OFFSET\nOFFSET breaks under concurrent writes"]
+        I6["SRC-01 — Connection isolation\nSeparate pgx.Conn for snapshots"]
+        I7["DLV-02/03/04 — Sink consumers\nPer-key partition routing, no internal\nretry, idempotency key/header on every\nmessage (Kafka/NATS/SQS/PubSub/RabbitMQ)"]
+    end
+    NOTE["Note: this is the curated subset from CLAUDE.md.\nThe codebase enforces ~40 named invariant codes total\n(BKF-, CFG-, EVT-, RCC-, SRC-, OUT-, LOG- series, etc.)\n— see grep -rhoE '[A-Z]{3}-[0-9]{2}' internal/"]
+
+    subgraph DATA["Runtime data directory ./data/"]
+        direction LR
+        D1[("events/\nBadger event log")]
+        D2[("checkpoint.db\nsource LSN, non-HA")]
+        D3[("cursors.db\nper-consumer cursor")]
+        D4[("backfill.db\nsnapshot + watermark")]
+    end
+
+    classDef cross fill:#c5f6fa,stroke:#0c8599,color:#083b45
+    classDef inv fill:#fff9db,stroke:#f08c00,color:#5c3c00
+    classDef data fill:#e9ecef,stroke:#495057,color:#212529
+    classDef note fill:#f1f3f5,stroke:#868e96,color:#495057
+    class HA,CLUSTER,OBS,CFG,SEC,CLI,EVT cross
+    class I1,I2,I3,I4,I5,I6,I7 inv
+    class D1,D2,D3,D4 data
+    class NOTE note

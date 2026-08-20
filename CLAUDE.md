@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Kaptanto is an open-source, single Go binary for universal database Change Data Capture (CDC). It streams changes from Postgres (WAL logical replication) and MongoDB (Change Streams) to stdout, SSE, gRPC, or one of seven sinks under `Config.Sinks` (Kafka, NATS, SQS, Google Pub/Sub, RabbitMQ, webhook, vector). An optional MCP server and fail-open `ai_context` enrichment stage support AI-native workflows. The name means "who captures" in Esperanto.
 
-The implementation is complete. `kaptanto-technical-specification.md` remains the authoritative architecture reference.
+The implementation is complete. [`docs/architecture/technical-specification.md`](docs/architecture/technical-specification.md) remains the authoritative architecture reference.
 
 ## Build, Lint & Test
 

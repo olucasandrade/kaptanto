@@ -18,7 +18,7 @@ Every insert, update, and delete from your Postgres or MongoDB database, streame
 
 Kaptanto tails your database's transaction log — Postgres WAL (logical replication) or MongoDB Change Streams — instead of polling tables. Each change is parsed into a unified `ChangeEvent`, durably appended to an embedded event log, and only then is the source checkpoint advanced, so a crash can never lose an event. An initial snapshot (backfill) runs concurrently with live streaming; a watermark check discards snapshot rows already superseded by a WAL event. Events are then fanned out, in per-key order, to any number of outputs.
 
-![Kaptanto architecture](./kaptanto_architecture.png)
+![Kaptanto architecture](./docs/architecture/kaptanto_architecture.png)
 
 ## Features
 

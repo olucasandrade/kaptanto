@@ -361,6 +361,6 @@ PRs should include:
 
 - `README.md` — user-facing quick start, feature list, and flag reference.
 - `CLAUDE.md` — architecture/package reference and critical invariants.
-- `kaptanto-technical-specification.md` — authoritative architecture specification.
+- `docs/architecture/technical-specification.md` — authoritative architecture specification.
 - `DEMO_PLAYBOOK.md` — demo and presentation guidance.
 - `CHANGELOG.md` — release history.

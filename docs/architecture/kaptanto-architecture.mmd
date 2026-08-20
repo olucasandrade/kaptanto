@@ -1,0 +1,76 @@
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#a5d8ff', 'fontSize': '14px'}}}%%
+flowchart LR
+
+    subgraph SRC["Sources"]
+        direction TB
+        PG["Postgres\nWAL logical replication\ninternal/source/postgres/connector.go"]
+        MG["MongoDB\nChange Streams\ninternal/source/mongodb/connector.go"]
+    end
+
+    PARSER["Parser\npgoutput/parser.go, mongodb/normalizer.go\nWAL/oplog → ChangeEvent\nTOAST reconstructed via TOASTCache"]
+
+    subgraph BACKFILL["Backfill (runs concurrently)"]
+        direction TB
+        BF["Backfill engine\ninternal/backfill/backfill.go\nKeyset cursor, never OFFSET"]
+        WM["WatermarkChecker\nDiscards stale snapshot rows\n(same 64-partition hash — BKF-02)"]
+        BF --> WM
+    end
+
+    ELOG["EventLog\ninternal/eventlog/badger.go\nBadger, 64 partitions, FNV-1a\nTTL + dedup by IdempotencyKey"]
+
+    CKPT["Checkpoint\ninternal/checkpoint/\nSQLite (local) / Postgres (HA)\nCHK-01: advances only after\nEventLog.Append() succeeds"]
+
+    ROUTER["Router\ninternal/router/router.go\nFan-out to consumers\nRTR-04: per-key ordering,\nfailed key blocks only itself\n(retry.go)"]
+
+    subgraph OUT["Outputs — all implement router.Consumer"]
+        direction TB
+        STDOUT["stdout\nNDJSON"]
+        SSE["SSE server\n/events (filters)\nServerTLS/mTLS + auth-token"]
+        GRPC["gRPC server\nSubscribe / Acknowledge\nServerTLS/mTLS + auth-token"]
+        KAFKA["Kafka sink\ninternal/output/kafka\nkey → partition (DLV-02)"]
+        NATS["NATS sink\ninternal/output/nats"]
+        SQS["SQS sink\ninternal/output/sqs"]
+        PUBSUB["Pub/Sub sink\ninternal/output/pubsub"]
+        RABBIT["RabbitMQ sink\ninternal/output/rabbitmq"]
+    end
+
+    CURSORS[("cursors.db\nper-consumer/partition\ndelivery position")]
+    BFDB[("backfill.db\nsnapshot progress\n+ watermark state")]
+    CKPTDB[("checkpoint.db\nsource LSN")]
+
+    PG --> PARSER
+    MG --> PARSER
+    PG -.->|"snapshot query (separate pgx.Conn - SRC-01)"| BF
+    PARSER -->|ChangeEvent| ELOG
+    WM -->|watermark-checked rows| ELOG
+    ELOG -->|"Append() ok"| CKPT
+    CKPT --> CKPTDB
+    ELOG -->|events| ROUTER
+    ROUTER --> CURSORS
+    BF --> BFDB
+    ROUTER --> STDOUT
+    ROUTER --> SSE
+    ROUTER --> GRPC
+    ROUTER -->|"ProduceSync ack\n(DLV-03: no internal retry)"| KAFKA
+    ROUTER --> NATS
+    ROUTER --> SQS
+    ROUTER --> PUBSUB
+    ROUTER --> RABBIT
+
+    classDef source fill:#a5d8ff,stroke:#1971c2,color:#0b3d66
+    classDef parser fill:#b2f2bb,stroke:#2f9e44,color:#1a4d2e
+    classDef backfill fill:#ffec99,stroke:#f08c00,color:#5c3c00
+    classDef durable fill:#ffc9c9,stroke:#e03131,color:#5c1a1a
+    classDef checkpoint fill:#eebefa,stroke:#9c36b5,color:#4a1259
+    classDef router fill:#ffd8a8,stroke:#e8590c,color:#5c2c05
+    classDef output fill:#d0bfff,stroke:#7048e8,color:#2e1a66
+    classDef db fill:#e9ecef,stroke:#495057,color:#212529
+
+    class PG,MG source
+    class PARSER parser
+    class BF,WM backfill
+    class ELOG durable
+    class CKPT checkpoint
+    class ROUTER router
+    class STDOUT,SSE,GRPC,KAFKA,NATS,SQS,PUBSUB,RABBIT output
+    class CURSORS,BFDB,CKPTDB db
