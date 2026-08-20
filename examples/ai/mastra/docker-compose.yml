@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/001-seed.sql:ro
+
+  kaptanto:
+    build:
+      context: ../../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - postgres
+    ports:
+      - "7654:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  agent:
+    build:
+      context: ../../..
+      dockerfile: examples/ai/mastra/Dockerfile
+    environment:
+      KAPTANTO_URL: http://kaptanto:7654/events
+      KAPTANTO_CONSUMER: mastra-orders
+    depends_on:
+      - kaptanto
+    restart: on-failure

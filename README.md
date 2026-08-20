@@ -229,9 +229,9 @@ When a network output (SSE, gRPC, queue sinks, or `output: webhook`) or `output:
 
 Self-contained examples for workflow platforms live in `examples/`:
 
-- **n8n** — `examples/n8n-trigger/` (SSE trigger node, see also `packages/n8n-nodes-kaptanto/`)
-- **Inngest** — `examples/inngest/` (Docker Compose + function handler)
-- **Trigger.dev** — `examples/trigger-dev/` (task definition + config)
+- **n8n** — `examples/integrations/n8n-trigger/` (SSE trigger node, see also `packages/n8n-nodes-kaptanto/`)
+- **Inngest** — `examples/integrations/inngest/` (Docker Compose + function handler)
+- **Trigger.dev** — `examples/integrations/trigger-dev/` (task definition + config)
 
 ## AI-native
 
@@ -271,7 +271,7 @@ Point Claude Desktop (or any streamable-HTTP MCP client) at it. Replace `<MCP_AP
 }
 ```
 
-Tools: `list_tables`, `get_table_schema`, `subscribe_to_changes`, `get_recent_events`, `unsubscribe`, `get_event_by_id`. Every result is ACL-filtered and redacted (MCP-01); subscriptions are session-scoped (MCP-02); every call is audited (MCP-03). Full demo: `examples/mcp-agent/`.
+Tools: `list_tables`, `get_table_schema`, `subscribe_to_changes`, `get_recent_events`, `unsubscribe`, `get_event_by_id`. Every result is ACL-filtered and redacted (MCP-01); subscriptions are session-scoped (MCP-02); every call is audited (MCP-03). Full demo: `examples/ai/mcp-agent/`.
 
 ### Vector sink (local RAG)
 
@@ -300,7 +300,7 @@ sinks:
       max-events: 16
 ```
 
-Unchanged text is skipped via a SHA-256 hash cache (VEC-01); embedders must return one vector per input in order (VEC-02); vector IDs are `schema.table:<canonical-key-JSON>` (VEC-03). Full stack: `examples/rag-pgvector/`.
+Unchanged text is skipped via a SHA-256 hash cache (VEC-01); embedders must return one vector per input in order (VEC-02); vector IDs are `schema.table:<canonical-key-JSON>` (VEC-03). Full stack: `examples/ai/rag-pgvector/`.
 
 ### `ai_context` enrichment
 
@@ -331,7 +331,7 @@ Documented `ai_context` shape (opaque to Kaptanto):
 
 ### Serverless actions
 
-Invoke AWS Lambda Function URLs, Cloudflare Workers, and Vercel endpoints from CDC events via the `lambda`, `cloudflare-worker`, and `vercel` action types. See [`docs/serverless.md`](docs/serverless.md) and the landing [Serverless Actions](https://kaptanto.dev/docs/docs-serverless) page. Runnable demo: `examples/lambda/`.
+Invoke AWS Lambda Function URLs, Cloudflare Workers, and Vercel endpoints from CDC events via the `lambda`, `cloudflare-worker`, and `vercel` action types. See [`docs/serverless.md`](docs/serverless.md) and the landing [Serverless Actions](https://kaptanto.dev/docs/docs-serverless) page. Runnable demo: `examples/ai/lambda/`.
 
 ### SDKs
 
@@ -341,7 +341,7 @@ Invoke AWS Lambda Function URLs, Cloudflare Workers, and Vercel endpoints from C
 | `pip install kaptanto` | Python pydantic models + httpx SSE client (`pip install 'kaptanto[langchain]'` for LangChain tools) |
 | `npm i @kaptanto/mastra` | Mastra adapter — `kaptantoTrigger` + `toAgentContext` |
 
-Demos: `examples/langchain/`, `examples/mastra/`.
+Demos: `examples/ai/langchain/`, `examples/ai/mastra/`.
 
 ## Security
 

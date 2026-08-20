@@ -1154,7 +1154,7 @@ actions:
 <tr><td>Worker / Vercel</td><td><strong>2xx</strong></td><td>Handler-defined success</td></tr>
 </tbody></table>
 
-<div class="dcall"><p><strong>Also see:</strong> <a onclick="go('docs-actions')">Actions reference</a> for full param tables, and <code>docs/serverless.md</code> in the repo. Runnable demo: <code>examples/lambda/</code>.</p></div>`,
+<div class="dcall"><p><strong>Also see:</strong> <a onclick="go('docs-actions')">Actions reference</a> for full param tables, and <code>docs/serverless.md</code> in the repo. Runnable demo: <code>examples/ai/lambda/</code>.</p></div>`,
   },
 
   "docs-mcp": {
@@ -1210,7 +1210,7 @@ mcp:
 <li><strong>MCP-03</strong> — every call audited (no row data / key material in audit lines)</li>
 <li><strong>MCP-04</strong> — disabled ⇒ zero cost; enabled ⇒ non-blocking ring consumers</li>
 </ul>
-<div class="dcall"><p><strong>Demo:</strong> <code>examples/mcp-agent/</code> — Docker Compose + Claude Desktop config.</p></div>`,
+<div class="dcall"><p><strong>Demo:</strong> <code>examples/ai/mcp-agent/</code> — Docker Compose + Claude Desktop config.</p></div>`,
   },
 
   "docs-vector": {
@@ -1260,7 +1260,7 @@ sinks:
 <li><strong>VEC-02</strong> — embedders return one ordered vector per input text</li>
 <li><strong>VEC-03</strong> — stable ID <code>schema.table:&lt;canonical-key-JSON&gt;</code></li>
 </ul>
-<div class="dcall"><p><strong>Demo:</strong> <code>examples/rag-pgvector/</code> — Postgres+pgvector, Ollama <code>nomic-embed-text</code>, and a cosine similarity script.</p></div>`,
+<div class="dcall"><p><strong>Demo:</strong> <code>examples/ai/rag-pgvector/</code> — Postgres+pgvector, Ollama <code>nomic-embed-text</code>, and a cosine similarity script.</p></div>`,
   },
 
   "docs-ai-context": {
@@ -1337,7 +1337,7 @@ asyncio.run(main())</div>
 <p class="dp">The client reconnects with exponential backoff, ignores SSE comment pings, and resumes via the stable <code>consumer</code> ID. Sync iteration: <code>stream.iter_events()</code>.</p>
 
 <h2 class="dh2">LangChain</h2>
-<p class="dp">LangChain is an optional extra — the core package never imports it. See <code>packages/kaptanto-python/README.md</code> and <code>examples/langchain/</code>.</p>
+<p class="dp">LangChain is an optional extra — the core package never imports it. See <code>packages/kaptanto-python/README.md</code> and <code>examples/ai/langchain/</code>.</p>
 <div class="dcall"><p><strong>Also:</strong> <a onclick="go('docs-events-sdk')">@kaptanto/events</a> for TypeScript types, <a onclick="go('docs-mastra')">@kaptanto/mastra</a> for Mastra workflows.</p></div>`,
   },
 
@@ -1400,7 +1400,7 @@ await handle.done;</div>
 <tr><td><code>toAgentContext(ev)</code></td><td>Compact JSON string of a ChangeEvent (+ <code>ai_context</code> when present)</td></tr>
 </tbody></table>
 <p class="dp">Default <code>inputData</code> shape: <code>{ context: toAgentContext(ev), event: ev }</code>. Override with <code>mapEvent</code>.</p>
-<div class="dcall"><p><strong>Demo:</strong> <code>examples/mastra/</code>. See also <a onclick="go('docs-ai-context')">AI Event Contract</a>.</p></div>`,
+<div class="dcall"><p><strong>Demo:</strong> <code>examples/ai/mastra/</code>. See also <a onclick="go('docs-ai-context')">AI Event Contract</a>.</p></div>`,
   },
 
   "docs-routing": {
@@ -1486,8 +1486,8 @@ match:
 </tbody></table>
 
 <h2 class="dh2">Example workflow</h2>
-<p class="dp">A self-contained Docker Compose example lives in <code>examples/n8n-trigger/</code>:</p>
-<div class="dcode"><span class="tg">$</span> cd examples/n8n-trigger
+<p class="dp">A self-contained Docker Compose example lives in <code>examples/integrations/n8n-trigger/</code>:</p>
+<div class="dcode"><span class="tg">$</span> cd examples/integrations/n8n-trigger
 <span class="tg">$</span> docker compose up</div>
 <p class="dp">This starts Postgres, kaptanto (SSE mode), and n8n with the trigger node pre-installed. Insert a row into Postgres and watch the n8n workflow fire.</p>
 
@@ -1527,7 +1527,7 @@ export const orderUpdate = task({
 });</div>
 
 <h2 class="dh2">Full example</h2>
-<p class="dp">A project skeleton with the task definition, <code>trigger.config.ts</code>, and kaptanto config lives in <code>examples/trigger-dev/</code>.</p>
+<p class="dp">A project skeleton with the task definition, <code>trigger.config.ts</code>, and kaptanto config lives in <code>examples/integrations/trigger-dev/</code>.</p>
 <div class="dcall"><p><strong>Batching:</strong> Trigger.dev's event API does not accept arrays, so <code>triggerdev</code> pins batching to 1 event per request.</p></div>`,
   },
 
@@ -1561,8 +1561,8 @@ export const onNewOrder = inngest.createFunction(
 );</div>
 
 <h2 class="dh2">Full example</h2>
-<p class="dp">A Docker Compose example with Postgres, kaptanto, the Inngest dev server, and a function handler lives in <code>examples/inngest/</code>:</p>
-<div class="dcode"><span class="tg">$</span> cd examples/inngest
+<p class="dp">A Docker Compose example with Postgres, kaptanto, the Inngest dev server, and a function handler lives in <code>examples/integrations/inngest/</code>:</p>
+<div class="dcode"><span class="tg">$</span> cd examples/integrations/inngest
 <span class="tg">$</span> docker compose up</div>
 
 <h2 class="dh2">Event shape</h2>
