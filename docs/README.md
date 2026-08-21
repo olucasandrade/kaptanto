@@ -10,9 +10,9 @@ This folder is **engineering architecture**, not the public product docs.
 
 ## Contents
 
-- [`architecture/technical-specification.md`](architecture/technical-specification.md) — authoritative architecture specification.
 - [`architecture/kaptanto_architecture.png`](architecture/kaptanto_architecture.png) — README system diagram.
-- [`architecture/`](architecture/) — companion Mermaid, Excalidraw prompt, and walkthrough notes.
 - [`serverless.md`](serverless.md) — serverless action types (Lambda / Workers / Vercel via webhook).
+
+Companion architecture drafts (Mermaid, Excalidraw prompt, walkthrough notes, technical specification) stay local under `architecture/` and are gitignored.
 
 Do not treat this folder as a substitute for the website. Generating landing pages from these markdown files is a later project; today the site still reads `docs-content.ts`.

@@ -108,13 +108,13 @@ The repository is a monorepo that also contains:
 │   ├── supporting/        # entitlements-sync, notifications, orders-dashboard, analytics-feed, cursor-resume
 │   └── shared/
 ├── bench/                 # Debezium/Sequin/PeerDB harness; separate Go module on purpose
-└── docs/                  # Engineering architecture + technical spec; not the website
+└── docs/                  # Engineering notes + the README architecture diagram; not the website
     ├── README.md
-    ├── architecture/
+    ├── architecture/      # kaptanto_architecture.png only; other drafts are local
     └── serverless.md
 ```
 
-Local-only (do not add to git): prefer `.claude/skills` for agent skills; treat `.agents/` as a duplicate of the same tree. `.planning/` and `tutorial-video/` are also local working files, not product folders.
+Local-only (do not add to git): prefer `.claude/skills` for agent skills; treat `.agents/` as a duplicate of the same tree. `.planning/`, `tutorial-video/`, and `docs/architecture/` drafts (except `kaptanto_architecture.png`) are also local working files, not product folders.
 
 ## Build and Development Commands
 
@@ -377,5 +377,4 @@ PRs should include:
 - `README.md` — user-facing quick start, feature list, and flag reference.
 - `CLAUDE.md` — architecture/package reference and critical invariants.
 - `docs/README.md` — what `docs/` is vs the landing site vs `CLAUDE.md`.
-- `docs/architecture/technical-specification.md` — authoritative architecture specification.
 - `CHANGELOG.md` — release history.

@@ -26,6 +26,10 @@ dist-ssr
 # GSD planning
 .planning/
 
+# Local architecture drafts (README diagram stays tracked)
+docs/architecture/*
+!docs/architecture/kaptanto_architecture.png
+
 # Local Claude review reports
 .claude/reports/
 
