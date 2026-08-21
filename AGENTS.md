@@ -20,11 +20,10 @@ The repository is a monorepo that also contains:
 
 - `bench/` — a Docker Compose benchmark harness comparing Kaptanto to Debezium, Sequin, and PeerDB.
 - `landing/` — the marketing/docs website, a Qwik City TypeScript app deployed to Cloudflare Pages.
-- `examples/` — runnable React + Vite demo applications with their own `docker-compose.yml` files.
+- `examples/` — runnable docker-compose stacks, grouped as `demos/`, `ai/`, `integrations/`, and `supporting/`.
 - `rust/kaptanto-ffi/` — an optional Rust static library that accelerates the Postgres `pgoutput` parser via CGO.
 - `get/` — a tiny Cloudflare Worker that redirects `curl -L get.kaptanto.dev` to the install script.
-- `packages/` — the published SDKs: `kaptanto-events` (`@kaptanto/events`, TS types + SSE client), `kaptanto-mastra` (`@kaptanto/mastra`, Mastra adapter), and `kaptanto-python` (`kaptanto` on PyPI, pydantic models + httpx SSE client).
-- `n8n-nodes-kaptanto/` — the n8n community trigger node, published to npm.
+- `packages/` — the published SDKs: `kaptanto-events` (`@kaptanto/events`, TS types + SSE client), `kaptanto-mastra` (`@kaptanto/mastra`, Mastra adapter), `kaptanto-python` (`kaptanto` on PyPI, pydantic models + httpx SSE client), and `n8n-nodes-kaptanto` (`n8n-nodes-kaptanto` on npm).
 
 ## Technology Stack
 
@@ -47,14 +46,20 @@ The repository is a monorepo that also contains:
 ### Website and examples
 
 - `landing/`: Qwik City + Vite + TypeScript, deployed via `wrangler pages deploy`.
-- `examples/*/web/`: React + Vite frontends; `examples/*/api/`: Node backends that consume Kaptanto SSE.
+- `examples/{demos,supporting}/*/web/`: React + Vite frontends; matching `api/` backends consume Kaptanto SSE.
 - `get/`: Cloudflare Worker script (`src/index.js`).
 
 ## Project Layout
 
 ```
+├── go.mod, go.sum         # Go module root for the CDC binary (must stay here)
+├── .golangci.yml          # golangci-lint config (discovered at module root)
+├── .goreleaser.yaml       # GoReleaser config (default path)
+├── .gremlins.yaml         # mutation-testing config (default path)
+├── Makefile, Dockerfile   # local + image entrypoints
+├── .github/               # workflows + dependabot (GitHub requires this path)
 ├── cmd/kaptanto/          # CLI main()
-├── internal/
+├── internal/              # CDC runtime (do not relocate; import paths are the module)
 │   ├── auth/              # Bearer-token auth middleware
 │   ├── backfill/          # Snapshot engine + watermark checker
 │   ├── checkpoint/        # SQLite/Postgres source + cursor persistence
@@ -86,20 +91,30 @@ The repository is a monorepo that also contains:
 │   │   ├── mongodb/       # MongoDB connector
 │   │   └── postgres/      # Postgres logical-replication connector
 │   └── version/           # Version injected by -ldflags
-├── bench/                 # Separate Go module; benchmark harness
-├── landing/               # Qwik City website
-├── examples/              # Runnable CDC demos
-├── rust/kaptanto-ffi/     # Optional Rust staticlib
-├── get/                   # Cloudflare Worker install redirect
-├── packages/              # Published SDKs (@kaptanto/events, @kaptanto/mastra, PyPI kaptanto)
-├── n8n-nodes-kaptanto/    # n8n community trigger node (npm)
 ├── test/e2e/              # Black-box binary tests (build tag `e2e`)
-├── scripts/coverage-gate.sh   # Coverage thresholds (CI + local)
-├── .golangci.yml          # Linting (complexity + dependency + dead-code rules)
-├── .gremlins.yaml         # Mutation-testing configuration
-├── .goreleaser.yaml       # Release artifact builds
-└── Dockerfile             # Distroless static-binary image
+├── rust/kaptanto-ffi/     # Optional CGO parser accel; not in the default CGO_ENABLED=0 binary
+├── packages/              # Anything published to npm/PyPI
+│   ├── kaptanto-events/
+│   ├── kaptanto-mastra/
+│   ├── kaptanto-python/
+│   └── n8n-nodes-kaptanto/  # npm name stays n8n-nodes-kaptanto
+├── landing/               # kaptan.to — public docs live here as TS/HTML, not in docs/
+├── get/                   # Cloudflare Worker for curl | sh install
+├── scripts/               # install.sh + coverage-gate.sh
+├── examples/
+│   ├── demos/             # fanout, audit-trail
+│   ├── ai/                # mcp-agent, rag-pgvector, langchain, lambda, mastra, enricher-spacy
+│   ├── integrations/      # inngest, trigger-dev, n8n-trigger
+│   ├── supporting/        # entitlements-sync, notifications, orders-dashboard, analytics-feed, cursor-resume
+│   └── shared/
+├── bench/                 # Debezium/Sequin/PeerDB harness; separate Go module on purpose
+└── docs/                  # Engineering architecture + technical spec; not the website
+    ├── README.md
+    ├── architecture/
+    └── serverless.md
 ```
+
+Local-only (do not add to git): prefer `.claude/skills` for agent skills; treat `.agents/` as a duplicate of the same tree. `.planning/` and `tutorial-video/` are also local working files, not product folders.
 
 ## Build and Development Commands
 
@@ -339,7 +354,7 @@ All workflows live in `.github/workflows/`:
 - `zizmor.yml` — workflow permission audit.
 - `benchmark.yml` — benchmark harness runs.
 - `release.yml` — `goreleaser` + Docker Hub publish.
-- `ts.yml` — build + vitest for `packages/kaptanto-events`, `packages/kaptanto-mastra`, `n8n-nodes-kaptanto`, plus fixture drift (`make fixtures`).
+- `ts.yml` — build + vitest for `packages/kaptanto-events`, `packages/kaptanto-mastra`, `packages/n8n-nodes-kaptanto`, plus fixture drift (`make fixtures`).
 - `python.yml` — pytest matrix (3.10–3.13) for `packages/kaptanto-python`, plus a core-only (no langchain) acceptance job.
 - `npm-publish.yml` — tag-triggered (`events-v*`/`mastra-v*`/`n8n-v*`) npm publish with OIDC provenance.
 - `pypi-publish.yml` — tag-triggered (`python-v*`) PyPI publish via trusted publishing (GitHub environment `pypi`).
@@ -361,6 +376,6 @@ PRs should include:
 
 - `README.md` — user-facing quick start, feature list, and flag reference.
 - `CLAUDE.md` — architecture/package reference and critical invariants.
-- `kaptanto-technical-specification.md` — authoritative architecture specification.
-- `DEMO_PLAYBOOK.md` — demo and presentation guidance.
+- `docs/README.md` — what `docs/` is vs the landing site vs `CLAUDE.md`.
+- `docs/architecture/technical-specification.md` — authoritative architecture specification.
 - `CHANGELOG.md` — release history.

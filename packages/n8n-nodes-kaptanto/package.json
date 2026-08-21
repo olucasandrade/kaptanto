@@ -1,0 +1,45 @@
+{
+  "name": "n8n-nodes-kaptanto",
+  "version": "0.1.0",
+  "description": "n8n community node for Kaptanto CDC — trigger workflows from real-time database changes",
+  "license": "Apache-2.0",
+  "keywords": [
+    "n8n-community-node-package",
+    "cdc",
+    "change-data-capture",
+    "kaptanto"
+  ],
+  "main": "dist/nodes/KaptantoTrigger/KaptantoTrigger.node.js",
+  "n8n": {
+    "credentials": [
+      "dist/credentials/KaptantoApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/KaptantoTrigger/KaptantoTrigger.node.js"
+    ]
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kaptanto/events": "^0.1.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": ">=1.0.0"
+  },
+  "devDependencies": {
+    "n8n-workflow": "^1.72.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/olucasandrade/kaptanto",
+    "directory": "packages/n8n-nodes-kaptanto"
+  }
+}

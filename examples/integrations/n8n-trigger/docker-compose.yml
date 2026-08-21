@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/001-seed.sql:ro
+
+  kaptanto:
+    build:
+      context: ../../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    depends_on:
+      - postgres
+    ports:
+      - "7654:7654"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+
+  n8n:
+    image: n8nio/n8n:latest
+    environment:
+      N8N_COMMUNITY_PACKAGES_ALLOW: "n8n-nodes-kaptanto"
+      NODE_FUNCTION_ALLOW_EXTERNAL: "n8n-nodes-kaptanto"
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - kaptanto
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        cd /home/node/.n8n
+        npm init -y > /dev/null 2>&1
+        npm install n8n-nodes-kaptanto@latest
+        exec n8n start
+
+volumes:
+  n8n_data:

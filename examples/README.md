@@ -1,11 +1,11 @@
 # Examples
 
-This directory now centers on two primary visual demos. Both are meant to make the downstream effects of CDC obvious on screen, not just prove that events exist.
+Runnable stacks grouped by intent. Both primary demos are meant to make the downstream effects of CDC obvious on screen, not just prove that events exist.
 
-## Primary Demos
+## Primary Demos (`demos/`)
 
-- `fanout`: a search-and-cache control room where a single product change becomes searchable and cache-consistent almost immediately.
-- `audit-trail`: a user-facing recent changes feed where raw row updates become readable product activity.
+- `demos/fanout`: a search-and-cache control room where a single product change becomes searchable and cache-consistent almost immediately.
+- `demos/audit-trail`: a user-facing recent changes feed where raw row updates become readable product activity.
 
 If you only want to understand what Kaptanto looks like in a real application, start with these two.
 
@@ -16,27 +16,30 @@ These examples include:
 - `docker-compose.yml`: the source database, Kaptanto, app API, and web app
 - `kaptanto.yaml`: example-specific Kaptanto configuration
 
-## AI-Native Examples
+## AI-Native Examples (`ai/`)
 
-- `mcp-agent`: Postgres + `mcp.enabled` with a Claude Desktop / agent config JSON. Agent flow: `list_tables` → `subscribe_to_changes` → `get_recent_events` (drain).
-- `rag-pgvector`: Postgres + pgvector + local Ollama + `output: vector` — zero-cloud RAG. Run `./similarity.sh` after seed/backfill.
-- `langchain`: Python reactive SSE agent via `pip install 'kaptanto[langchain]'` (`KaptantoStream` → `agent.ainvoke`).
-- `lambda`: Minimal Lambda Function URL (SAM or terraform-lite) invoked with the `lambda` action (`invocation: async`) and SigV4 credentials.
+- `ai/mcp-agent`: Postgres + `mcp.enabled` with a Claude Desktop / agent config JSON. Agent flow: `list_tables` → `subscribe_to_changes` → `get_recent_events` (drain).
+- `ai/rag-pgvector`: Postgres + pgvector + local Ollama + `output: vector` — zero-cloud RAG. Run `./similarity.sh` after seed/backfill.
+- `ai/langchain`: Python reactive SSE agent via `pip install 'kaptanto[langchain]'` (`KaptantoStream` → `agent.ainvoke`).
+- `ai/lambda`: Minimal Lambda Function URL (SAM or terraform-lite) invoked with the `lambda` action (`invocation: async`) and SigV4 credentials.
+- `ai/mastra`: Mastra workflows react to `public.orders` CDC via `@kaptanto/mastra` (`kaptantoTrigger` + `toAgentContext`) over SSE.
+- `ai/enricher-spacy`: FastAPI + spaCy reference sidecar that stamps matching CDC events with `ai_context` (entities + naive intent) via Kaptanto's fail-open enrichment HTTP contract.
 
-## Integration Examples
+## Integration Examples (`integrations/`)
 
-- `inngest`: Postgres CDC events trigger Inngest functions with automatic deduplication via `idempotency_key → id` mapping.
-- `trigger-dev`: Trigger.dev v3 tasks react to CDC events with durable execution and `wait.forEvent`; covers cloud and self-hosted API URLs.
-- `n8n-trigger`: n8n workflows triggered by CDC events via the `n8n-nodes-kaptanto` community node and Kaptanto's SSE output.
-- `mastra`: Mastra workflows react to `public.orders` CDC via `@kaptanto/mastra` (`kaptantoTrigger` + `toAgentContext`) over SSE.
-- `enricher-spacy`: FastAPI + spaCy reference sidecar that stamps matching CDC events with `ai_context` (entities + naive intent) via Kaptanto's fail-open enrichment HTTP contract.
+- `integrations/inngest`: Postgres CDC events trigger Inngest functions with automatic deduplication via `idempotency_key → id` mapping.
+- `integrations/trigger-dev`: Trigger.dev v3 tasks react to CDC events with durable execution and `wait.forEvent`; covers cloud and self-hosted API URLs.
+- `integrations/n8n-trigger`: n8n workflows triggered by CDC events via the `n8n-nodes-kaptanto` community node and Kaptanto's SSE output.
 
-## Supporting Examples
+## Supporting Examples (`supporting/`)
 
-- `entitlements-sync`: a billing API writes subscription and payment changes to Postgres, and a separate sync API consumes Kaptanto SSE to update an entitlements API automatically.
-- `notifications`: Postgres comments, mentions, and follows become a live notification inbox.
-- `orders-dashboard`: Postgres order, payment, and shipment writes become a live operations board.
-- `analytics-feed`: MongoDB activity documents become a live admin feed and rollup counters.
+- `supporting/entitlements-sync`: a billing API writes subscription and payment changes to Postgres, and a separate sync API consumes Kaptanto SSE to update an entitlements API automatically.
+- `supporting/notifications`: Postgres comments, mentions, and follows become a live notification inbox.
+- `supporting/orders-dashboard`: Postgres order, payment, and shipment writes become a live operations board.
+- `supporting/analytics-feed`: MongoDB activity documents become a live admin feed and rollup counters.
+- `supporting/cursor-resume`: consumer cursor persistence across restarts.
+
+Shared TypeScript helpers used by several stacks live in `shared/` (not a runnable example).
 
 These remain useful for narrower patterns, but they are no longer the main visual entry point.
 

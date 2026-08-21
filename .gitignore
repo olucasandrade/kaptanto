@@ -31,7 +31,7 @@ dist-ssr
 
 # Go binaries (the compiled binary at root, not the source directory)
 /kaptanto
-/kaptanto-*
+/kaptanto.exe
 
 # Bench binaries
 bench/loadgen

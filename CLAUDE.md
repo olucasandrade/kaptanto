@@ -6,7 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Kaptanto is an open-source, single Go binary for universal database Change Data Capture (CDC). It streams changes from Postgres (WAL logical replication) and MongoDB (Change Streams) to stdout, SSE, gRPC, or one of seven sinks under `Config.Sinks` (Kafka, NATS, SQS, Google Pub/Sub, RabbitMQ, webhook, vector). An optional MCP server and fail-open `ai_context` enrichment stage support AI-native workflows. The name means "who captures" in Esperanto.
 
-The implementation is complete. `kaptanto-technical-specification.md` remains the authoritative architecture reference.
+The implementation is complete. [`docs/architecture/technical-specification.md`](docs/architecture/technical-specification.md) remains the authoritative architecture reference.
+
+### Where things live
+
+- `cmd/` + `internal/` — the CDC binary (Go module root is the repo root: `go.mod`).
+- `packages/` — anything published to npm/PyPI (TypeScript, Python, Mastra, n8n).
+- `landing/` — kaptan.to; public docs are HTML in `landing/src/data/docs-content.ts`.
+- `docs/` — engineering architecture and the technical spec; see [`docs/README.md`](docs/README.md).
+- `examples/` — docker-compose demos grouped as `demos/`, `ai/`, `integrations/`, `supporting/`.
+- `bench/` — Debezium/Sequin/PeerDB harness (its own `go.mod`).
+- `get/` + `scripts/install.sh` — `curl | sh` install path.
+- `rust/` — optional parser accel; not part of the default `CGO_ENABLED=0` binary.
+
+Root `.golangci.yml`, `.goreleaser.yaml`, and `.gremlins.yaml` are tool contracts for the binary module. CI YAML lives in `.github/`. Local-only working trees (`.claude/`, `.agents/`, `.planning/`, `tutorial-video/`) are not product folders; prefer `.claude/skills` and treat `.agents/` as a duplicate.
 
 ## Build, Lint & Test
 
@@ -84,7 +97,7 @@ Backfill runs concurrently with WAL streaming. The WatermarkChecker discards sna
 | `packages/kaptanto-events/` | TypeScript SDK: typed SSE client, `ChangeEvent` types, auto-reconnect |
 | `packages/kaptanto-python/` | Python SDK: pydantic models, httpx SSE client, optional LangChain tools |
 | `packages/kaptanto-mastra/` | Mastra adapter: `kaptantoTrigger` + `toAgentContext` |
-| `n8n-nodes-kaptanto/` | n8n community node: SSE trigger node with table/operation/consumer filters |
+| `packages/n8n-nodes-kaptanto/` | n8n community node: SSE trigger node with table/operation/consumer filters |
 
 ### Runtime Data Directory
 
@@ -255,4 +268,4 @@ actions:
 
 ## Landing Page
 
-`landing/` is a Qwik app. Run `npm run dev` from `landing/` for local development. Documentation content lives in `landing/src/data/docs-content.ts` as the `DOCS_CONTENT` record; the sidebar is the `SIDEBAR` array in the same file. SEO-crawlable routes are at `landing/src/routes/docs/`; the corresponding SEO metadata is in `landing/src/data/docs.ts`.
+`landing/` is a Qwik app (Cloudflare Pages root directory is `landing`). Run `npm run dev` from `landing/` for local development. Public documentation content lives in `landing/src/data/docs-content.ts` as the `DOCS_CONTENT` record; the sidebar is the `SIDEBAR` array in the same file. SEO-crawlable routes are at `landing/src/routes/docs/`; the corresponding SEO metadata is in `landing/src/data/docs.ts`. Engineering specs and diagrams live in `docs/`, not on the website.
