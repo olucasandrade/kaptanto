@@ -95,7 +95,7 @@ max_wal_senders = 4</div>
 <h2 class="dh2">With Rust acceleration</h2>
 <p class="dp">For maximum parsing performance, compile with the Rust FFI parser:</p>
 <div class="dcode"><span class="tg">$</span> make build-rust</div>
-<p class="dp">Requires Rust 1.77+ and CGO. Provides 30-40% lower CPU usage for the pgoutput decoding path.</p>`,
+<p class="dp">Requires Rust 1.77+ and CGO. In the published benchmark run it recovers from crashes faster (3.5s vs 4.5s) and posts the lowest burst/cluster p50 latency, at slightly lower steady throughput — see <a onclick="go('docs-benchmarks')">Benchmarks</a>.</p>`,
   },
 
   "docs-postgres": {
