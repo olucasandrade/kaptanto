@@ -55,6 +55,7 @@ wal_level = logical
 max_replication_slots = 4
 max_wal_senders = 4</div>
 <p class="dp">Restart Postgres after changing <code>wal_level</code>.</p>
+<p class="dp">The connecting user also needs the <code>REPLICATION</code> privilege and <code>SELECT</code> on the captured tables — see <a onclick="go('docs-postgres')">Connect Postgres</a> for the role/grant SQL.</p>
 
 <h2 class="dh2">3. Start capturing</h2>
 <div class="dcode"><span class="tg">$</span> kaptanto \\
@@ -108,6 +109,12 @@ max_wal_senders = 4</div>
 <li><strong>max_replication_slots >= 1</strong> — At least one slot for kaptanto.</li>
 <li><strong>max_wal_senders >= 1</strong> — Allows kaptanto to connect as a replication client.</li>
 </ul>
+
+<h2 class="dh2">Replication role and grants</h2>
+<p class="dp">The connecting user needs the <code>REPLICATION</code> privilege and <code>SELECT</code> on every captured table. A dedicated role is recommended:</p>
+<div class="dcode">CREATE ROLE kaptanto WITH REPLICATION LOGIN PASSWORD 'secret';
+GRANT SELECT ON TABLE public.orders, public.payments TO kaptanto;</div>
+<p class="dp">Without these grants, kaptanto fails at startup with a permissions error. On AWS RDS, grant the <code>rds_replication</code> role instead; on GCP Cloud SQL, use a user with the <code>cloudsqlsuperuser</code> role.</p>
 
 <h2 class="dh2">Recommended: REPLICA IDENTITY FULL</h2>
 <p class="dp">For complete before/after values on updates and deletes:</p>
