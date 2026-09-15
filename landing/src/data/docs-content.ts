@@ -168,7 +168,7 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 <h2 class="dh2">Standard event</h2>
 <div class="dcode">{
   "id": "01HX7K9M3N4P5Q6R7S8T9U0V",
-  "idempotency_key": "main-pg:public.orders:1234:update:0/1A2B3C4",
+  "idempotency_key": "main-pg:public.orders:1234:update:0/1A2B3C4:0",
   "timestamp": "2026-03-06T14:32:01.847Z",
   "source": "main-pg",
   "operation": "update",
@@ -196,7 +196,7 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
 
 <h2 class="dh2">Idempotency key</h2>
 <p class="dp">Every event has a deterministic <code>idempotency_key</code> composed of source_id, table, primary_key, operation, and position. This key is stable across restarts. Consumers use it for deduplication.</p>
-<div class="dcall"><p><strong>Format:</strong> <code>{source}:{schema}.{table}:{pk}:{op}:{position}</code></p></div>`,
+<div class="dcall"><p><strong>Postgres format:</strong> <code>{source}:{schema}.{table}:{pk}:{op}:{lsn}:{change_seq}</code> — the final component is a per-transaction sequence number. <strong>MongoDB</strong> uses <code>{source}:{db}.{collection}:{document_key}:{op}:{cluster_time}</code> instead. Treat the key as opaque: the shape differs per source and may evolve.</p></div>`,
   },
 
   "docs-backfills": {
