@@ -72,7 +72,7 @@ max_wal_senders = 4</div>
 <span class="tc"># gRPC server</span>
 <span class="tg">$</span> kaptanto --source postgres://... --output grpc --port 50051 --insecure</div>
 <p class="dp">Each connected client gets an independent consumer with its own cursor and checkpoint.</p>
-<div class="dcall"><p><strong>Auth is required by default:</strong> SSE, gRPC, and every queue sink refuse to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) and TLS certificates (SSE/gRPC only). <code>--insecure</code> disables both checks for local development — never use it in production. See <a onclick="go('docs-config')">Configuration</a> for the production setup.</p></div>`,
+<div class="dcall"><p><strong>Auth and TLS are required by default:</strong> every network output — SSE, gRPC, queue sinks, webhook, vector, and <code>output: none</code> — refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) and inbound TLS (<code>--tls-cert</code>/<code>--tls-key</code> or <code>server-tls</code>). <code>--insecure</code> disables both checks for local development — never use it in production. See <a onclick="go('docs-config')">Configuration</a> for the production setup.</p></div>`,
   },
 
   "docs-install": {
@@ -323,12 +323,16 @@ data: {"operation":"insert","table":"payments","after":{"id":5678}}</div>
     sub: "HTTP POST/PUT/PATCH sink for plain webhook delivery and action transforms.",
     body: `
 <p class="dp">Set <code>output: webhook</code> to push each CDC event (or batched JSON array) to an HTTP endpoint. The webhook sink is also the delivery path for <a onclick="go('docs-actions')">Actions</a> — action types compile into webhook consumer configs with transforms.</p>
-<div class="dcall"><p><strong>Auth required:</strong> webhook mode serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>, so kaptanto refuses to start without <code>--auth-token</code> unless <code>--insecure</code> is set — see <a onclick="go('docs-config')">Configuration</a>.</p></div>
+<div class="dcall"><p><strong>Auth and TLS required:</strong> webhook mode serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>, so kaptanto refuses to start without <code>--auth-token</code> and inbound TLS unless <code>--insecure</code> is set — see <a onclick="go('docs-config')">Configuration</a>.</p></div>
 
 <h2 class="dh2">Basic config</h2>
 <div class="dcode">output: webhook
 port: 7654
 auth-token: \${KAPTANTO_AUTH_TOKEN}
+server-tls:
+  cert-file: /etc/kaptanto/server.pem
+  key-file: /etc/kaptanto/server.key
+<span class="tc"># or set insecure: true for local demos only</span>
 sinks:
   webhook:
     url: https://hooks.example.com/cdc
@@ -390,7 +394,7 @@ sinks:
 <tr><td><code>--dlq-path</code></td><td>&lt;data-dir&gt;/dlq.db</td><td>Path to the DLQ SQLite store</td></tr>
 <tr><td><code>--dlq-retention</code></td><td>0</td><td>DLQ entry retention (e.g. <code>168h</code>); <code>0</code> keeps entries forever</td></tr>
 </tbody></table>
-<div class="dcall"><p><strong>Startup auth policy:</strong> every network output — <code>sse</code>, <code>grpc</code>, <code>webhook</code>, <code>vector</code>, and all queue sinks — refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) because each one serves <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>. <code>output: none</code> with actions or MCP enabled follows the same rule. <code>sse</code> and <code>grpc</code> additionally require <code>--tls-cert</code>/<code>--tls-key</code>. Pass <code>--insecure</code> to bypass both checks for local development only.</p></div>
+<div class="dcall"><p><strong>Startup auth and TLS policy:</strong> every network output — <code>sse</code>, <code>grpc</code>, <code>webhook</code>, <code>vector</code>, all queue sinks, and <code>output: none</code> — refuses to start without inbound TLS (<code>--tls-cert</code>/<code>--tls-key</code> or <code>server-tls</code>) unless <code>--insecure</code> is set. Auth-token is required for those same outputs when they expose HTTP endpoints, and for <code>output: none</code> when MCP is enabled (actions-only <code>none</code> does not hard-require <code>auth-token</code>, but set one if <code>/metrics</code>/<code>/healthz</code>/<code>/openapi.json</code> are reachable). Pass <code>--insecure</code> to bypass both checks for local development only.</p></div>
 
 <h2 class="dh2">YAML config (full example)</h2>
 <div class="dcode">source: postgres://user:pass@host:5432/db
@@ -582,10 +586,11 @@ GET http://localhost:7654/healthz
     sub: "Push CDC events to NATS, SQS, Kafka, Pub/Sub, or RabbitMQ.",
     body: `
 <p class="dp">Queue sinks let kaptanto publish each CDC event to a message broker instead of (or in addition to) serving SSE or gRPC consumers. At-least-once delivery is guaranteed. Per-table topic/subject/queue routing is supported on every sink via Go templates.</p>
-<div class="dcall"><p><strong>Auth required:</strong> every sink below exposes <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>, so kaptanto refuses to start without <code>--auth-token</code> (or <code>KAPTANTO_AUTH_TOKEN</code>) unless you pass <code>--insecure</code> — see <a onclick="go('docs-config')">Configuration</a>.</p></div>
+<div class="dcall"><p><strong>Auth and TLS required:</strong> every sink below exposes <code>/metrics</code> and <code>/healthz</code> on <code>--port</code>, so kaptanto refuses to start without <code>--auth-token</code> and inbound TLS unless you pass <code>--insecure</code> — see <a onclick="go('docs-config')">Configuration</a>.</p></div>
 
 <h2 class="dh2">NATS JetStream</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output nats --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output nats --auth-token "$KAPTANTO_AUTH_TOKEN" --insecure
+<span class="tc"># production: replace --insecure with --tls-cert / --tls-key (or server-tls in YAML)</span></div>
 <div class="dcode">sinks:
   nats:
     url: nats://localhost:4222
@@ -598,7 +603,8 @@ GET http://localhost:7654/healthz
 <p class="dp">Events are published to the NATS JetStream subject derived from the template. The subject must fall within the stream's subject filter. If <code>stream-name</code> is set, kaptanto verifies the stream exists at startup and returns an error if not.</p>
 
 <h2 class="dh2">AWS SQS (FIFO)</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sqs --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output sqs --auth-token "$KAPTANTO_AUTH_TOKEN" --insecure
+<span class="tc"># production: replace --insecure with --tls-cert / --tls-key (or server-tls in YAML)</span></div>
 <div class="dcode">sinks:
   sqs:
     region: us-east-1
@@ -615,7 +621,8 @@ GET http://localhost:7654/healthz
 <div class="dcall"><p><strong>High-throughput FIFO mode</strong> is a queue-level AWS setting that does not require any config change in kaptanto. Enable it on the queue in the AWS console to exceed 300 TPS.</p></div>
 
 <h2 class="dh2">Apache Kafka</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output kafka --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output kafka --auth-token "$KAPTANTO_AUTH_TOKEN" --insecure
+<span class="tc"># production: replace --insecure with --tls-cert / --tls-key (or server-tls in YAML)</span></div>
 <div class="dcode">sinks:
   kafka:
     bootstrap-servers: [broker1:9092, broker2:9092]
@@ -630,7 +637,8 @@ GET http://localhost:7654/healthz
 <p class="dp">The event primary key is used as the Kafka message key, so partitioning by key is consistent with kaptanto's per-key ordering guarantee. Create topics in advance or enable auto-topic creation on the broker.</p>
 
 <h2 class="dh2">Google Cloud Pub/Sub</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output pubsub --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output pubsub --auth-token "$KAPTANTO_AUTH_TOKEN" --insecure
+<span class="tc"># production: replace --insecure with --tls-cert / --tls-key (or server-tls in YAML)</span></div>
 <div class="dcode">sinks:
   pubsub:
     project-id: my-gcp-project
@@ -640,7 +648,8 @@ GET http://localhost:7654/healthz
 <p class="dp">When <code>credentials-file</code> is omitted, Application Default Credentials are used — set <code>GOOGLE_APPLICATION_CREDENTIALS</code> or run <code>gcloud auth application-default login</code>. Publishers are lazily created and pooled per resolved topic.</p>
 
 <h2 class="dh2">RabbitMQ</h2>
-<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output rabbitmq --auth-token "$KAPTANTO_AUTH_TOKEN"</div>
+<div class="dcode"><span class="tg">$</span> kaptanto --source postgres://... --output rabbitmq --auth-token "$KAPTANTO_AUTH_TOKEN" --insecure
+<span class="tc"># production: replace --insecure with --tls-cert / --tls-key (or server-tls in YAML)</span></div>
 <div class="dcode">sinks:
   rabbitmq:
     url: amqp://user:pass@broker:5672/
