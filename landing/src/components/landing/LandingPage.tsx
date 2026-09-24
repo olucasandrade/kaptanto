@@ -423,6 +423,12 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               </tr>
             </tbody>
           </table>
+          <p class="cmp-note sr" style="margin-top:1rem;font-size:.85rem;color:var(--mu);max-width:52rem">
+            Pricing cells are illustrative order-of-magnitude figures (vendor public
+            pages as of 2026-09; confirm current list prices). Debezium &quot;No
+            Kafka&quot; reflects Kafka Connect deployments used in our benches;
+            Debezium Server can emit without Kafka.
+          </p>
         </div>
       </section>
 
