@@ -512,8 +512,13 @@ func (c *PostgresConnector) receiveLoop(
 		if err != nil {
 			if pgconn.Timeout(err) {
 				// Heartbeat deadline exceeded — send standby status update (SRC-03).
-				// CHK-01: never ack past the last durably checkpointed LSN.
-				if sendErr := c.sendStandbyStatus(ctx, replConn, ackLSN(st.clientXLogPos, st.lastSavedLSN)); sendErr != nil {
+				// When idle, persist clientXLogPos so quiet/unpublished WAL can
+				// advance confirmed_flush_lsn; otherwise stay capped at lastSavedLSN.
+				ack, _, advErr := c.maybeAdvanceOnKeepalive(ctx, st)
+				if advErr != nil {
+					return fmt.Errorf("postgres: keepalive checkpoint: %w", advErr)
+				}
+				if sendErr := c.sendStandbyStatus(ctx, replConn, ack); sendErr != nil {
 					return fmt.Errorf("postgres: send standby heartbeat: %w", sendErr)
 				}
 				nextHeartbeat = time.Now().Add(c.cfg.StandbyTimeout)
@@ -543,12 +548,12 @@ func (c *PostgresConnector) receiveLoop(
 				slog.Warn("postgres: parse keepalive message", "error", err)
 				continue
 			}
-			if pkm.ServerWALEnd > st.clientXLogPos {
-				st.clientXLogPos = pkm.ServerWALEnd
+			ack, reply, advErr := c.applyKeepalive(ctx, st, pkm)
+			if advErr != nil {
+				return fmt.Errorf("postgres: keepalive checkpoint: %w", advErr)
 			}
-			// If server requests a reply, send status immediately (SRC-03).
-			if pkm.ReplyRequested {
-				if sendErr := c.sendStandbyStatus(ctx, replConn, ackLSN(st.clientXLogPos, st.lastSavedLSN)); sendErr != nil {
+			if reply {
+				if sendErr := c.sendStandbyStatus(ctx, replConn, ack); sendErr != nil {
 					return fmt.Errorf("postgres: send standby on request: %w", sendErr)
 				}
 				nextHeartbeat = time.Now().Add(c.cfg.StandbyTimeout)
@@ -585,12 +590,47 @@ func ackLSN(clientPos, lastSaved pglogrepl.LSN) pglogrepl.LSN {
 }
 
 // walReceiveState holds in-flight WAL decode state for receiveLoop.
-// Tests drive handleXLogData against this struct as a fake walsender.
+// Tests drive handleXLogData / maybeAdvanceOnKeepalive as a fake walsender.
 type walReceiveState struct {
 	walBuf        []*event.ChangeEvent
 	streamedOpen  bool
+	txOpen        bool // Begin seen; cleared on Commit (non-streamed published tx)
 	clientXLogPos pglogrepl.LSN
 	lastSavedLSN  pglogrepl.LSN
+}
+
+// idleForSlotAdvance reports whether it is safe to persist clientXLogPos from a
+// keepalive/heartbeat. Fail closed (CHK-01): any buffered events, open streamed
+// transaction, or open Begin…Commit must block advancement.
+func (st *walReceiveState) idleForSlotAdvance() bool {
+	return len(st.walBuf) == 0 && !st.streamedOpen && !st.txOpen
+}
+
+// maybeAdvanceOnKeepalive persists clientXLogPos when it is ahead of lastSavedLSN
+// and no published-table work is in flight. Otherwise returns the CHK-01-capped
+// ack LSN without advancing the durable checkpoint.
+func (c *PostgresConnector) maybeAdvanceOnKeepalive(ctx context.Context, st *walReceiveState) (ack pglogrepl.LSN, advanced bool, err error) {
+	if st.clientXLogPos > st.lastSavedLSN && st.idleForSlotAdvance() {
+		if err := c.checkpointLSN(ctx, st); err != nil {
+			return 0, false, err
+		}
+		return st.clientXLogPos, true, nil
+	}
+	return ackLSN(st.clientXLogPos, st.lastSavedLSN), false, nil
+}
+
+// applyKeepalive updates clientXLogPos from ServerWALEnd and may persist it when
+// idle. reply is true when the durable checkpoint advanced or the server asked
+// for a status reply (SRC-03). Tests use this as a fake walsender keepalive path.
+func (c *PostgresConnector) applyKeepalive(ctx context.Context, st *walReceiveState, pkm pglogrepl.PrimaryKeepaliveMessage) (ack pglogrepl.LSN, reply bool, err error) {
+	if pkm.ServerWALEnd > st.clientXLogPos {
+		st.clientXLogPos = pkm.ServerWALEnd
+	}
+	ack, advanced, err := c.maybeAdvanceOnKeepalive(ctx, st)
+	if err != nil {
+		return 0, false, err
+	}
+	return ack, advanced || pkm.ReplyRequested, nil
 }
 
 func (st *walReceiveState) flushWALBuf(c *PostgresConnector) error {
@@ -656,12 +696,16 @@ func (c *PostgresConnector) handleXLogData(ctx context.Context, st *walReceiveSt
 
 func (c *PostgresConnector) finishXLogData(ctx context.Context, st *walReceiveState, msgType pglogrepl.MessageType) (pglogrepl.LSN, bool, error) {
 	switch msgType {
+	case pglogrepl.MessageTypeBegin:
+		st.txOpen = true
+		return 0, false, nil
 	case pglogrepl.MessageTypeStreamStart:
 		st.streamedOpen = true
 		return 0, false, nil
 	case pglogrepl.MessageTypeStreamAbort:
 		st.walBuf = st.walBuf[:0]
 		st.streamedOpen = false
+		st.txOpen = false
 		if err := c.checkpointLSN(ctx, st); err != nil {
 			return 0, false, err
 		}
@@ -677,6 +721,7 @@ func (c *PostgresConnector) finishXLogData(ctx context.Context, st *walReceiveSt
 			return 0, false, err
 		}
 		st.streamedOpen = false
+		st.txOpen = false
 		return st.clientXLogPos, true, nil
 	default:
 		return 0, false, nil
