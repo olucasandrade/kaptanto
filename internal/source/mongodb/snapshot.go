@@ -1,10 +1,10 @@
 // Package mongodb implements the MongoDB snapshot for CDC re-snapshot with
 // watermark coordination.
 //
-// MongoSnapshot iterates all configured collections (documents sorted by _id,
-// never OFFSET — CLAUDE.md invariant 3) and applies the WatermarkChecker
-// before appending each event to ensure duplicates are
-// suppressed (CLAUDE.md invariant 4).
+// MongoSnapshot iterates all configured collections in bounded `_id` keyset
+// windows (never OFFSET — CLAUDE.md invariant 3 / BKF keyset discipline) and
+// applies the WatermarkChecker before appending each event to ensure
+// duplicates are suppressed (CLAUDE.md invariant 4).
 package mongodb
 
 import (
@@ -18,9 +18,14 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	mongoparser "github.com/olucasandrade/kaptanto/internal/parser/mongodb"
 )
+
+// defaultSnapshotBatchSize caps how many documents are buffered per keyset
+// window. Matches Postgres backfillBatchSize so memory stays bounded.
+const defaultSnapshotBatchSize = 256
 
 // WatermarkChecker is the interface for watermark deduplication during snapshot.
 // *backfill.WatermarkChecker satisfies this interface.
@@ -67,7 +72,18 @@ type MongoSnapshot struct {
 	appendFn    func(ctx context.Context, ev *event.ChangeEvent) error
 	snapshotLSN uint64 // captured before snapshot begins (cluster time as uint64)
 
+	// batchSize is the keyset window size. Zero means defaultSnapshotBatchSize.
+	batchSize int
+
+	// progressStore optionally persists the last processed `_id` per
+	// collection so a mid-snapshot crash can resume. Distinct keys from
+	// change-stream resume tokens (see progressKey). Nil disables resume.
+	progressStore checkpoint.CheckpointStore
+
 	// findFn allows test injection — defaults to real mongo Find when nil.
+	// Each call must return at most one keyset window (honour the filter and
+	// optional limit passed via opts); the snapshot processes that window
+	// before requesting the next.
 	findFn func(ctx context.Context, coll string, filter any, opts ...any) ([]bson.Raw, error)
 }
 
@@ -102,15 +118,42 @@ func (s *MongoSnapshot) SetSnapshotLSN(lsn uint64) {
 	s.snapshotLSN = lsn
 }
 
+// SetBatchSize overrides the keyset window size. Values <= 0 restore the default.
+func (s *MongoSnapshot) SetBatchSize(n int) {
+	s.batchSize = n
+}
+
+// SetProgressStore enables durable last-`_id` resume across mid-snapshot crashes.
+// Keys are distinct from change-stream resume tokens. Passing nil disables resume.
+func (s *MongoSnapshot) SetProgressStore(store checkpoint.CheckpointStore) {
+	s.progressStore = store
+}
+
+func (s *MongoSnapshot) effectiveBatchSize() int {
+	if s.batchSize > 0 {
+		return s.batchSize
+	}
+	return defaultSnapshotBatchSize
+}
+
+// progressKey is the checkpoint key for snapshot keyset resume. It must not
+// collide with change-stream resume tokens (sourceID:coll).
+func (s *MongoSnapshot) progressKey(collName string) string {
+	return s.cfg.SourceID + ":" + collName + ":snapshot"
+}
+
 // Run executes the snapshot for all collections. It returns context.Canceled
 // when the context is cancelled and nil on successful completion.
 //
 // For each collection:
-//  1. Documents are fetched via findFn (or real mongo.Collection.Find) sorted by _id.
+//  1. Documents are fetched in `_id` keyset windows via findFn (or real Find).
 //  2. Each document is converted to OpRead via the MongoDB normalizer.
 //  3. WatermarkChecker.ShouldEmit gates each row — rows returning false are skipped.
 //  4. Passing rows are forwarded to appendFn.
-//  5. After all rows, an OpControl "snapshot_complete" event is appended.
+//  5. After each window, the last processed `_id` is persisted (when a progress
+//     store is configured) so a crash can resume.
+//  6. After all rows, an OpControl "snapshot_complete" event is appended and
+//     snapshot progress is cleared.
 func (s *MongoSnapshot) Run(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -151,38 +194,76 @@ func (s *MongoSnapshot) snapshotCollection(ctx context.Context, collName string)
 		}
 	}
 
-	docs, err := s.fetchDocs(ctx, collName)
+	batchSize := s.effectiveBatchSize()
+	afterID, err := s.loadProgress(ctx, collName)
 	if err != nil {
-		return fmt.Errorf("mongodb snapshot: fetch %s: %w", collName, err)
+		return fmt.Errorf("mongodb snapshot: load progress %s: %w", collName, err)
 	}
 
-	for _, raw := range docs {
+	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
-		// Normalize the raw BSON document into a ChangeEvent.
-		// NormalizeChangeEvent expects a Change Stream event shape, but for
-		// snapshot rows we build a synthetic change stream doc wrapping the raw doc.
-		ev, normErr := s.normalizeSnapshotDoc(raw, collName)
-		if normErr != nil {
-			// Skip unparseable documents with a warning rather than aborting.
-			continue
+		docs, fetchErr := s.fetchPage(ctx, collName, afterID, batchSize)
+		if fetchErr != nil {
+			return fmt.Errorf("mongodb snapshot: fetch %s: %w", collName, fetchErr)
 		}
-		// Override operation to OpRead (snapshot row, not a live change).
-		ev.Operation = event.OpRead
-
-		// Watermark check: skip if a newer WAL event already exists in the log.
-		emit, wcErr := s.wc.ShouldEmit(ctx, collName, ev.Key, s.snapshotLSN)
-		if wcErr != nil {
-			return fmt.Errorf("mongodb snapshot: watermark check %s: %w", collName, wcErr)
-		}
-		if !emit {
-			continue
+		if len(docs) == 0 {
+			break
 		}
 
-		if err := s.appendFn(ctx, ev); err != nil {
-			return fmt.Errorf("mongodb snapshot: append %s: %w", collName, err)
+		var lastID any
+		for _, raw := range docs {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			id, idErr := extractDocID(raw)
+			if idErr != nil {
+				// Skip unparseable documents with a warning rather than aborting.
+				continue
+			}
+			lastID = id
+
+			// Normalize the raw BSON document into a ChangeEvent.
+			// NormalizeChangeEvent expects a Change Stream event shape, but for
+			// snapshot rows we build a synthetic change stream doc wrapping the raw doc.
+			ev, normErr := s.normalizeSnapshotDoc(raw, collName)
+			if normErr != nil {
+				// Skip unparseable documents with a warning rather than aborting.
+				continue
+			}
+			// Override operation to OpRead (snapshot row, not a live change).
+			ev.Operation = event.OpRead
+
+			// Watermark check: skip if a newer WAL event already exists in the log.
+			emit, wcErr := s.wc.ShouldEmit(ctx, collName, ev.Key, s.snapshotLSN)
+			if wcErr != nil {
+				return fmt.Errorf("mongodb snapshot: watermark check %s: %w", collName, wcErr)
+			}
+			if !emit {
+				continue
+			}
+
+			if appendErr := s.appendFn(ctx, ev); appendErr != nil {
+				return fmt.Errorf("mongodb snapshot: append %s: %w", collName, appendErr)
+			}
+		}
+
+		// Persist last scanned `_id` after the window is fully processed so a
+		// mid-snapshot crash resumes past this window (at-least-once; EventLog
+		// dedups re-emits by IdempotencyKey).
+		if lastID != nil {
+			afterID = lastID
+			if saveErr := s.saveProgress(ctx, collName, lastID); saveErr != nil {
+				return fmt.Errorf("mongodb snapshot: save progress %s: %w", collName, saveErr)
+			}
+		}
+
+		// Short page → last window.
+		if len(docs) < batchSize {
+			break
 		}
 	}
 
@@ -199,7 +280,10 @@ func (s *MongoSnapshot) snapshotCollection(ctx context.Context, collName string)
 			"snapshot": true,
 		},
 	}
-	return s.appendFn(ctx, controlEv)
+	if err := s.appendFn(ctx, controlEv); err != nil {
+		return err
+	}
+	return s.clearProgress(ctx, collName)
 }
 
 // normalizeSnapshotDoc converts a raw BSON document (not a change stream event)
@@ -254,14 +338,19 @@ func (s *MongoSnapshot) normalizeSnapshotDoc(raw bson.Raw, collName string) (*ev
 	return ev, nil
 }
 
-// fetchDocs retrieves all documents from a collection with a single Find,
-// sorted by _id (never OFFSET, per CLAUDE.md invariant 3).
+// fetchPage retrieves one keyset window of documents sorted by `_id`, starting
+// after afterID (nil = from the beginning). Never uses OFFSET.
 //
 // In unit tests, findFn is injected via SetFindFn. In production, a real
-// mongo.Collection.Find call is made.
-func (s *MongoSnapshot) fetchDocs(ctx context.Context, collName string) ([]bson.Raw, error) {
+// mongo.Collection.Find call is made with Limit(batchSize).
+func (s *MongoSnapshot) fetchPage(ctx context.Context, collName string, afterID any, batchSize int) ([]bson.Raw, error) {
+	filter := bson.D{}
+	if afterID != nil {
+		filter = bson.D{{Key: "_id", Value: bson.D{{Key: "$gt", Value: afterID}}}}
+	}
+
 	if s.findFn != nil {
-		return s.findFn(ctx, collName, bson.D{})
+		return s.findFn(ctx, collName, filter, int64(batchSize))
 	}
 
 	if s.client == nil {
@@ -271,14 +360,17 @@ func (s *MongoSnapshot) fetchDocs(ctx context.Context, collName string) ([]bson.
 	db := s.client.Database(s.cfg.Database)
 	coll := db.Collection(collName)
 
-	opts := mongoopts.Find().SetSort(bson.D{{Key: "_id", Value: 1}})
-	cursor, err := coll.Find(ctx, bson.D{}, opts)
+	opts := mongoopts.Find().
+		SetSort(bson.D{{Key: "_id", Value: 1}}).
+		SetLimit(int64(batchSize))
+	cursor, err := coll.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = cursor.Close(ctx) }()
 
-	var results []bson.Raw
+	// Cap capacity to one window so peak buffering stays O(batchSize).
+	results := make([]bson.Raw, 0, batchSize)
 	for cursor.Next(ctx) {
 		var raw bson.Raw
 		if err := cursor.Decode(&raw); err != nil {
@@ -287,6 +379,72 @@ func (s *MongoSnapshot) fetchDocs(ctx context.Context, collName string) ([]bson.
 		results = append(results, raw)
 	}
 	return results, cursor.Err()
+}
+
+func extractDocID(raw bson.Raw) (any, error) {
+	idVal, err := raw.LookupErr("_id")
+	if err != nil {
+		return nil, err
+	}
+	var id any
+	if err := idVal.Unmarshal(&id); err != nil {
+		return nil, err
+	}
+	return id, nil
+}
+
+func (s *MongoSnapshot) loadProgress(ctx context.Context, collName string) (any, error) {
+	if s.progressStore == nil {
+		return nil, nil
+	}
+	encoded, err := s.progressStore.Load(ctx, s.progressKey(collName))
+	if err != nil {
+		return nil, err
+	}
+	if encoded == "" {
+		return nil, nil
+	}
+	return decodeSnapshotCursor(encoded)
+}
+
+func (s *MongoSnapshot) saveProgress(ctx context.Context, collName string, afterID any) error {
+	if s.progressStore == nil || afterID == nil {
+		return nil
+	}
+	encoded, err := encodeSnapshotCursor(afterID)
+	if err != nil {
+		return err
+	}
+	// Never persist an empty progress value — empty means "start from head".
+	if encoded == "" {
+		return nil
+	}
+	return s.progressStore.Save(ctx, s.progressKey(collName), encoded)
+}
+
+func (s *MongoSnapshot) clearProgress(ctx context.Context, collName string) error {
+	if s.progressStore == nil {
+		return nil
+	}
+	// CheckpointStore has no Delete; empty string means no resume cursor.
+	return s.progressStore.Save(ctx, s.progressKey(collName), "")
+}
+
+// encodeSnapshotCursor stores afterID as Extended JSON of {"_id": <value>}.
+func encodeSnapshotCursor(afterID any) (string, error) {
+	raw, err := bson.Marshal(bson.D{{Key: "_id", Value: afterID}})
+	if err != nil {
+		return "", err
+	}
+	return bson.Raw(raw).String(), nil
+}
+
+func decodeSnapshotCursor(s string) (any, error) {
+	var raw bson.Raw
+	if err := bson.UnmarshalExtJSON([]byte(s), false, &raw); err != nil {
+		return nil, fmt.Errorf("parse snapshot cursor (len=%d): %w", len(s), err)
+	}
+	return extractDocID(raw)
 }
 
 // captureSnapshotLSN gets the current cluster time from MongoDB and encodes it
