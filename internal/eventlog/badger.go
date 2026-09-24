@@ -163,7 +163,7 @@ func (b *BadgerEventLog) Append(ev *event.ChangeEvent) (uint64, error) {
 		return 0, fmt.Errorf("eventlog: marshal event: %w", err)
 	}
 
-	dedupKey := encodeDedupKey(ev.IdempotencyKey)
+	dedupKey := dedupIndexKey(ev.IdempotencyKey)
 
 	// Get the next sequence number BEFORE entering the transaction.
 	// This avoids holding the sequence lease inside the MVCC transaction window,
@@ -246,9 +246,9 @@ type preparedEvent struct {
 // (MaxBatchCount). A single wide-row batch would otherwise fail with
 // ErrTxnTooBig (LOG-05). Because callers serialize Append/AppendBatch and
 // because every event carries an idempotency key, chunking is safe:
-// - duplicates inside the batch are still skipped (LOG-03);
-// - if a later chunk fails, earlier committed chunks are idempotent on retry
-//   (CHK-01/BKF-03: checkpoints/cursors only advance after a successful call).
+//   - duplicates inside the batch are still skipped (LOG-03);
+//   - if a later chunk fails, earlier committed chunks are idempotent on retry
+//     (CHK-01/BKF-03: checkpoints/cursors only advance after a successful call).
 func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error) {
 	if len(evs) == 0 {
 		return nil, nil
@@ -271,7 +271,7 @@ func (b *BadgerEventLog) AppendBatch(evs []*event.ChangeEvent) ([]uint64, error)
 		items[i] = preparedEvent{
 			partition: partition,
 			val:       val,
-			dedupKey:  encodeDedupKey(ev.IdempotencyKey),
+			dedupKey:  dedupIndexKey(ev.IdempotencyKey),
 			seq:       seq,
 		}
 	}
