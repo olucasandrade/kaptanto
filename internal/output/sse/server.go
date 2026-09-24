@@ -95,7 +95,13 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ops := filterNonEmpty(strings.Split(r.URL.Query().Get("operations"), ","))
 	filter := output.NewEventFilter(tables, ops)
 
-	consumer := NewSSEConsumer(consumerID, w, filter, s.metrics, s.rowFilters, s.colFilters)
+	metricID := consumerID
+	if s.consumerScope == "" {
+		// Bound Prometheus cardinality under --insecure where clients choose
+		// arbitrary ?consumer= values; cursor IDs stay full-fidelity.
+		metricID = "insecure"
+	}
+	consumer := NewSSEConsumerWithMetricID(consumerID, metricID, w, filter, s.metrics, s.rowFilters, s.colFilters)
 
 	// Last-Event-ID: consumerID is the resume key. The cursor store holds the
 	// persisted (partitionID, seq) from the prior connection's SaveCursor calls.

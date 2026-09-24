@@ -28,6 +28,7 @@ import (
 // completes before the ResponseWriter is invalidated by net/http.
 type SSEConsumer struct {
 	id         string // stable: "sse:<consumerID>"
+	metricID   string // label for Prometheus; may collapse insecure IDs
 	w          http.ResponseWriter
 	rc         *http.ResponseController
 	filter     *output.EventFilter
@@ -56,6 +57,23 @@ func NewSSEConsumer(
 	rowFilters map[string]*output.RowFilter,
 	colFilters map[string][]string,
 ) *SSEConsumer {
+	return NewSSEConsumerWithMetricID(consumerID, consumerID, w, filter, m, rowFilters, colFilters)
+}
+
+// NewSSEConsumerWithMetricID is like NewSSEConsumer but uses metricConsumerID
+// for Prometheus labels while keeping consumerID for cursor persistence.
+func NewSSEConsumerWithMetricID(
+	consumerID string,
+	metricConsumerID string,
+	w http.ResponseWriter,
+	filter *output.EventFilter,
+	m *observability.KaptantoMetrics,
+	rowFilters map[string]*output.RowFilter,
+	colFilters map[string][]string,
+) *SSEConsumer {
+	if metricConsumerID == "" {
+		metricConsumerID = consumerID
+	}
 	colFilterSets := make(map[string]map[string]struct{}, len(colFilters))
 	for table, cols := range colFilters {
 		if set := output.BuildAllowSet(cols); set != nil {
@@ -64,6 +82,7 @@ func NewSSEConsumer(
 	}
 	return &SSEConsumer{
 		id:            "sse:" + consumerID,
+		metricID:      "sse:" + metricConsumerID,
 		w:             w,
 		rc:            http.NewResponseController(w),
 		filter:        filter,
@@ -122,7 +141,7 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 		matched, err := rf.Match(entry.Event)
 		if err != nil {
 			if c.m != nil {
-				c.m.ErrorsTotal.WithLabelValues(c.id, "filter").Inc()
+				c.m.ErrorsTotal.WithLabelValues(c.metricID, "filter").Inc()
 			}
 			return &router.PermanentError{Cause: fmt.Sprintf("sse: row filter: %v", err)}
 		}
@@ -141,7 +160,7 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 	// SSE wire format: id line + data line (JSON payload) + blank line terminator.
 	if _, err := fmt.Fprintf(c.w, "id: %s\ndata: ", entry.Event.ID.String()); err != nil {
 		if c.m != nil {
-			c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+			c.m.ErrorsTotal.WithLabelValues(c.metricID, "deliver").Inc()
 		}
 		return err // broken pipe -> isPermanentError -> dead-letter
 	}
@@ -150,13 +169,13 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 		// Fast path: no column filter — write stored bytes directly.
 		if _, err := c.w.Write(entry.Raw); err != nil {
 			if c.m != nil {
-				c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+				c.m.ErrorsTotal.WithLabelValues(c.metricID, "deliver").Inc()
 			}
 			return err
 		}
 		if _, err := fmt.Fprint(c.w, "\n\n"); err != nil {
 			if c.m != nil {
-				c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+				c.m.ErrorsTotal.WithLabelValues(c.metricID, "deliver").Inc()
 			}
 			return err
 		}
@@ -177,13 +196,13 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 
 		if err := json.NewEncoder(c.w).Encode(&filtered); err != nil {
 			if c.m != nil {
-				c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+				c.m.ErrorsTotal.WithLabelValues(c.metricID, "deliver").Inc()
 			}
 			return err
 		}
 		if _, err := fmt.Fprint(c.w, "\n"); err != nil {
 			if c.m != nil {
-				c.m.ErrorsTotal.WithLabelValues(c.id, "deliver").Inc()
+				c.m.ErrorsTotal.WithLabelValues(c.metricID, "deliver").Inc()
 			}
 			return err
 		}
@@ -193,7 +212,7 @@ func (c *SSEConsumer) Deliver(ctx context.Context, entry eventlog.LogEntry) erro
 	// single rc.Flush(), amortising the flush latency over many events (Fix E).
 
 	if c.m != nil {
-		c.m.EventsDelivered.WithLabelValues(c.id, entry.Event.Table, string(entry.Event.Operation)).Inc()
+		c.m.EventsDelivered.WithLabelValues(c.metricID, entry.Event.Table, string(entry.Event.Operation)).Inc()
 	}
 	return nil
 }
@@ -211,7 +230,7 @@ func (c *SSEConsumer) FlushBatch(ctx context.Context, _ uint32) error {
 
 	if err := c.rc.Flush(); err != nil {
 		if c.m != nil {
-			c.m.ErrorsTotal.WithLabelValues(c.id, "flush").Inc()
+			c.m.ErrorsTotal.WithLabelValues(c.metricID, "flush").Inc()
 		}
 		return err
 	}
