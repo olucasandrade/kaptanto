@@ -69,16 +69,19 @@ func encodeDedupKey(idempotencyKey string) []byte {
 
 // dedupIndexKey returns the Badger key for an idempotency key.
 //
-// Keys that fit in maxBadgerKeyLen stay in the historical raw layout so
-// existing dedup entries still match after upgrade. Larger keys, which Badger
-// would reject, are stored under a distinct prefix as SHA-256(idempotencyKey).
+// A complete key is one prefix byte plus the idempotency key. When that fits
+// in maxBadgerKeyLen it stays in the historical raw layout so existing dedup
+// entries still match after upgrade. Larger keys, which Badger would reject,
+// are stored under a distinct prefix as SHA-256(idempotencyKey).
 // The ChangeEvent keeps the original idempotency key; only the index entry is
 // hashed. Those oversized keys were never durable before, so there is no
 // legacy entry to consult.
 func dedupIndexKey(idempotencyKey string) []byte {
-	raw := encodeDedupKey(idempotencyKey)
-	if len(raw) <= maxBadgerKeyLen {
-		return raw
+	// Badger's limit applies to the complete key: one prefix byte plus the
+	// idempotency key. Check the length first so an oversized key is not
+	// copied into a temporary raw key that would be discarded.
+	if len(idempotencyKey) < maxBadgerKeyLen {
+		return encodeDedupKey(idempotencyKey)
 	}
 	sum := sha256.Sum256([]byte(idempotencyKey))
 	b := make([]byte, 1+len(sum))
