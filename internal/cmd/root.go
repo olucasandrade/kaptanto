@@ -33,6 +33,8 @@ import (
 	postgres "github.com/olucasandrade/kaptanto/internal/source/postgres"
 	"github.com/olucasandrade/kaptanto/internal/version"
 	"github.com/spf13/cobra"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	_ "modernc.org/sqlite" // register "sqlite" driver
 )
@@ -415,7 +417,23 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		{Name: "eventlog", Check: elPing},
 		{Name: "checkpoint", Check: ckProbe},
 		{Name: "cursors", Check: cursorPing},
-		{
+	}
+	if cfg.SourceType() == "mongodb" {
+		healthProbes = append(healthProbes, observability.HealthProbe{
+			Name: "mongodb",
+			Check: func() error {
+				pCtx, pCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer pCancel()
+				client, err := mongo.Connect(options.Client().ApplyURI(cfg.Source))
+				if err != nil {
+					return err
+				}
+				defer func() { _ = client.Disconnect(context.Background()) }()
+				return client.Ping(pCtx, nil)
+			},
+		})
+	} else {
+		healthProbes = append(healthProbes, observability.HealthProbe{
 			Name: "postgres",
 			Check: func() error {
 				pCtx, pCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -427,7 +445,7 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 				_ = conn.Close(context.Background())
 				return nil
 			},
-		},
+		})
 	}
 	if cfg.HA {
 		healthProbes = append(healthProbes, observability.HealthProbe{
