@@ -203,3 +203,63 @@ func TestChangeEvent_AIContextOmitemptyRipple(t *testing.T) {
 			"IdempotencyKey must be unaffected by present ai_context")
 	})
 }
+
+func TestChangeEvent_DecodedRowsParsesOnce(t *testing.T) {
+	evt := &event.ChangeEvent{
+		Before: json.RawMessage(`{"id":1,"status":"open"}`),
+		After:  json.RawMessage(`{"id":1,"status":"paid"}`),
+	}
+
+	before, after, err := evt.DecodedRows()
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"id": float64(1), "status": "open"}, before)
+	assert.Equal(t, map[string]any{"id": float64(1), "status": "paid"}, after)
+
+	evt.Before = json.RawMessage(`not-json`)
+	evt.After = json.RawMessage(`not-json`)
+	againBefore, againAfter, err := evt.DecodedRows()
+	require.NoError(t, err)
+	assert.Equal(t, before, againBefore)
+	assert.Equal(t, after, againAfter)
+}
+
+func TestChangeEvent_DecodedRowsNilPayloads(t *testing.T) {
+	evt := &event.ChangeEvent{}
+	before, after, err := evt.DecodedRows()
+	require.NoError(t, err)
+	assert.Nil(t, before)
+	assert.Nil(t, after)
+}
+
+func TestChangeEvent_DecodedRowsInvalidBefore(t *testing.T) {
+	evt := &event.ChangeEvent{Before: json.RawMessage(`{`)}
+	before, after, err := evt.DecodedRows()
+	require.Error(t, err)
+	assert.Nil(t, before)
+	assert.Nil(t, after)
+
+	_, _, again := evt.DecodedRows()
+	require.ErrorIs(t, again, err)
+}
+
+func TestChangeEvent_DecodedRowsInvalidAfter(t *testing.T) {
+	evt := &event.ChangeEvent{
+		Before: json.RawMessage(`{"id":1}`),
+		After:  json.RawMessage(`{`),
+	}
+	before, after, err := evt.DecodedRows()
+	require.Error(t, err)
+	assert.Nil(t, before)
+	assert.Nil(t, after)
+}
+
+func TestChangeEvent_QualifiedTable(t *testing.T) {
+	withSchema := &event.ChangeEvent{Schema: "public", Table: "orders"}
+	assert.Equal(t, "public.orders", withSchema.QualifiedTable())
+	withSchema.Table = "customers"
+	assert.Equal(t, "public.orders", withSchema.QualifiedTable())
+
+	tableOnly := &event.ChangeEvent{Table: "orders"}
+	assert.Equal(t, "orders", tableOnly.QualifiedTable())
+	assert.Equal(t, "orders", tableOnly.QualifiedTable())
+}
