@@ -354,8 +354,10 @@ func (c *MongoDBConnector) loadResumeTokenFromStore(ctx context.Context, collNam
 	}
 	raw, parseErr := tokenFromString(tokenStr)
 	if parseErr != nil {
+		// Log length only — resume tokens are stream-position secrets; do not
+		// echo raw token bytes into logs or error strings.
 		slog.Warn("mongodb: could not parse stored resume token, starting from head",
-			"collection", collName, "err", parseErr, "stored", tokenStr)
+			"collection", collName, "err", parseErr, "stored_len", len(tokenStr))
 		return nil, nil
 	}
 	return raw, nil
@@ -667,7 +669,7 @@ func tokenFromString(s string) (bson.Raw, error) {
 	// bson.Raw.String() returns extended JSON; parse it back via bson.UnmarshalExtJSON
 	var raw bson.Raw
 	if err := bson.UnmarshalExtJSON([]byte(s), false, &raw); err != nil {
-		return nil, fmt.Errorf("parse resume token %q: %w", s, err)
+		return nil, fmt.Errorf("parse resume token (len=%d): %w", len(s), err)
 	}
 	return raw, nil
 }
