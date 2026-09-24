@@ -323,6 +323,11 @@ func (c *MongoDBConnector) AppendAndQueueBatch(ctx context.Context, collName str
 // saveResumeToken persists the given resume token for collName to the
 // checkpoint store and updates the in-memory token used on reconnect.
 func (c *MongoDBConnector) saveResumeToken(ctx context.Context, collName string, token bson.Raw) error {
+	// Skip empty/nil tokens so snapshot rows (AppendAndQueue with nil token)
+	// cannot clobber a durable resume position with "".
+	if len(token) == 0 {
+		return nil
+	}
 	tokenStr := tokenToString(token)
 	if err := c.store.Save(ctx, c.checkpointKey(collName), tokenStr); err != nil {
 		return fmt.Errorf("mongodb: save checkpoint: %w", err)

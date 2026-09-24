@@ -272,6 +272,28 @@ func TestAppendAndQueue_SkipsEventLogWhenNil(t *testing.T) {
 	assert.Equal(t, 1, store.saveCalls)
 }
 
+func TestAppendAndQueue_NilTokenDoesNotClobberCheckpoint(t *testing.T) {
+	store := newFakeStore()
+	idGen := event.NewIDGenerator()
+	c, err := mongodb.New(mongodb.Config{Database: "db", Collections: []string{"c1"}, SourceID: "default"}, store, idGen)
+	require.NoError(t, err)
+
+	// Seed a durable resume token as if change-stream progress already existed.
+	require.NoError(t, store.Save(context.Background(), "default:c1", `{"_data":"prior"}`))
+	store.saveCalls = 0
+
+	ev := &event.ChangeEvent{
+		ID:             idGen.New(),
+		Operation:      event.OpRead,
+		Table:          "c1",
+		IdempotencyKey: "key",
+	}
+	err = c.AppendAndQueue(context.Background(), ev, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, store.saveCalls, "nil resume token must not Save empty checkpoint")
+	assert.Equal(t, `{"_data":"prior"}`, store.saved["default:c1"])
+}
+
 func TestAppendAndQueue_AppendFailPreventsTokenSave(t *testing.T) {
 	store := newFakeStore()
 	idGen := event.NewIDGenerator()
