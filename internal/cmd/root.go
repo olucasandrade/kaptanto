@@ -106,6 +106,10 @@ The name means "who captures" in Esperanto.`,
 	root.PersistentFlags().String("cluster-dsn", "", "Postgres DSN for cluster coordination tables (required when --cluster is set)")
 	root.PersistentFlags().StringSlice("cluster-peers", nil, "NATS JetStream cluster peer addresses (e.g. node2:6222,node3:6222); required when --cluster is set for 3-node Raft")
 	root.PersistentFlags().Int("nats-cluster-port", 6222, "NATS JetStream cluster route port for this node (default 6222)")
+	root.PersistentFlags().String("nats-cluster-user", "", "STRICT ${VAR} username for NATS cluster route auth; required when --cluster-peers is set")
+	root.PersistentFlags().String("nats-cluster-password", "", "STRICT ${VAR} password for NATS cluster route auth; required when --cluster-peers is set")
+	root.PersistentFlags().String("nats-cluster-tls-cert", "", "PEM certificate for NATS cluster route TLS; required when --cluster-peers is set")
+	root.PersistentFlags().String("nats-cluster-tls-key", "", "PEM private key for NATS cluster route TLS; required when --cluster-peers is set")
 	root.PersistentFlags().String("log-level", "info", "log verbosity: debug | info | warn | error")
 	root.PersistentFlags().Bool("all-tables", false, "capture all tables in the database (requires explicit opt-in; default requires --tables or 'tables:' in config)")
 	root.PersistentFlags().String("tls-cert", "", "path to TLS certificate PEM for SSE/gRPC server")
@@ -182,6 +186,14 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 	if cfg.Cluster && cfg.ClusterDSN == "" {
 		return fmt.Errorf("--cluster-dsn is required when --cluster is set")
 	}
+	if cfg.Cluster && len(cfg.ClusterPeers) > 0 {
+		if cfg.NatsClusterUser == "" || cfg.NatsClusterPassword == "" {
+			return fmt.Errorf("--nats-cluster-user and --nats-cluster-password (${VAR} refs) are required when --cluster-peers is set")
+		}
+		if cfg.NatsClusterTLSCert == "" || cfg.NatsClusterTLSKey == "" {
+			return fmt.Errorf("--nats-cluster-tls-cert and --nats-cluster-tls-key are required when --cluster-peers is set")
+		}
+	}
 
 	if cfg.SourceType() == "postgres" && len(cfg.Tables) == 0 && !cfg.AllowAllTables {
 		return fmt.Errorf("no tables configured: use 'tables:' in config or --tables to specify tables to replicate, " +
@@ -238,12 +250,16 @@ func runPipeline(ctx context.Context, cfg *config.Config) error {
 		}
 		natsCfg := eventlog.NatsEventLogConfig{
 			Server: eventlog.NatsServerConfig{
-				NodeID:      nodeID,
-				ClusterPort: natsClusterPort,
-				Advertise:   fmt.Sprintf("%s:%d", hostname, natsClusterPort),
-				Peers:       cfg.ClusterPeers,
-				StoreDir:    filepath.Join(cfg.DataDir, "nats"),
-				SyncAlways:  true,
+				NodeID:           nodeID,
+				ClusterPort:      natsClusterPort,
+				Advertise:        fmt.Sprintf("%s:%d", hostname, natsClusterPort),
+				Peers:            cfg.ClusterPeers,
+				StoreDir:         filepath.Join(cfg.DataDir, "nats"),
+				SyncAlways:       true,
+				RouteUsername:    cfg.NatsClusterUser,
+				RoutePassword:    cfg.NatsClusterPassword,
+				RouteTLSCertFile: cfg.NatsClusterTLSCert,
+				RouteTLSKeyFile:  cfg.NatsClusterTLSKey,
 			},
 			NumPartitions: numEventLogPartitions,
 			Retention:     retention,

@@ -30,7 +30,7 @@ Kaptanto tails your database's transaction log — Postgres WAL (logical replica
 - **Per-key ordering** — events for the same primary key always arrive in commit order, even across broker sinks
 - **Per-consumer cursors** — each consumer tracks its own position; reconnect at any time and resume exactly where you left off
 - **Filtering** — table, column, operation, and SQL `WHERE` condition filters
-- **High availability** — leader election via Postgres advisory lock (`--ha`), ~5s failover; optional cluster mode (`--cluster`) shares consumer cursor state across nodes
+- **High availability** — leader election via Postgres advisory lock (`--ha`), ~5s failover; optional cluster mode (`--cluster`) shares consumer cursor state across nodes (multi-node NATS routes require `${VAR}` credentials + TLS; client port is loopback-only)
 - **Security** — TLS/mTLS and bearer-token auth on the SSE/gRPC data plane (`--insecure` to explicitly opt out)
 - **Observability** — Prometheus metrics and health check on `--port` for SSE and queue sinks, `--port + 1` for gRPC (stdout serves no HTTP endpoints)
 
@@ -130,6 +130,10 @@ cluster: false           # shared cursor state across nodes
 cluster-dsn: ""          # Postgres DSN for the shared cursor store, required when cluster is true
 cluster-peers: []        # NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
 nats-cluster-port: 6222
+nats-cluster-user: ""    # STRICT ${VAR}; required when cluster-peers is set
+nats-cluster-password: "" # STRICT ${VAR}; required when cluster-peers is set
+nats-cluster-tls-cert: "" # PEM cert for encrypted cluster routes; required with peers
+nats-cluster-tls-key: ""  # PEM key for encrypted cluster routes; required with peers
 
 tables:
   public.orders:
@@ -170,8 +174,11 @@ insecure: false            # explicit opt-out of TLS/auth — not for production
 | `--source-id` | `default` | Logical source name; determines the replication slot/publication name |
 | `--cluster` | `false` | Enable shared cursor state across nodes |
 | `--cluster-dsn` | | Postgres DSN for the shared cursor store; required when `--cluster` is set |
-| `--cluster-peers` | | NATS JetStream cluster peer addresses; required for a clustered NATS sink |
-| `--nats-cluster-port` | `6222` | NATS JetStream cluster route port for this node |
+| `--cluster-peers` | | NATS JetStream cluster peer addresses; when set, route auth + TLS are mandatory |
+| `--nats-cluster-port` | `6222` | NATS JetStream cluster route port for this node (firewall this; not loopback) |
+| `--nats-cluster-user` | | STRICT `${VAR}` username for cluster route auth; required with `--cluster-peers` |
+| `--nats-cluster-password` | | STRICT `${VAR}` password for cluster route auth; required with `--cluster-peers` |
+| `--nats-cluster-tls-cert` / `--nats-cluster-tls-key` | | Shared PEM cert/key for encrypted cluster routes; required with `--cluster-peers`. Peer hostnames must match the cert SAN/CN. The embedded NATS client listener always binds `127.0.0.1` (in-process only; external NATS clients are out of scope) |
 | `--tls-cert` / `--tls-key` | | Server certificate/key PEM for the SSE/gRPC server |
 | `--tls-client-ca` | | CA PEM to require and verify client certs (mTLS) |
 | `--auth-token` | | Bearer token for the SSE/gRPC data plane (or `KAPTANTO_AUTH_TOKEN` env var) |
