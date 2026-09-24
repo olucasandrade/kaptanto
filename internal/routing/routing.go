@@ -98,8 +98,7 @@ func (m *Matcher) Match(ev *event.ChangeEvent) (bool, error) {
 
 	// Table glob check.
 	if !m.matchAll {
-		name := qualifiedName(ev.Schema, ev.Table)
-		if !m.matchTable(name) {
+		if !m.matchTable(ev.QualifiedTable()) {
 			return false, nil
 		}
 	}
@@ -130,11 +129,4 @@ func (m *Matcher) matchTable(name string) bool {
 		}
 	}
 	return false
-}
-
-func qualifiedName(schema, table string) string {
-	if schema == "" {
-		return table
-	}
-	return schema + "." + table
 }

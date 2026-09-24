@@ -86,6 +86,7 @@ type ChangeEvent struct {
 	filterAfter      map[string]any
 	filterRowsParsed bool
 	filterRowsErr    error
+	qualifiedTable   string // schema.table cache for routing matchers
 }
 
 // DecodedRows returns Before/After as maps, parsing JSON at most once.
@@ -107,4 +108,18 @@ func (e *ChangeEvent) DecodedRows() (before, after map[string]any, err error) {
 		}
 	}
 	return e.filterBefore, e.filterAfter, nil
+}
+
+// QualifiedTable returns schema.table (or table alone when schema is empty),
+// caching the string so multi-matcher evaluation does not re-allocate.
+func (e *ChangeEvent) QualifiedTable() string {
+	if e.qualifiedTable != "" {
+		return e.qualifiedTable
+	}
+	if e.Schema == "" {
+		e.qualifiedTable = e.Table
+	} else {
+		e.qualifiedTable = e.Schema + "." + e.Table
+	}
+	return e.qualifiedTable
 }
