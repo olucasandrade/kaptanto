@@ -60,11 +60,15 @@ func runMongoPipeline(
 	}
 
 	dbName := extractDBFromMongoURI(cfg.Source)
+	sourceID := cfg.SourceID
+	if sourceID == "" {
+		sourceID = "default"
+	}
 	mongoCfg := mongodb.Config{
 		URI:         cfg.Source,
 		Database:    dbName,
 		Collections: tables,
-		SourceID:    "default",
+		SourceID:    sourceID,
 	}
 
 	connector, err := mongodb.NewWithEventLog(mongoCfg, ckStore, idGen, el)
@@ -104,7 +108,7 @@ func runMongoPipeline(
 	snapCfg := mongodb.SnapshotConfig{
 		Database:    dbName,
 		Collections: tables,
-		SourceID:    "default",
+		SourceID:    sourceID,
 	}
 	snap := mongodb.NewMongoSnapshot(snapCfg, nil, wc, idGen, appendFn)
 	if snapErr := snap.Run(ctx); snapErr != nil && snapErr != context.Canceled {
