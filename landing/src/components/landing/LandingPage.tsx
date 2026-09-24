@@ -308,6 +308,40 @@ export const LandingPage = component$<LandingPageProps>(({ currentDoc }) => {
               </div>
             </div>
           </div>
+          <div class="cc">
+            <h3>
+              Actions &amp; RAG{" "}
+              <span style="font-size:.6rem;padding:.1rem .35rem;background:rgba(101,196,140,.1);color:var(--g);border-radius:3px;margin-left:.3rem;vertical-align:middle">
+                v1.0.0
+              </span>
+            </h3>
+            <div class="ci">
+              <div
+                class="ci-i"
+                style="background:rgba(255,92,138,.08);color:var(--ro)"
+              >
+                WH
+              </div>
+              <div>
+                <div class="ci-n">Webhook</div>
+                <div class="ci-d">HTTP POST · HMAC / SigV4 · transforms</div>
+              </div>
+            </div>
+            <div class="ci">
+              <div
+                class="ci-i"
+                style="background:rgba(110,125,247,.1);color:var(--bl)"
+              >
+                VX
+              </div>
+              <div>
+                <div class="ci-n">Vector</div>
+                <div class="ci-d">
+                  embed → pgvector / Pinecone / Qdrant
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
