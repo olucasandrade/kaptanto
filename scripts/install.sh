@@ -67,14 +67,16 @@ echo "Downloading kaptanto ${VERSION} (${OS}/${ARCH})..."
 curl -fsSL "${BASE_URL}/${ARCHIVE}"   -o "${TMP}/${ARCHIVE}"
 curl -fsSL "${BASE_URL}/${CHECKSUMS}" -o "${TMP}/${CHECKSUMS}"
 
-# Verify checksum before extracting.
+# Verify checksum before extracting. Fail closed when no checksum tool is
+# available so curl|sh installs never skip integrity checks silently.
 cd "$TMP"
 if command -v sha256sum >/dev/null 2>&1; then
   grep "${ARCHIVE}" "${CHECKSUMS}" | sha256sum -c -
 elif command -v shasum >/dev/null 2>&1; then
   grep "${ARCHIVE}" "${CHECKSUMS}" | shasum -a 256 -c -
 else
-  echo "warning: sha256sum/shasum not found; skipping checksum verification" >&2
+  echo "error: sha256sum or shasum is required to verify the download; aborting" >&2
+  exit 1
 fi
 cd - >/dev/null
 
