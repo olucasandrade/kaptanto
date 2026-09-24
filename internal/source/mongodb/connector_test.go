@@ -370,6 +370,52 @@ func TestRun_InvalidResumeToken_SetsNeedsSnapshot(t *testing.T) {
 	assert.True(t, c.NeedsSnapshot(), "NeedsSnapshot must be true after InvalidResumeToken")
 }
 
+func TestRun_InvalidResumeToken_CancelsSiblingCollections(t *testing.T) {
+	store := newFakeStore()
+	idGen := event.NewIDGenerator()
+	invalidTokenErr := mongodrv.CommandError{Code: 260, Name: "InvalidResumeToken", Message: "resume token not found"}
+
+	watchFn := func(_ context.Context, coll string, _ bson.Raw) (mongodb.ChangeStreamIter, error) {
+		if coll == "poison" {
+			return &fakeIter{err: invalidTokenErr}, nil
+		}
+		return &blockingIter{}, nil
+	}
+
+	cfg := mongodb.Config{
+		Database:    "db",
+		Collections: []string{"poison", "healthy"},
+	}
+	c, err := mongodb.NewWithWatchFn(cfg, store, idGen, nil, watchFn)
+	require.NoError(t, err)
+
+	// Outer context must stay live; siblings must be cancelled by Run itself.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	runErr := c.Run(ctx)
+	elapsed := time.Since(start)
+	assert.NoError(t, runErr)
+	assert.True(t, c.NeedsSnapshot())
+	assert.Less(t, elapsed, 1500*time.Millisecond, "Run must return after InvalidResumeToken without waiting on siblings")
+	assert.NoError(t, ctx.Err(), "outer context must not be cancelled by Run")
+}
+
+// blockingIter.Next blocks until the context is cancelled — models a healthy
+// change stream that would otherwise keep Run waiting forever.
+type blockingIter struct{}
+
+func (b *blockingIter) Next(ctx context.Context) bool {
+	<-ctx.Done()
+	return false
+}
+func (b *blockingIter) TryNext(ctx context.Context) bool { return false }
+func (b *blockingIter) Decode(v any) error               { return nil }
+func (b *blockingIter) Err() error                       { return nil }
+func (b *blockingIter) Close(ctx context.Context) error  { return nil }
+func (b *blockingIter) ResumeToken() bson.Raw            { return nil }
+
 func TestRun_ContextCancel_ReturnsContextCanceled(t *testing.T) {
 	store := newFakeStore()
 	idGen := event.NewIDGenerator()

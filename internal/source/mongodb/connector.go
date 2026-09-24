@@ -419,9 +419,17 @@ func (c *MongoDBConnector) Run(ctx context.Context) error {
 	}
 	resultCh := make(chan result, len(c.cfg.Collections))
 
+	// Cancel sibling collection streams when any reports InvalidResumeToken
+	// so Run returns and the pipeline can re-snapshot (SRC-12).
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	for _, coll := range c.cfg.Collections {
 		go func(collName string) {
-			ns, err := c.runCollection(ctx, collName)
+			ns, err := c.runCollection(runCtx, collName)
+			if ns {
+				cancel()
+			}
 			resultCh <- result{needsSnapshot: ns, err: err}
 		}(coll)
 	}
