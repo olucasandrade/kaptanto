@@ -501,7 +501,7 @@ dlq:
 <li>The winner starts consuming. The other polls every 5 seconds.</li>
 <li>If the primary crashes, its TCP connection drops, the lock releases automatically.</li>
 <li>The standby acquires the lock, loads the shared checkpoint, and resumes.</li>
-<li>Failover time: approximately 5-10 seconds.</li>
+<li>Failover time: approximately 5 seconds typical (leader lock poll interval); allow up to about 5–10 seconds for the full takeover window.</li>
 </ul>
 <div class="dcall"><p><strong>Why advisory locks:</strong> Session-scoped. No TTL, no clock skew, no split-brain. Released instantly when the connection closes.</p></div>
 
