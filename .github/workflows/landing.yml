@@ -21,14 +21,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # npm/package-lock.json is the package manager actually exercised by the
-      # production deploy path: landing/README.md documents `npm run build` as
-      # the Cloudflare Pages build command, and package-lock.json (unlike the
-      # also-present bun.lock, a leftover from the initial `npm create qwik`
-      # scaffold that nothing regenerates or references) has a dedicated fix
-      # commit ("regenerate package-lock.json to include wrangler
-      # dependencies"). CI installs with npm to validate the same dependency
-      # graph Cloudflare Pages builds from.
+      # npm/package-lock.json is the package manager for the production deploy.
+      # landing/README.md documents `npm run build` as the Cloudflare Pages
+      # build command. bun.lock is not in the repo: the Pages v3 image prefers
+      # it over package-lock.json and runs `bun install --frozen-lockfile`,
+      # which fails when that scaffold lockfile drifts from package.json.
+      # CI installs with npm to validate the same graph Pages builds from.
       #
       # Tag triggers were removed so this CI-only workflow is not classified as
       # a release path by zizmor's cache-poisoning audit (deploy is Cloudflare

@@ -1,9 +1,11 @@
 package observability
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,24 +57,55 @@ func TestHealthHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("503 JSON body contains probe name and error message", func(t *testing.T) {
+	t.Run("503 JSON body contains probe name without error details", func(t *testing.T) {
 		h := NewHealthHandler([]HealthProbe{
-			{Name: "badger", Check: func() error { return errors.New("disk full") }},
+			{Name: "badger", Check: func() error { return errors.New("disk full at /var/lib/kaptanto host=db.internal user=repl") }},
 		})
 		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, req)
+		bodyBytes, _ := io.ReadAll(rr.Body)
+		body := string(bodyBytes)
 		var status HealthStatus
-		if err := json.NewDecoder(rr.Body).Decode(&status); err != nil {
+		if err := json.Unmarshal(bodyBytes, &status); err != nil {
 			t.Fatalf("failed to decode JSON: %v", err)
 		}
 		if status.Healthy {
 			t.Fatal("expected Healthy=false")
 		}
-		if msg, ok := status.Checks["badger"]; !ok {
+		msg, ok := status.Checks["badger"]
+		if !ok {
 			t.Fatal("expected 'badger' key in checks")
-		} else if msg != "disk full" {
-			t.Fatalf("expected 'disk full', got '%s'", msg)
+		}
+		if msg != "unhealthy" {
+			t.Fatalf("expected 'unhealthy', got '%s'", msg)
+		}
+		for _, leak := range []string{"disk full", "db.internal", "user=repl", "/var/lib"} {
+			if strings.Contains(body, leak) {
+				t.Fatalf("503 body must not leak probe error detail %q; body=%s", leak, body)
+			}
+		}
+	})
+
+	t.Run("probe failure log names the probe and omits error text", func(t *testing.T) {
+		var buf bytes.Buffer
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+		t.Cleanup(func() { slog.SetDefault(prev) })
+
+		const secret = "password=super-secret-dsn"
+		h := NewHealthHandler([]HealthProbe{
+			{Name: "postgres", Check: func() error { return errors.New("connect failed " + secret) }},
+		})
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		logged := buf.String()
+		if strings.Contains(logged, secret) || strings.Contains(logged, "connect failed") {
+			t.Fatalf("healthz log leaked probe error text: %s", logged)
+		}
+		if !strings.Contains(logged, "postgres") {
+			t.Fatalf("healthz log should name the failing probe: %s", logged)
 		}
 	})
 

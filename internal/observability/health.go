@@ -3,6 +3,7 @@ package observability
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -14,14 +15,17 @@ type HealthProbe struct {
 }
 
 // HealthStatus is the JSON response body returned for unhealthy checks.
+// Checks maps probe name -> fixed "unhealthy" string. Probe failures are
+// logged by name only. Driver errors are omitted: pgx connect failures only
+// best-effort redact credentials, and log aggregators are not a private channel.
 type HealthStatus struct {
 	Healthy bool              `json:"healthy"`
-	Checks  map[string]string `json:"checks"` // name -> error string; empty if healthy
+	Checks  map[string]string `json:"checks"` // name -> "unhealthy"; empty if healthy
 }
 
 // HealthHandler is an http.Handler for the /healthz endpoint.
 // It runs all registered probes and returns 200 (body "ok") when all pass,
-// or 503 with a diagnostic JSON body listing the failing probe names and errors.
+// or 503 with a JSON body listing failing probe names (no error details).
 type HealthHandler struct {
 	probes []HealthProbe
 }
@@ -39,7 +43,8 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	failing := make(map[string]string)
 	for _, p := range h.probes {
 		if err := p.Check(); err != nil {
-			failing[p.Name] = err.Error()
+			slog.Warn("healthz probe failed", "probe", p.Name)
+			failing[p.Name] = "unhealthy"
 		}
 	}
 	if len(failing) == 0 {

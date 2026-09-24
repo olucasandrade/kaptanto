@@ -142,6 +142,90 @@ func TestBadgerEventLog_Dedup(t *testing.T) {
 	assert.Equal(t, 1, totalEntries, "dedup: exactly one entry should exist for the same IdempotencyKey")
 }
 
+// badgerMaxKeyLen is Badger's hard maximum key size. encodeDedupKey adds one
+// prefix byte, so an idempotency key of this length cannot be stored raw.
+const badgerMaxKeyLen = 65000
+
+// oversizedIdempotencyKey returns a key whose raw dedup index entry exceeds
+// Badger's key limit. suffix keeps two such keys distinct.
+func oversizedIdempotencyKey(suffix string) string {
+	return strings.Repeat("k", badgerMaxKeyLen) + suffix
+}
+
+// TestAppend_OversizedIdempotencyKey is the regression test for issue #80:
+// an idempotency key larger than Badger's 65,000-byte key limit must still
+// append, round-trip with the original key, and dedup on replay.
+func TestAppend_OversizedIdempotencyKey(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	keyA := oversizedIdempotencyKey(":a")
+	keyB := oversizedIdempotencyKey(":b")
+	evA := makeEvent(keyA, `{"id": 1}`)
+	evB := makeEvent(keyB, `{"id": 2}`)
+
+	seqA, err := el.Append(evA)
+	require.NoError(t, err)
+	assert.Greater(t, seqA, uint64(0))
+
+	seqB, err := el.Append(evB)
+	require.NoError(t, err)
+	assert.Greater(t, seqB, uint64(0), "a different oversized key must not be treated as a duplicate")
+
+	seqDup, err := el.Append(evA)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0), seqDup, "replaying the same oversized key must dedup")
+
+	ctx := context.Background()
+	var stored []string
+	for p := uint32(0); p < 64; p++ {
+		entries, err := el.ReadPartition(ctx, p, 0, 100)
+		require.NoError(t, err)
+		for _, e := range entries {
+			ent := materializeEntry(t, e)
+			stored = append(stored, ent.IdempotencyKey)
+		}
+	}
+	assert.ElementsMatch(t, []string{keyA, keyB}, stored)
+}
+
+// TestAppendBatch_OversizedIdempotencyKey verifies batch append dedups an
+// oversized idempotency key inside one batch and across a later replay.
+func TestAppendBatch_OversizedIdempotencyKey(t *testing.T) {
+	el, err := eventlog.Open(t.TempDir(), 64, time.Hour)
+	require.NoError(t, err)
+	defer func() { _ = el.Close() }()
+
+	keyA := oversizedIdempotencyKey(":batch-a")
+	keyB := oversizedIdempotencyKey(":batch-b")
+	evs := []*event.ChangeEvent{
+		makeEvent(keyA, `{"id": 1}`),
+		makeEvent(keyA, `{"id": 1}`),
+		makeEvent(keyB, `{"id": 2}`),
+	}
+
+	seqs, err := el.AppendBatch(evs)
+	require.NoError(t, err)
+	require.Len(t, seqs, 3)
+	assert.Greater(t, seqs[0], uint64(0))
+	assert.Equal(t, uint64(0), seqs[1], "in-batch duplicate of an oversized key must be skipped")
+	assert.Greater(t, seqs[2], uint64(0))
+
+	dupSeqs, err := el.AppendBatch(evs[:1])
+	require.NoError(t, err)
+	require.Len(t, dupSeqs, 1)
+	assert.Equal(t, uint64(0), dupSeqs[0], "replay of an oversized key must dedup")
+
+	all := readAllEntries(t, el)
+	stored := make([]string, 0, len(all))
+	for _, e := range all {
+		ent := materializeEntry(t, e)
+		stored = append(stored, ent.IdempotencyKey)
+	}
+	assert.ElementsMatch(t, []string{keyA, keyB}, stored)
+}
+
 // TestBadgerEventLog_Partitioning verifies that partitioning is deterministic (LOG-02):
 // two events with the same key always land in the same partition;
 // two events with different keys that hash to different partitions land in different ones.
