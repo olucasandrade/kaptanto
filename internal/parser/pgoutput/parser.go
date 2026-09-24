@@ -131,7 +131,7 @@ func (p *Parser) handleInsert(m *pglogrepl.InsertMessageV2) (*event.ChangeEvent,
 	}
 
 	pkMap := extractPK(rel, m.Tuple.Columns)
-	pkStr := marshalPK(pkMap)
+	pkStr, keyJSON := marshalPK(pkMap)
 	tk := toastKey{RelationID: m.RelationID, PK: pkStr}
 	row, afterJSON, err := decodeSerializeAndRow(rel, m.Tuple.Columns, nil)
 	if err != nil {
@@ -139,11 +139,6 @@ func (p *Parser) handleInsert(m *pglogrepl.InsertMessageV2) (*event.ChangeEvent,
 	}
 	if row != nil {
 		p.toast.Set(tk, row)
-	}
-
-	keyJSON, err := json.Marshal(pkMap)
-	if err != nil {
-		return nil, fmt.Errorf("pgoutput: marshal key: %w", err)
 	}
 
 	ev := p.newEvent(rel, event.OpInsert, pkStr, keyJSON, nil, afterJSON)
@@ -163,7 +158,7 @@ func (p *Parser) handleUpdate(m *pglogrepl.UpdateMessageV2) (*event.ChangeEvent,
 
 	// For TOAST merge: look up the cached row by primary key from new tuple.
 	pkMap := extractPK(rel, m.NewTuple.Columns)
-	pkStr := marshalPK(pkMap)
+	pkStr, keyJSON := marshalPK(pkMap)
 	tk := toastKey{RelationID: m.RelationID, PK: pkStr}
 
 	var prevRow map[string]any
@@ -177,11 +172,6 @@ func (p *Parser) handleUpdate(m *pglogrepl.UpdateMessageV2) (*event.ChangeEvent,
 	}
 	if row != nil {
 		p.toast.Set(tk, row)
-	}
-
-	keyJSON, err := json.Marshal(pkMap)
-	if err != nil {
-		return nil, fmt.Errorf("pgoutput: marshal key: %w", err)
 	}
 
 	var beforeJSON json.RawMessage
@@ -209,14 +199,9 @@ func (p *Parser) handleDelete(m *pglogrepl.DeleteMessageV2) (*event.ChangeEvent,
 	}
 
 	pkMap := extractPK(rel, m.OldTuple.Columns)
-	pkStr := marshalPK(pkMap)
+	pkStr, keyJSON := marshalPK(pkMap)
 	tk := toastKey{RelationID: m.RelationID, PK: pkStr}
 	p.toast.Delete(tk)
-
-	keyJSON, err := json.Marshal(pkMap)
-	if err != nil {
-		return nil, fmt.Errorf("pgoutput: marshal key: %w", err)
-	}
 
 	oldRow := decodeColumns(rel, m.OldTuple.Columns, nil)
 	beforeJSON, merr := json.Marshal(oldRow)
@@ -313,12 +298,14 @@ func (p *Parser) RelationCache() *RelationCache {
 	return p.relations
 }
 
-// marshalPK JSON-marshals the primary key map into a compact string.
-// Returns "{}" on marshal failure (should not happen with string/nil values).
-func marshalPK(pkMap map[string]any) string {
+// marshalPK JSON-marshals the primary key map once, returning both the string
+// form (toast cache key / idempotency) and the raw bytes (event.Key).
+// Returns "{}" / []byte("{}") on marshal failure (should not happen with
+// string/nil values).
+func marshalPK(pkMap map[string]any) (string, json.RawMessage) {
 	b, err := json.Marshal(pkMap)
 	if err != nil {
-		return "{}"
+		return "{}", json.RawMessage("{}")
 	}
-	return string(b)
+	return string(b), b
 }
