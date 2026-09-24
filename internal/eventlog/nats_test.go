@@ -110,6 +110,7 @@ func TestNatsEventLogReadPartition(t *testing.T) {
 	for i, entry := range entries {
 		require.Equal(t, written[i].seq, entry.Seq,
 			"LogEntry.Seq must match the seq returned by Append (in order)")
+		require.NoError(t, entry.MaterializeEvent())
 		require.Equal(t, written[i].ev.IdempotencyKey, entry.Event.IdempotencyKey,
 			"events must be returned in write order")
 	}
@@ -202,6 +203,7 @@ func TestNatsEventLogPartitionIsolation(t *testing.T) {
 	entriesB, err := el.ReadPartition(ctx, partB, 1, 100)
 	require.NoError(t, err)
 	for _, e := range entriesB {
+		require.NoError(t, e.MaterializeEvent())
 		require.NotEqual(t, evA.IdempotencyKey, e.Event.IdempotencyKey,
 			"event from partition A must not appear in partition B reads")
 	}
@@ -210,6 +212,7 @@ func TestNatsEventLogPartitionIsolation(t *testing.T) {
 	entriesA, err := el.ReadPartition(ctx, partA, 1, 100)
 	require.NoError(t, err)
 	for _, e := range entriesA {
+		require.NoError(t, e.MaterializeEvent())
 		require.NotEqual(t, evB.IdempotencyKey, e.Event.IdempotencyKey,
 			"event from partition B must not appear in partition A reads")
 	}
@@ -263,6 +266,7 @@ func TestNatsEventLogReadPartitionRawPopulated(t *testing.T) {
 	require.NotEmpty(t, found.Raw, "LogEntry.Raw must be populated by ReadPartition")
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(found.Raw, &decoded))
+	require.NoError(t, found.MaterializeEvent())
 	require.Equal(t, ev.IdempotencyKey, found.Event.IdempotencyKey)
 	// Mutating Raw must not affect a subsequent read (copied, not aliased).
 	found.Raw[0] ^= 0xff

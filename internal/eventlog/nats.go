@@ -463,19 +463,16 @@ func collectPullEntries(msgs jetstream.MessageBatch, partition uint32) ([]LogEnt
 		raw := make([]byte, len(data))
 		copy(raw, data)
 
-		var ev event.ChangeEvent
-		if err := json.Unmarshal(raw, &ev); err != nil {
-			return nil, 0, fmt.Errorf("nats eventlog: unmarshal event in partition %d: %w", partition, err)
-		}
 		meta, err := msg.Metadata()
 		if err != nil {
 			return nil, 0, fmt.Errorf("nats eventlog: message metadata in partition %d: %w", partition, err)
 		}
 		lastSeq = meta.Sequence.Stream
+		// Raw-only; Event is lazy-decoded via MaterializeEvent / GroupingKey
+		// (mirrors Badger ReadPartition).
 		entries = append(entries, LogEntry{
 			Seq:         lastSeq,
 			PartitionID: partition,
-			Event:       &ev,
 			Raw:         raw,
 		})
 	}
