@@ -20,7 +20,6 @@
 package output
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -91,16 +90,9 @@ func (f *RowFilter) Match(ev *event.ChangeEvent) (bool, error) {
 		return true, nil
 	}
 
-	var before, after map[string]any
-	if ev.Before != nil {
-		if err := json.Unmarshal(ev.Before, &before); err != nil {
-			return false, fmt.Errorf("row filter: malformed Before JSON: %w", err)
-		}
-	}
-	if ev.After != nil {
-		if err := json.Unmarshal(ev.After, &after); err != nil {
-			return false, fmt.Errorf("row filter: malformed After JSON: %w", err)
-		}
+	before, after, err := ev.DecodedRows()
+	if err != nil {
+		return false, fmt.Errorf("row filter: malformed Before/After JSON: %w", err)
 	}
 
 	defaultRow := after

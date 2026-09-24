@@ -78,4 +78,33 @@ type ChangeEvent struct {
 	// {intent?: string, entities?: [{type, value, field?}], suggested_actions?: [string],
 	//  embedding?: {model: string, vector: [float...]}, custom?: object}
 	AIContext json.RawMessage `json:"ai_context,omitempty"`
+
+	// Cached decoded row maps for RowFilter / Matcher evaluation. Not serialized.
+	// Parsed at most once per event; not safe for concurrent first-parse races
+	// on the same *ChangeEvent (delivery paths are single-threaded per event).
+	filterBefore     map[string]any
+	filterAfter      map[string]any
+	filterRowsParsed bool
+	filterRowsErr    error
+}
+
+// DecodedRows returns Before/After as maps, parsing JSON at most once.
+func (e *ChangeEvent) DecodedRows() (before, after map[string]any, err error) {
+	if e.filterRowsParsed {
+		return e.filterBefore, e.filterAfter, e.filterRowsErr
+	}
+	e.filterRowsParsed = true
+	if e.Before != nil {
+		if uerr := json.Unmarshal(e.Before, &e.filterBefore); uerr != nil {
+			e.filterRowsErr = uerr
+			return nil, nil, uerr
+		}
+	}
+	if e.After != nil {
+		if uerr := json.Unmarshal(e.After, &e.filterAfter); uerr != nil {
+			e.filterRowsErr = uerr
+			return nil, nil, uerr
+		}
+	}
+	return e.filterBefore, e.filterAfter, nil
 }
