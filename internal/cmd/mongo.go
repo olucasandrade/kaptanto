@@ -9,6 +9,9 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+
 	"github.com/olucasandrade/kaptanto/internal/backfill"
 	"github.com/olucasandrade/kaptanto/internal/checkpoint"
 	"github.com/olucasandrade/kaptanto/internal/cluster"
@@ -110,7 +113,15 @@ func runMongoPipeline(
 		Collections: tables,
 		SourceID:    sourceID,
 	}
-	snap := mongodb.NewMongoSnapshot(snapCfg, nil, wc, idGen, appendFn)
+	client, err := mongo.Connect(options.Client().ApplyURI(cfg.Source))
+	if err != nil {
+		return fmt.Errorf("mongodb: snapshot connect: %w", err)
+	}
+	defer func() { _ = client.Disconnect(context.Background()) }()
+	if pingErr := client.Ping(ctx, nil); pingErr != nil {
+		return fmt.Errorf("mongodb: snapshot ping: %w", pingErr)
+	}
+	snap := mongodb.NewMongoSnapshot(snapCfg, client, wc, idGen, appendFn)
 	if snapErr := snap.Run(ctx); snapErr != nil && snapErr != context.Canceled {
 		return fmt.Errorf("mongodb: snapshot failed: %w", snapErr)
 	}
