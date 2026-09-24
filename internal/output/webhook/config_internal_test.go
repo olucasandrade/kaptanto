@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
+	"github.com/olucasandrade/kaptanto/internal/router"
 )
 
 func TestBuildTLSConfig_Empty(t *testing.T) {
@@ -154,7 +156,7 @@ func TestPing_URLTemplateSuccess(t *testing.T) {
 
 func TestPing_URLTemplateExecuteError(t *testing.T) {
 	c, err := NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
-		URLTemplate: `{{template "missing"}}`,
+		URLTemplate: `https://example.com/{{template "missing"}}`,
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
@@ -175,12 +177,13 @@ func TestDoRequest_InvalidURL(t *testing.T) {
 	t.Cleanup(c.Close)
 	_, _, err = c.doRequest(t.Context(), httpReq{url: "://bad", body: []byte(`{}`), single: true})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "create request")
+	// WHK-04 host check runs before NewRequest; invalid URLs fail there.
+	assert.Contains(t, err.Error(), "url parse error")
 }
 
 func TestDeliver_URLTemplateExecuteError(t *testing.T) {
 	c, err := NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
-		URLTemplate: `{{template "missing"}}`,
+		URLTemplate: `https://example.com/{{template "missing"}}`,
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
@@ -208,4 +211,62 @@ func genSelfSignedPEM(t *testing.T) (certPEM, keyPEM []byte) {
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 	return certPEM, keyPEM
+}
+
+func TestResolveURL_HostMismatch_IsPermanent(t *testing.T) {
+	c, err := NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
+		URLTemplate: "https://example.com/{{.Table}}",
+		Auth:        config.WebhookAuthConfig{BearerToken: "sekret"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	c.allowedHost = "other.example"
+	_, err = c.resolveURL(&event.ChangeEvent{Table: "orders"})
+	require.Error(t, err)
+	var permanent *router.PermanentError
+	require.ErrorAs(t, err, &permanent)
+	assert.Contains(t, permanent.Error(), "does not match configured host")
+}
+
+func TestDoRequest_HostMismatch_NoAuthNoDial(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(200)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
+		URL:  srv.URL,
+		Auth: config.WebhookAuthConfig{BearerToken: "sekret"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	c.allowedHost = "not-the-server.example"
+	_, _, err = c.doRequest(t.Context(), httpReq{
+		url:            srv.URL,
+		body:           []byte(`{}`),
+		idempotencyKey: "k1",
+		single:         true,
+	})
+	require.Error(t, err)
+	var permanent *router.PermanentError
+	require.ErrorAs(t, err, &permanent)
+	assert.Equal(t, int32(0), atomic.LoadInt32(&hits), "must not dial on host mismatch")
+}
+
+func TestExtractLiteralTemplateHost(t *testing.T) {
+	host, err := extractLiteralTemplateHost("https://hooks.example.com/{{.Schema}}/{{.Table}}?q={{.ID}}")
+	require.NoError(t, err)
+	assert.Equal(t, "hooks.example.com", host)
+
+	_, err = extractLiteralTemplateHost("https://{{.Host}}/x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "host must be a literal")
+
+	_, err = extractLiteralTemplateHost("https://user:{{.Pass}}@hooks.example.com/x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "host must be a literal")
 }

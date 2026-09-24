@@ -55,6 +55,12 @@
 //     transform.Compile; drop results are not buffered (cursor advances with
 //     the next successful flush).
 //
+//   - WHK-04 (Literal host): url-template may interpolate event fields only in
+//     the path and query. The authority (host / userinfo / port) must be a
+//     literal validated at startup. After render, the request host must exactly
+//     match that host; otherwise the sink does not dial and does not attach
+//     Authorization (SSRF / credential-steering defense).
+//
 //   - CGO-free for the sink itself (gojq lives in internal/transform);
 //     CGO_ENABLED=0 is safe. AWS SigV4 uses pure-Go aws-sdk-go-v2.
 package webhooksink
@@ -113,21 +119,22 @@ var _ router.BatchFlusher = (*WebhookSinkConsumer)(nil)
 //
 // Use NewWebhookSinkConsumer to construct — do not create directly.
 type WebhookSinkConsumer struct {
-	id       string
-	client   *http.Client       // shared; Transport carries TLS from buildTLSConfig
-	url      string             // static URL (env-expanded); used when urlT is nil
-	urlT     *template.Template // nil when url-template unset
-	engine   transform.Engine   // nil when no transform / payload-template
-	method   string
-	headers  map[string]string // already env-expanded
-	authHdr  string            // precomputed "Bearer …" or "Basic …"; "" if none
-	secret   []byte            // signing secret; nil disables signing
-	sigv4    *webhookSigV4     // nil disables AWS SigV4 signing
-	batchMax int
-	timeout  time.Duration
-	mu       sync.Mutex
-	pending  map[uint32][]pendingReq // keyed by entry.PartitionID
-	m        *observability.KaptantoMetrics
+	id          string
+	client      *http.Client       // shared; Transport carries TLS from buildTLSConfig
+	url         string             // static URL (env-expanded); used when urlT is nil
+	urlT        *template.Template // nil when url-template unset
+	allowedHost string             // WHK-04: literal host from startup; required for every request
+	engine      transform.Engine   // nil when no transform / payload-template
+	method      string
+	headers     map[string]string // already env-expanded
+	authHdr     string            // precomputed "Bearer …" or "Basic …"; "" if none
+	secret      []byte            // signing secret; nil disables signing
+	sigv4       *webhookSigV4     // nil disables AWS SigV4 signing
+	batchMax    int
+	timeout     time.Duration
+	mu          sync.Mutex
+	pending     map[uint32][]pendingReq // keyed by entry.PartitionID
+	m           *observability.KaptantoMetrics
 }
 
 // webhookSigV4 holds resolved AWS SigV4 signing state.
@@ -203,31 +210,33 @@ func newWebhookSinkConsumer(id string, cfg config.WebhookSinkConfig, expand bool
 	}
 
 	return &WebhookSinkConsumer{
-		id:       id,
-		client:   client,
-		url:      cfg.URL,
-		urlT:     norm.urlT,
-		engine:   norm.engine,
-		method:   norm.method,
-		headers:  headers,
-		authHdr:  norm.authHdr,
-		secret:   norm.secret,
-		sigv4:    sigv4,
-		batchMax: norm.batchMax,
-		timeout:  norm.timeout,
-		pending:  make(map[uint32][]pendingReq),
+		id:          id,
+		client:      client,
+		url:         cfg.URL,
+		urlT:        norm.urlT,
+		allowedHost: norm.allowedHost,
+		engine:      norm.engine,
+		method:      norm.method,
+		headers:     headers,
+		authHdr:     norm.authHdr,
+		secret:      norm.secret,
+		sigv4:       sigv4,
+		batchMax:    norm.batchMax,
+		timeout:     norm.timeout,
+		pending:     make(map[uint32][]pendingReq),
 	}, nil
 }
 
 // webhookNorm holds validated constructor outputs.
 type webhookNorm struct {
-	method   string
-	authHdr  string
-	secret   []byte
-	batchMax int
-	timeout  time.Duration
-	urlT     *template.Template
-	engine   transform.Engine
+	method      string
+	authHdr     string
+	secret      []byte
+	batchMax    int
+	timeout     time.Duration
+	urlT        *template.Template
+	allowedHost string
+	engine      transform.Engine
 }
 
 // expandWebhookConfig applies ${VAR} env expansion. Non-secret fields expand
@@ -307,6 +316,11 @@ func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 		return zero, err
 	}
 
+	allowedHost, err := resolveAllowedHost(cfg)
+	if err != nil {
+		return zero, err
+	}
+
 	engine, err := compileWebhookEngine(cfg)
 	if err != nil {
 		return zero, err
@@ -323,13 +337,14 @@ func validateWebhookConfig(cfg config.WebhookSinkConfig) (webhookNorm, error) {
 	}
 
 	return webhookNorm{
-		method:   method,
-		authHdr:  buildAuthHeader(cfg, hasBearer, hasBasic),
-		secret:   secret,
-		batchMax: batchMax,
-		timeout:  timeout,
-		urlT:     urlT,
-		engine:   engine,
+		method:      method,
+		authHdr:     buildAuthHeader(cfg, hasBearer, hasBasic),
+		secret:      secret,
+		batchMax:    batchMax,
+		timeout:     timeout,
+		urlT:        urlT,
+		allowedHost: allowedHost,
+		engine:      engine,
 	}, nil
 }
 
@@ -356,16 +371,98 @@ func validateURLAndMethod(cfg config.WebhookSinkConfig) (string, error) {
 		}
 	}
 	if cfg.URLTemplate != "" {
-		trimmed := strings.TrimSpace(cfg.URLTemplate)
-		// Templates whose first token is a placeholder cannot be validated until
-		// render time; anything with a literal scheme prefix must be http/https.
-		if trimmed != "" && !strings.HasPrefix(trimmed, "{{") {
-			if err := requireHTTPScheme(trimmed); err != nil {
-				return "", err
-			}
+		// WHK-04: scheme and host must be literal at startup (no leading template actions).
+		if err := requireHTTPScheme(cfg.URLTemplate); err != nil {
+			return "", err
 		}
 	}
 	return method, nil
+}
+
+// resolveAllowedHost returns the WHK-04 literal host that every rendered URL
+// must match. url-template wins when both URL and URLTemplate are set (same
+// precedence as resolveURL).
+func resolveAllowedHost(cfg config.WebhookSinkConfig) (string, error) {
+	if cfg.URLTemplate != "" {
+		return extractLiteralTemplateHost(cfg.URLTemplate)
+	}
+	return extractStaticURLHost(cfg.URL)
+}
+
+// extractLiteralTemplateHost requires a literal http(s) scheme and a
+// non-templated authority. Path and query may contain template actions.
+func extractLiteralTemplateHost(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	var rest string
+	switch {
+	case strings.HasPrefix(trimmed, "https://"):
+		rest = trimmed[len("https://"):]
+	case strings.HasPrefix(trimmed, "http://"):
+		rest = trimmed[len("http://"):]
+	default:
+		return "", fmt.Errorf("webhook sink: url-template must start with a literal http:// or https:// host")
+	}
+
+	end := len(rest)
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case '/', '?', '#':
+			end = i
+			goto haveAuthority
+		}
+	}
+haveAuthority:
+	authority := rest[:end]
+	if authority == "" {
+		return "", fmt.Errorf("webhook sink: url-template has empty host")
+	}
+	if strings.Contains(authority, "{{") || strings.Contains(authority, "{%") {
+		return "", fmt.Errorf("webhook sink: url-template host must be a literal; path and query may use templates")
+	}
+
+	// Parse scheme+authority only so path/query template actions cannot confuse
+	// url.Parse.
+	scheme := "http"
+	if strings.HasPrefix(trimmed, "https://") {
+		scheme = "https"
+	}
+	u, err := url.Parse(scheme + "://" + authority + "/")
+	if err != nil {
+		return "", fmt.Errorf("webhook sink: url-template host parse error: %w", err)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("webhook sink: url-template has empty host")
+	}
+	return u.Host, nil
+}
+
+func extractStaticURLHost(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", fmt.Errorf("webhook sink: url parse error: %w", err)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("webhook sink: url has empty host")
+	}
+	return u.Host, nil
+}
+
+// checkAllowedHost returns a permanent error when parsed.Host does not exactly
+// match the startup-validated allowedHost (WHK-04).
+func checkAllowedHost(rawURL, allowedHost string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return &router.PermanentError{Cause: fmt.Sprintf("webhook sink: url parse error: %v", err)}
+	}
+	if u.Host == "" {
+		return &router.PermanentError{Cause: "webhook sink: url has empty host"}
+	}
+	if allowedHost == "" || u.Host != allowedHost {
+		return &router.PermanentError{
+			Cause: fmt.Sprintf("webhook sink: rendered host %q does not match configured host %q", u.Host, allowedHost),
+		}
+	}
+	return nil
 }
 
 // validateAuth checks that bearer/basic/SigV4 are mutually exclusive, SigV4
@@ -584,8 +681,9 @@ func (c *WebhookSinkConsumer) Deliver(ctx context.Context, entry eventlog.LogEnt
 }
 
 // resolveURL returns the request URL for ev: url-template if set, else static url.
-// A rendered URL that does not use http/https is returned as a permanent error
-// so the router dead-letters it instead of retrying forever (F6).
+// A rendered URL that does not use http/https, or whose host differs from the
+// startup-validated allowedHost (WHK-04), is returned as a permanent error so
+// the router dead-letters it instead of retrying forever (F6).
 func (c *WebhookSinkConsumer) resolveURL(ev *event.ChangeEvent) (string, error) {
 	if c.urlT != nil {
 		var buf bytes.Buffer
@@ -599,11 +697,17 @@ func (c *WebhookSinkConsumer) resolveURL(ev *event.ChangeEvent) (string, error) 
 		if err := requireHTTPScheme(u); err != nil {
 			return "", &router.PermanentError{Cause: err.Error()}
 		}
+		if err := checkAllowedHost(u, c.allowedHost); err != nil {
+			return "", err
+		}
 		return u, nil
 	}
 	u := strings.TrimSpace(c.url)
 	if u == "" {
 		return "", fmt.Errorf("webhook sink: url is empty")
+	}
+	if err := checkAllowedHost(u, c.allowedHost); err != nil {
+		return "", err
 	}
 	return u, nil
 }
@@ -808,6 +912,12 @@ func groupRequests(batch []pendingReq, batchMax int) []httpReq {
 func (c *WebhookSinkConsumer) doRequest(ctx context.Context, req httpReq) (status int, snippet []byte, err error) {
 	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
+
+	// WHK-04 defense-in-depth: refuse before Authorization or dial if the host
+	// drifted from the startup-validated literal.
+	if err := checkAllowedHost(req.url, c.allowedHost); err != nil {
+		return 0, nil, err
+	}
 
 	httpReq, err := http.NewRequestWithContext(reqCtx, c.method, req.url, bytes.NewReader(req.body))
 	if err != nil {

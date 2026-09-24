@@ -134,7 +134,7 @@ func TestNewWebhookSinkConsumer_Validations(t *testing.T) {
 
 	t.Run("url-template parse error", func(t *testing.T) {
 		_, err := webhooksink.NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
-			URLTemplate: "{{.Unclosed",
+			URLTemplate: "https://example.com/{{.Unclosed",
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "url-template parse error")
@@ -362,13 +362,12 @@ func TestDeliver_URLTemplate(t *testing.T) {
 	assert.Equal(t, []string{"/public/orders", "/public/users"}, paths)
 	mu.Unlock()
 
-	t.Run("empty render", func(t *testing.T) {
-		c2 := newConsumer(t, config.WebhookSinkConfig{
+	t.Run("empty template rejected at startup", func(t *testing.T) {
+		_, err := webhooksink.NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
 			URLTemplate: "   ",
 		})
-		err := c2.Deliver(context.Background(), makeEntry(0, "public", "orders", "x", nil))
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "empty string")
+		assert.Contains(t, err.Error(), "http or https")
 	})
 }
 
@@ -665,13 +664,14 @@ func TestID_Ping_Close(t *testing.T) {
 	c.Close() // idempotent
 }
 
-func TestPing_URLTemplateRenderFailure(t *testing.T) {
-	// Template that fails on zero ChangeEvent (nil pointer via missing nested field
-	// isn't easy); use a template that renders empty for zero event → Ping nil.
+func TestPing_URLTemplateZeroEventDialsLiteralHost(t *testing.T) {
+	// WHK-04: empty path for a zero ChangeEvent still dials the literal host.
 	c := newConsumer(t, config.WebhookSinkConfig{
-		URLTemplate: "{{if .Table}}http://127.0.0.1:9/{{.Table}}{{end}}",
+		URLTemplate: "http://127.0.0.1:9/{{if .Table}}{{.Table}}{{end}}",
 	})
-	require.NoError(t, c.Ping())
+	err := c.Ping()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ping")
 }
 
 func BenchmarkFlushBatch(b *testing.B) {
@@ -732,16 +732,52 @@ func TestNewResolvedWebhookSinkConsumer_SkipsReExpansion(t *testing.T) {
 	_ = c
 }
 
-func TestDeliver_URLTemplateBadScheme_IsPermanent(t *testing.T) {
-	c := newConsumer(t, config.WebhookSinkConfig{
-		URLTemplate: "{{.Table}}",
-	})
-	c.SetMetrics(observability.NewKaptantoMetrics())
+func TestNewWebhookSinkConsumer_RejectsTemplatedHost(t *testing.T) {
+	cases := []struct {
+		name string
+		tmpl string
+		want string
+	}{
+		{name: "host placeholder", tmpl: "https://{{.Host}}/hook", want: "host must be a literal"},
+		{name: "userinfo placeholder", tmpl: "https://{{.User}}@example.com/hook", want: "host must be a literal"},
+		{name: "leading template", tmpl: "{{.Table}}", want: "http or https"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := webhooksink.NewWebhookSinkConsumer("w", config.WebhookSinkConfig{
+				URLTemplate: tc.tmpl,
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
 
-	err := c.Deliver(context.Background(), makeEntry(0, "public", "orders", "x", nil))
-	require.Error(t, err)
-	var permanent *router.PermanentError
-	require.ErrorAs(t, err, &permanent)
+func TestDeliver_URLTemplateLiteralHost_DataDrivenPath(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		paths []string
+		auths []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		auths = append(auths, r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newConsumer(t, config.WebhookSinkConfig{
+		URLTemplate: srv.URL + "/{{.Schema}}/{{.Table}}",
+		Auth:        config.WebhookAuthConfig{BearerToken: "sekret"},
+	})
+	require.NoError(t, c.Deliver(context.Background(), makeEntry(0, "public", "orders", "i1", []byte(`{}`))))
+	require.NoError(t, c.FlushBatch(context.Background(), 0))
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"/public/orders"}, paths)
+	assert.Equal(t, []string{"Bearer sekret"}, auths)
 }
 
 func TestFlushBatch_URLRedactedInError(t *testing.T) {
