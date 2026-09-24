@@ -253,7 +253,7 @@ ALTER TABLE payments REPLICA IDENTITY FULL;</div>
     body: `
 <h2 class="dh2">Message groups</h2>
 <p class="dp">Events are hashed into 64 partitions by their primary key. All events for the same key land in the same partition and are delivered sequentially in commit order.</p>
-<div class="dcall"><p><strong>Note:</strong> The grouping key is currently the table's primary key (<code>id</code>) and is not yet configurable per table. Custom grouping keys are on the roadmap.</p></div>
+<div class="dcall"><p><strong>Note:</strong> The grouping key is the table's primary key (any column set Postgres/Mongo reports — not necessarily named <code>id</code>) and is not yet configurable per table. Custom grouping keys are on the roadmap.</p></div>
 
 <h2 class="dh2">Partition isolation</h2>
 <p class="dp">Each partition is served by a dedicated goroutine. If consumer A is slow on partition 7, partitions 0-6 and 8-63 continue at full speed for all consumers.</p>`,
