@@ -1,9 +1,11 @@
 package observability
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -82,6 +84,28 @@ func TestHealthHandler(t *testing.T) {
 			if strings.Contains(body, leak) {
 				t.Fatalf("503 body must not leak probe error detail %q; body=%s", leak, body)
 			}
+		}
+	})
+
+	t.Run("probe failure log names the probe and omits error text", func(t *testing.T) {
+		var buf bytes.Buffer
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+		t.Cleanup(func() { slog.SetDefault(prev) })
+
+		const secret = "password=super-secret-dsn"
+		h := NewHealthHandler([]HealthProbe{
+			{Name: "postgres", Check: func() error { return errors.New("connect failed " + secret) }},
+		})
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		logged := buf.String()
+		if strings.Contains(logged, secret) || strings.Contains(logged, "connect failed") {
+			t.Fatalf("healthz log leaked probe error text: %s", logged)
+		}
+		if !strings.Contains(logged, "postgres") {
+			t.Fatalf("healthz log should name the failing probe: %s", logged)
 		}
 	})
 

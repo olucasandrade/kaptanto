@@ -15,9 +15,9 @@ type HealthProbe struct {
 }
 
 // HealthStatus is the JSON response body returned for unhealthy checks.
-// Checks maps probe name -> fixed "unhealthy" string. Detailed errors are
-// logged server-side only so /healthz does not leak hostnames, usernames, or
-// topology from probe failures (e.g. pgx.Connect error text).
+// Checks maps probe name -> fixed "unhealthy" string. Probe failures are
+// logged by name only. Driver errors are omitted: pgx connect failures only
+// best-effort redact credentials, and log aggregators are not a private channel.
 type HealthStatus struct {
 	Healthy bool              `json:"healthy"`
 	Checks  map[string]string `json:"checks"` // name -> "unhealthy"; empty if healthy
@@ -43,7 +43,7 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	failing := make(map[string]string)
 	for _, p := range h.probes {
 		if err := p.Check(); err != nil {
-			slog.Warn("healthz probe failed", "probe", p.Name, "err", err)
+			slog.Warn("healthz probe failed", "probe", p.Name)
 			failing[p.Name] = "unhealthy"
 		}
 	}
