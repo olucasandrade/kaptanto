@@ -5,11 +5,20 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
+
+// clusterTimeLSN encodes a MongoDB clusterTime the same way
+// MongoSnapshot.captureSnapshotLSN does: uint64(T)<<32 | uint64(I).
+// Watermark comparisons use this single ordering domain for both snapshot
+// capture and live change-stream events (BKF-02).
+func clusterTimeLSN(ts bson.Timestamp) uint64 {
+	return uint64(ts.T)<<32 | uint64(ts.I)
+}
 
 // changeStreamDoc is a typed struct for decoding the top-level fields of a
 // MongoDB Change Stream event.
@@ -110,6 +119,11 @@ func NormalizeChangeEvent(raw bson.Raw, sourceID string, idGen *event.IDGenerato
 			"snapshot":     false,
 			"db":           cs.NS.DB,
 			"collection":   cs.NS.Coll,
+			// Same T<<32|I encoding as captureSnapshotLSN so WatermarkChecker
+			// can suppress stale OpRead rows against newer stream events.
+			// Decimal string keeps the uint64 exact across EventLog JSON
+			// round-trips (float64 would lose low bits for large T).
+			"lsn": strconv.FormatUint(clusterTimeLSN(cs.ClusterTime), 10),
 		},
 	}
 

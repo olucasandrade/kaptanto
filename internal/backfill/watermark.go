@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/jackc/pglogrepl"
@@ -376,20 +377,60 @@ func (w *WatermarkChecker) shouldEmitScan(ctx context.Context, table string, pk 
 	return true, nil
 }
 
-// lsnFromMetadata extracts the LSN uint64 from a ChangeEvent's metadata["lsn"].
-// The lsn field is stored as a string like "0/1A2B3C4".
+// lsnFromMetadata extracts the ordering uint64 from a ChangeEvent's
+// metadata["lsn"]. Postgres WAL events store a string like "0/1A2B3C4"
+// (pglogrepl.ParseLSN). Mongo change-stream events stamp the same
+// clusterTime encoding MongoSnapshot.captureSnapshotLSN uses
+// (uint64(T)<<32 | uint64(I)) as a numeric value when the Postgres string
+// form is absent.
+//
+// Old EventLog entries written before the Mongo stamp was added have no
+// usable lsn field and stay non-watermarked: extraction fails and the
+// scan/index paths skip them, so ShouldEmit cannot suppress against them.
 func lsnFromMetadata(ev *event.ChangeEvent) (uint64, error) {
 	raw, ok := ev.Metadata["lsn"]
 	if !ok {
 		return 0, fmt.Errorf("watermark: no lsn in metadata")
 	}
-	lsnStr, ok := raw.(string)
-	if !ok {
-		return 0, fmt.Errorf("watermark: lsn is not a string: %T", raw)
+	switch v := raw.(type) {
+	case string:
+		if lsn, err := pglogrepl.ParseLSN(v); err == nil {
+			return uint64(lsn), nil
+		}
+		// Decimal string form of the Mongo clusterTime uint64 (JSON-safe).
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+			return n, nil
+		}
+		return 0, fmt.Errorf("watermark: parse lsn %q: not a Postgres LSN or uint64", v)
+	case uint64:
+		return v, nil
+	case uint32:
+		return uint64(v), nil
+	case int64:
+		if v < 0 {
+			return 0, fmt.Errorf("watermark: lsn is negative: %d", v)
+		}
+		return uint64(v), nil
+	case int:
+		if v < 0 {
+			return 0, fmt.Errorf("watermark: lsn is negative: %d", v)
+		}
+		return uint64(v), nil
+	case float64:
+		// encoding/json unmarshals JSON numbers into float64. Values larger
+		// than 2^53 lose integer precision; prefer uint64 stamps set
+		// in-process (ObserveAppend) or a decimal string in durable storage.
+		if v < 0 || v != float64(uint64(v)) {
+			return 0, fmt.Errorf("watermark: lsn float64 %v is not a safe uint64", v)
+		}
+		return uint64(v), nil
+	case json.Number:
+		n, err := strconv.ParseUint(string(v), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("watermark: parse lsn number %q: %w", v, err)
+		}
+		return n, nil
+	default:
+		return 0, fmt.Errorf("watermark: lsn has unsupported type %T", raw)
 	}
-	lsn, err := pglogrepl.ParseLSN(lsnStr)
-	if err != nil {
-		return 0, fmt.Errorf("watermark: parse lsn %q: %w", lsnStr, err)
-	}
-	return uint64(lsn), nil
 }
