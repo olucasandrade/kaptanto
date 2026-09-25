@@ -122,6 +122,7 @@ func runMongoPipeline(
 		return fmt.Errorf("mongodb: snapshot ping: %w", pingErr)
 	}
 	snap := mongodb.NewMongoSnapshot(snapCfg, client, wc, idGen, appendFn)
+	snap.SetProgressStore(ckStore)
 	if snapErr := snap.Run(ctx); snapErr != nil && snapErr != context.Canceled {
 		return fmt.Errorf("mongodb: snapshot failed: %w", snapErr)
 	}
