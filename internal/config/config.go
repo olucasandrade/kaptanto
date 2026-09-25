@@ -246,13 +246,13 @@ type VectorSinkConfig struct {
 // Empty URL disables enrichment. Empty Tables disables enrichment for every event
 // (explicit table opt-in is required). Empty Operations defaults to insert,update.
 type EnrichmentConfig struct {
-	URL                  string   `yaml:"url"`                     // enricher endpoint; empty = disabled
-	Tables               []string `yaml:"tables"`                  // routing globs; empty = none (explicit opt-in)
-	Operations           []string `yaml:"operations"`              // default insert,update
-	Timeout              string   `yaml:"timeout"`                 // Go duration; default 150ms
-	AuthToken            string   `yaml:"auth-token"`              // STRICT ${VAR}, optional Bearer token
-	AllowHosts           []string `yaml:"allow-hosts"`             // optional SSRF allowlist for private sidecars
-	InsecureAllowPrivate bool     `yaml:"insecure-allow-private"`  // dev-only: skip private/link-local blocks
+	URL                  string   `yaml:"url"`                    // enricher endpoint; empty = disabled
+	Tables               []string `yaml:"tables"`                 // routing globs; empty = none (explicit opt-in)
+	Operations           []string `yaml:"operations"`             // default insert,update
+	Timeout              string   `yaml:"timeout"`                // Go duration; default 150ms
+	AuthToken            string   `yaml:"auth-token"`             // STRICT ${VAR}, optional Bearer token
+	AllowHosts           []string `yaml:"allow-hosts"`            // optional SSRF allowlist for private sidecars
+	InsecureAllowPrivate bool     `yaml:"insecure-allow-private"` // dev-only: skip private/link-local blocks
 }
 
 // SinksConfig holds connection settings for all supported queue sinks.
@@ -285,29 +285,33 @@ type ServerTLSConfig struct {
 // Config is the complete runtime configuration for a kaptanto pipeline.
 // YAML tags match the locked schema described in the project specification.
 type Config struct {
-	Source          string                 `yaml:"source"`
-	Tables          map[string]TableConfig `yaml:"tables"`
-	Output          string                 `yaml:"output"`
-	Port            int                    `yaml:"port"`
-	CORSOrigin      string                 `yaml:"cors-origin"` // SSE Access-Control-Allow-Origin; empty = no CORS header (no cross-origin browser access)
-	DataDir         string                 `yaml:"data-dir"`
-	Retention       string                 `yaml:"retention"`         // stored as string; "" means use runtime default (1h)
-	HA              bool                   `yaml:"ha"`                // CFG-01: --ha flag; Phase 8 leader election
-	NodeID          string                 `yaml:"node-id"`           // CFG-01: --node-id flag; Phase 8 node identity
-	SourceID        string                 `yaml:"source-id"`         // logical name used for slot/publication naming (default: "default")
-	AllowAllTables  bool                   `yaml:"all-tables"`        // --all-tables flag; explicit opt-in to FOR ALL TABLES publication when no tables are configured
-	Cluster         bool                   `yaml:"cluster"`           // --cluster flag; Phase 14 shared cursor state (PostgresCursorStore)
-	ClusterDSN      string                 `yaml:"cluster-dsn"`       // --cluster-dsn flag; Postgres DSN for shared cursor store
-	ClusterPeers    []string               `yaml:"cluster-peers"`     // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
-	NatsClusterPort int                    `yaml:"nats-cluster-port"` // NATS cluster route port; 0 → 6222 applied at runtime
-	Sinks           SinksConfig            `yaml:"sinks"`             // queue sink connection settings
-	ServerTLS       ServerTLSConfig        `yaml:"server-tls"`        // inbound server TLS (SSE / gRPC); distinct from sink-side TLS
-	AuthToken       string                 `yaml:"auth-token"`        // static bearer token for SSE/gRPC data plane; also read from KAPTANTO_AUTH_TOKEN env var
-	Insecure        bool                   `yaml:"insecure"`          // allow plaintext/unauthenticated sse/grpc (loud warning at startup; not for production)
-	DLQ             DLQConfig              `yaml:"dlq"`               // router-level dead-letter queue (enabled by default when Enabled is nil)
-	Actions         []ActionConfig         `yaml:"actions"`           // configured action instances
-	MCP             MCPConfig              `yaml:"mcp"`               // MCP server (disabled by default; MCP-04)
-	Enrichment      EnrichmentConfig       `yaml:"enrichment"`        // optional fail-open HTTP AI enricher (AIC-01/02)
+	Source              string                 `yaml:"source"`
+	Tables              map[string]TableConfig `yaml:"tables"`
+	Output              string                 `yaml:"output"`
+	Port                int                    `yaml:"port"`
+	CORSOrigin          string                 `yaml:"cors-origin"` // SSE Access-Control-Allow-Origin; empty = no CORS header (no cross-origin browser access)
+	DataDir             string                 `yaml:"data-dir"`
+	Retention           string                 `yaml:"retention"`             // stored as string; "" means use runtime default (1h)
+	HA                  bool                   `yaml:"ha"`                    // CFG-01: --ha flag; Phase 8 leader election
+	NodeID              string                 `yaml:"node-id"`               // CFG-01: --node-id flag; Phase 8 node identity
+	SourceID            string                 `yaml:"source-id"`             // logical name used for slot/publication naming (default: "default")
+	AllowAllTables      bool                   `yaml:"all-tables"`            // --all-tables flag; explicit opt-in to FOR ALL TABLES publication when no tables are configured
+	Cluster             bool                   `yaml:"cluster"`               // --cluster flag; Phase 14 shared cursor state (PostgresCursorStore)
+	ClusterDSN          string                 `yaml:"cluster-dsn"`           // --cluster-dsn flag; Postgres DSN for shared cursor store
+	ClusterPeers        []string               `yaml:"cluster-peers"`         // NATS JetStream cluster peer addresses, e.g. ["node2:6222", "node3:6222"]
+	NatsClusterPort     int                    `yaml:"nats-cluster-port"`     // NATS cluster route port; 0 → 6222 applied at runtime
+	NatsClusterUser     string                 `yaml:"nats-cluster-user"`     // STRICT ${VAR}; required when cluster-peers is set
+	NatsClusterPassword string                 `yaml:"nats-cluster-password"` // STRICT ${VAR}; required when cluster-peers is set
+	NatsClusterTLSCert  string                 `yaml:"nats-cluster-tls-cert"` // PEM cert path; required when cluster-peers is set
+	NatsClusterTLSKey   string                 `yaml:"nats-cluster-tls-key"`  // PEM key path; required when cluster-peers is set
+	Sinks               SinksConfig            `yaml:"sinks"`                 // queue sink connection settings
+	ServerTLS           ServerTLSConfig        `yaml:"server-tls"`            // inbound server TLS (SSE / gRPC); distinct from sink-side TLS
+	AuthToken           string                 `yaml:"auth-token"`            // static bearer token for SSE/gRPC data plane; also read from KAPTANTO_AUTH_TOKEN env var
+	Insecure            bool                   `yaml:"insecure"`              // allow plaintext/unauthenticated sse/grpc (loud warning at startup; not for production)
+	DLQ                 DLQConfig              `yaml:"dlq"`                   // router-level dead-letter queue (enabled by default when Enabled is nil)
+	Actions             []ActionConfig         `yaml:"actions"`               // configured action instances
+	MCP                 MCPConfig              `yaml:"mcp"`                   // MCP server (disabled by default; MCP-04)
+	Enrichment          EnrichmentConfig       `yaml:"enrichment"`            // optional fail-open HTTP AI enricher (AIC-01/02)
 }
 
 // MCPConfig holds settings for the optional Model Context Protocol server.
@@ -415,6 +419,10 @@ func Merge(cfg *Config, cmd *cobra.Command) error {
 		{"node-id", &cfg.NodeID},
 		{"source-id", &cfg.SourceID},
 		{"cluster-dsn", &cfg.ClusterDSN},
+		{"nats-cluster-user", &cfg.NatsClusterUser},
+		{"nats-cluster-password", &cfg.NatsClusterPassword},
+		{"nats-cluster-tls-cert", &cfg.NatsClusterTLSCert},
+		{"nats-cluster-tls-key", &cfg.NatsClusterTLSKey},
 		{"tls-cert", &cfg.ServerTLS.CertFile},
 		{"tls-key", &cfg.ServerTLS.KeyFile},
 		{"tls-client-ca", &cfg.ServerTLS.ClientCAFile},

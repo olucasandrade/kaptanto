@@ -364,6 +364,50 @@ func TestClusterWithoutDSNReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "--cluster-dsn is required when --cluster is set")
 }
 
+// TestClusterPeersWithoutRouteAuthReturnsError verifies that --cluster with
+// --cluster-peers but missing route credentials fails before opening NATS.
+func TestClusterPeersWithoutRouteAuthReturnsError(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--cluster",
+		"--cluster-dsn", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--cluster-peers", "node2:6222",
+	}, &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--nats-cluster-user")
+}
+
+// TestClusterPeersWithoutRouteTLSReturnsError verifies missing route TLS fails early.
+func TestClusterPeersWithoutRouteTLSReturnsError(t *testing.T) {
+	var buf bytes.Buffer
+	err := cmd.ExecuteWithArgs([]string{
+		"--source", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--cluster",
+		"--cluster-dsn", "postgres://kaptanto_test:kaptanto_test@127.0.0.1:54321/kaptanto_test",
+		"--cluster-peers", "node2:6222",
+		"--nats-cluster-user", "${NATS_CLUSTER_USER}",
+		"--nats-cluster-password", "${NATS_CLUSTER_PASSWORD}",
+	}, &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--nats-cluster-tls-cert")
+}
+
+// TestClusterRouteAuthFlagsRegistered verifies the new cluster route auth/TLS flags exist.
+func TestClusterRouteAuthFlagsRegistered(t *testing.T) {
+	root := cmd.NewRootCmd()
+	for _, name := range []string{
+		"nats-cluster-user",
+		"nats-cluster-password",
+		"nats-cluster-tls-cert",
+		"nats-cluster-tls-key",
+	} {
+		f := root.PersistentFlags().Lookup(name)
+		require.NotNil(t, f, "flag %q must exist", name)
+		assert.Equal(t, "string", f.Value.Type())
+	}
+}
+
 // TestOutputMode_Nats_MissingConfig verifies that running --output nats without a
 // sinks.nats block in config returns an error containing "sinks.nats".
 // No NATS server is required — this exercises the nil-config guard.
