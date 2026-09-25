@@ -1018,6 +1018,18 @@ func (r *Router) applyDispatchCursors(ctx context.Context, partitionID uint32, e
 			continue
 		}
 		if snap.skipped {
+			// RTR-07 poison skip: the seq was already DLQ'd and must not be
+			// re-delivered. For BatchFlusher consumers, Deliver only buffers —
+			// the durable cursor must not outrun FlushBatch (same provisional
+			// discipline as a successful buffered Deliver). Non-flushers keep
+			// the immediate durable advance.
+			if cs.isBatchFlusher {
+				next := entry.Seq + 1
+				if next > cs.provisionalByPartition[partitionID] {
+					cs.provisionalByPartition[partitionID] = next
+				}
+				continue
+			}
 			r.advanceCursorLocked(cs, partitionID, entry.Seq+1, &saves)
 			continue
 		}

@@ -27,6 +27,10 @@ type poisonBatchConsumer struct {
 	delivered  []uint64
 	flushed    []uint64
 	flushN     int
+	// failNextFlush, when > 0, makes the next non-poison FlushBatch return a
+	// transient error and decrement. Used to simulate broker failure after a
+	// mid-window poison skip has already been recorded.
+	failNextFlush int
 }
 
 func newPoisonBatchConsumer(id string, poison ...uint64) *poisonBatchConsumer {
@@ -65,6 +69,10 @@ func (c *poisonBatchConsumer) FlushBatch(_ context.Context, partitionID uint32) 
 			return &router.PermanentFlushError{Seq: seq, Cause: errors.New("poison")}
 		}
 	}
+	if c.failNextFlush > 0 {
+		c.failNextFlush--
+		return errors.New("transient flush fail")
+	}
 	c.flushed = append(c.flushed, batch...)
 	return nil
 }
@@ -75,6 +83,12 @@ func (c *poisonBatchConsumer) getFlushed() []uint64 {
 	out := make([]uint64, len(c.flushed))
 	copy(out, c.flushed)
 	return out
+}
+
+func (c *poisonBatchConsumer) getFlushN() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.flushN
 }
 
 func (c *poisonBatchConsumer) getDelivered() []uint64 {
@@ -385,6 +399,122 @@ func TestFlushBatchPoisonStreakGuard(t *testing.T) {
 	if count := bytes.Count([]byte(buf.String()), []byte(streakMsg)); count != 1 {
 		t.Fatalf("streak log count = %d, want 1; logs:\n%s", count, buf.String())
 	}
+	cancel()
+	<-done
+}
+
+// TestFlushBatchMidWindowPoisonThenFlushFailureRedeivers covers the
+// router-poison-skip-batchflusher-cursor finding: poison at seq 3 (mid-window)
+// must not persist the durable cursor past unflushed seqs 1–2. After the
+// poison is DLQ'd and skipped, the next FlushBatch fails (broker drop); seqs
+// 1–2 must be re-delivered and eventually flushed. Seq 3 stays skipped.
+func TestFlushBatchMidWindowPoisonThenFlushFailureRedeivers(t *testing.T) {
+	entries := []eventlog.LogEntry{
+		poisonEntry(1, `"m1"`),
+		poisonEntry(2, `"m2"`),
+		poisonEntry(3, `"m3"`),
+	}
+	el := newFakeEventLog(map[uint32][]eventlog.LogEntry{0: entries})
+	store := &fakeDLQStore{}
+	consumer := newPoisonBatchConsumer("poison-mid", 3)
+	consumer.failNextFlush = 1 // one transient failure after the poison skip window
+	cs := newRecordingCursorStore()
+
+	r := router.NewRouter(el, 1, cs)
+	r.SetDLQ(store)
+	r.Register(consumer)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+
+	waitUntil(t, 6*time.Second, func() bool {
+		return store.writeCount() >= 1 && len(consumer.getFlushed()) >= 2
+	})
+	cancel()
+	<-done
+
+	if store.writeCount() != 1 {
+		t.Fatalf("DLQ writes = %d, want 1", store.writeCount())
+	}
+	writes, err := store.List(context.Background(), dlq.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writes[0].Seq != 3 {
+		t.Fatalf("DLQ seq = %d, want 3", writes[0].Seq)
+	}
+
+	flushed := consumer.getFlushed()
+	if len(flushed) != 2 || flushed[0] != 1 || flushed[1] != 2 {
+		t.Fatalf("flushed = %v, want [1 2]", flushed)
+	}
+	// Seq 1 and 2 must be re-delivered after the post-poison flush failure
+	// (first window before poison isolation + at least one re-delivery window).
+	if n := countSeq(consumer.getDelivered(), 1); n < 2 {
+		t.Fatalf("seq 1 delivered %d times, want >= 2 (re-delivery after failed flush)", n)
+	}
+	if n := countSeq(consumer.getDelivered(), 2); n < 2 {
+		t.Fatalf("seq 2 delivered %d times, want >= 2 (re-delivery after failed flush)", n)
+	}
+	// Poisoned seq is delivered in the first window, then suppressed by skip-set.
+	if n := countSeq(consumer.getDelivered(), 3); n != 1 {
+		t.Fatalf("seq 3 delivered %d times, want exactly 1 (pre-skip only)", n)
+	}
+	if got, ok := cs.lastSaved("poison-mid", 0); !ok || got != 4 {
+		t.Fatalf("cursor = %d ok=%v, want 4", got, ok)
+	}
+}
+
+// TestFlushBatchMidWindowPoisonNoCursorPastUnflushed proves crash-convergence:
+// after a mid-window poison skip, while the remaining buffered seqs have not
+// yet been successfully flushed, the cursor store must never hold a seq past
+// those unflushed entries.
+func TestFlushBatchMidWindowPoisonNoCursorPastUnflushed(t *testing.T) {
+	entries := []eventlog.LogEntry{
+		poisonEntry(1, `"u1"`),
+		poisonEntry(2, `"u2"`),
+		poisonEntry(3, `"u3"`),
+	}
+	el := newFakeEventLog(map[uint32][]eventlog.LogEntry{0: entries})
+	store := &fakeDLQStore{}
+	consumer := newPoisonBatchConsumer("poison-nocursor", 3)
+	// Keep failing every post-poison flush so the remaining batch never acks.
+	consumer.failNextFlush = 1000
+	cs := newRecordingCursorStore()
+
+	r := router.NewRouter(el, 1, cs)
+	r.SetDLQ(store)
+	r.Register(consumer)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+
+	// Wait until poison is DLQ'd and at least one post-skip flush has been
+	// attempted (and failed), so the bug path would already have persisted
+	// cursor=4 if still broken.
+	waitUntil(t, 4*time.Second, func() bool {
+		return store.writeCount() >= 1 && consumer.getFlushN() >= 2
+	})
+
+	if max := cs.maxSeq("poison-nocursor", 0); max != 0 {
+		cancel()
+		<-done
+		t.Fatalf("cursor store maxSeq=%d, want 0 (no SaveCursor past unflushed buffered seqs)", max)
+	}
+	if _, ok := cs.lastSaved("poison-nocursor", 0); ok {
+		cancel()
+		<-done
+		t.Fatal("cursor store must not contain any saved cursor while flush keeps failing after poison skip")
+	}
+	if len(consumer.getFlushed()) != 0 {
+		cancel()
+		<-done
+		t.Fatalf("flushed = %v, want empty while broker keeps failing", consumer.getFlushed())
+	}
+
 	cancel()
 	<-done
 }
