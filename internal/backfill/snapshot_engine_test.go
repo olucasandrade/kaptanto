@@ -19,6 +19,7 @@ import (
 	badger "github.com/dgraph-io/badger/v4"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/olucasandrade/kaptanto/internal/backfill"
 	"github.com/olucasandrade/kaptanto/internal/event"
 	"github.com/olucasandrade/kaptanto/internal/eventlog"
@@ -47,6 +48,7 @@ func (r *fakeConnRows) Err() error                    { return nil }
 func (r *fakeConnRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
 func (r *fakeConnRows) RawValues() [][]byte           { return nil }
 func (r *fakeConnRows) Conn() *pgx.Conn               { return nil }
+func (r *fakeConnRows) TypeMap() *pgtype.Map          { return nil }
 func (r *fakeConnRows) Scan(_ ...any) error {
 	return errors.New("fakeConnRows: Scan not implemented (snapshotTable uses Values)")
 }

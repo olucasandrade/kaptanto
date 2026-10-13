@@ -29,7 +29,7 @@ The repository is a monorepo that also contains:
 
 ### Core runtime
 
-- **Go 1.25.8** with `CGO_ENABLED=0` as the default/static distribution constraint.
+- **Go 1.26.9** with `CGO_ENABLED=0` as the default/static distribution constraint.
 - **Cobra** for the CLI; **pflag** for flag merging.
 - **BadgerDB v4** for the append-only, TTL'd event log (64 FNV-1a partitions).
 - **modernc.org/sqlite** for local SQLite stores (checkpoint, cursors, backfill).
