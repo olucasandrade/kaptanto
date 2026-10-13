@@ -14,7 +14,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	go.mongodb.org/mongo-driver/v2 v2.9.2
-	google.golang.org/grpc v1.84.0
+	google.golang.org/grpc v1.83.2
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
 )
@@ -33,7 +33,7 @@ require (
 	github.com/twmb/franz-go v1.22.1
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260504210720-963be6fd5989
 	golang.org/x/sync v0.24.0
-	google.golang.org/api v0.300.0
+	google.golang.org/api v0.298.0
 )
 
 require (

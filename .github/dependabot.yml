@@ -17,10 +17,11 @@ updates:
     ignore:
       - dependency-name: github.com/modelcontextprotocol/go-sdk
         versions: [">=1.7.0"]
-      # v1.84.0 reintroduces reachable GO-2026-6443. The fix is only in
+      # v1.84.x reintroduces reachable GO-2026-6443. The fix is only in
       # v1.85.0-dev so far; v1.83.2 is the last stable release without it.
+      # Use the 1.84.x matcher; a comma range is not applied by Dependabot.
       - dependency-name: google.golang.org/grpc
-        versions: [">= 1.84.0, < 1.85.0"]
+        versions: ["1.84.x"]
     groups:
       go-dependencies:
         patterns:
