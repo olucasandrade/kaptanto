@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/olucasandrade/kaptanto/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,7 @@ func (f *fakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
 func (f *fakeRows) Values() ([]any, error)                       { return nil, nil }
 func (f *fakeRows) RawValues() [][]byte                          { return nil }
 func (f *fakeRows) Conn() *pgx.Conn                              { return nil }
+func (f *fakeRows) TypeMap() *pgtype.Map                         { return nil }
 
 func (f *fakeRows) Next() bool {
 	if f.err != nil || f.idx >= len(f.values) {
