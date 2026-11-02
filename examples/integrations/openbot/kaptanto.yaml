@@ -1,0 +1,29 @@
+source: postgres://postgres:postgres@postgres:5432/app?sslmode=disable
+output: none
+data-dir: /data
+source-id: openbot_demo
+
+tables:
+  public.agent_task_requests:
+    columns: [id, task_type, entity_type, entity_id, payload, requested_by, created_at]
+
+actions:
+  - name: openbot-task-dispatch
+    type: custom
+    match:
+      tables: ["public.agent_task_requests"]
+      operations: [insert]
+    webhook:
+      url: http://adapter:8787/v1/events
+      method: POST
+      timeout: 10s
+      auth:
+        bearer-token: ${OPENBOT_RELAY_TOKEN}
+
+mcp:
+  enabled: true
+  port: 7655
+  api-keys:
+    - name: openbot-triage-agent
+      key: ${KAPTANTO_MCP_API_KEY}
+      tables: ["public.agent_task_requests"]

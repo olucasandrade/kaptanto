@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5446:5432"
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/001-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  adapter:
+    build:
+      context: ../../..
+      dockerfile: examples/integrations/openbot/Dockerfile
+    environment:
+      OPENBOT_WEBHOOK_URL: ${OPENBOT_WEBHOOK_URL}
+      OPENBOT_WEBHOOK_SECRET: ${OPENBOT_WEBHOOK_SECRET}
+      OPENBOT_RELAY_TOKEN: ${OPENBOT_RELAY_TOKEN}
+      OPENBOT_ALLOWED_TASK_TYPES: ${OPENBOT_ALLOWED_TASK_TYPES:-payment_failure_triage}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  kaptanto:
+    build:
+      context: ../../..
+      dockerfile: examples/shared/Dockerfile.kaptanto
+    command: ["--config", "/app/kaptanto.yaml"]
+    environment:
+      OPENBOT_RELAY_TOKEN: ${OPENBOT_RELAY_TOKEN}
+      KAPTANTO_MCP_API_KEY: ${KAPTANTO_MCP_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      adapter:
+        condition: service_started
+    ports:
+      - "7655:7655"
+    volumes:
+      - ./kaptanto.yaml:/app/kaptanto.yaml:ro
+      - kaptanto_data:/data
+
+volumes:
+  kaptanto_data:
