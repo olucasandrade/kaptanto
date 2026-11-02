@@ -49,6 +49,10 @@ func TestExamplesConfigsLoad(t *testing.T) {
 			if name == "mcp-agent" {
 				t.Setenv("MCP_API_KEY", "smoke-mcp-key")
 			}
+			if name == "openbot" {
+				t.Setenv("OPENBOT_RELAY_TOKEN", "smoke-relay-token")
+				t.Setenv("KAPTANTO_MCP_API_KEY", "smoke-mcp-key")
+			}
 			if name == "rag-pgvector" {
 				t.Setenv("VECTOR_DSN", "postgres://postgres:postgres@127.0.0.1:5432/rag?sslmode=disable")
 			}
