@@ -92,6 +92,8 @@ The example enables Kaptanto MCP with access only to the outbox. Register the st
 }
 ```
 
+The URL above only works when OpenBot runs on the same host as the compose stack. If your OpenBot host is remote, use an address that is reachable and secure from that host (for example an HTTPS endpoint or an SSH tunnel to `127.0.0.1:7655`) — plain `http://localhost:7655` is not routable across machines.
+
 Use MCP for evidence retrieval, not as the wake-up mechanism. The webhook starts the routine; MCP tools such as `get_event_by_id` fetch additional event evidence.
 
 ## Delivery Semantics

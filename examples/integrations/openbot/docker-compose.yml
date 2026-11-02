@@ -7,9 +7,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5446:5432"
+      - "127.0.0.1:5446:5432"
     volumes:
       - ./seed.sql:/docker-entrypoint-initdb.d/001-seed.sql:ro
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d app"]
       interval: 2s
@@ -43,10 +44,11 @@ services:
       adapter:
         condition: service_started
     ports:
-      - "7655:7655"
+      - "127.0.0.1:7655:7655"
     volumes:
       - ./kaptanto.yaml:/app/kaptanto.yaml:ro
       - kaptanto_data:/data
 
 volumes:
+  postgres_data:
   kaptanto_data:
